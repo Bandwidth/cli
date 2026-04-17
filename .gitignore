@@ -1,0 +1,20 @@
+# General macOS
+.DS_Store
+
+# Local test helpers
+bxml_server.py
+callback_server.py
+
+# Go build output
+/band
+dist/
+*.test
+
+# Documentation (generated)
+docs/
+
+# IDE/tooling
+.serena/
+.claude/
+.obsidian/
+.worktrees

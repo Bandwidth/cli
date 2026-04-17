@@ -1,0 +1,79 @@
+version: 2
+
+builds:
+  - main: ./cmd/band
+    binary: band
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/Bandwidth/cli/cmd.version={{.Version}}
+
+archives:
+  - format: tar.gz
+    name_template: "band_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/bandwidth/cli:{{ .Version }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    goarch: amd64
+    dockerfile: Dockerfile.goreleaser
+  - image_templates:
+      - "ghcr.io/bandwidth/cli:{{ .Version }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    goarch: arm64
+    dockerfile: Dockerfile.goreleaser
+
+docker_manifests:
+  - name_template: "ghcr.io/bandwidth/cli:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/bandwidth/cli:{{ .Version }}-amd64"
+      - "ghcr.io/bandwidth/cli:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/bandwidth/cli:latest"
+    image_templates:
+      - "ghcr.io/bandwidth/cli:{{ .Version }}-amd64"
+      - "ghcr.io/bandwidth/cli:{{ .Version }}-arm64"
+
+brews:
+  - repository:
+      owner: Bandwidth
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: Bandwidth
+          name: homebrew-tap
+          branch: main
+    homepage: "https://github.com/Bandwidth/cli"
+    description: "Bandwidth CLI — manage voice, messaging, numbers, and more from the command line"
+    license: "MIT"
+    install: |
+      bin.install "band"
+    test: |
+      system "#{bin}/band", "version"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
