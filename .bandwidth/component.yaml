@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  schemaVersion: v1.0.0
+  name: cli
+  description: The Bandwidth Command Line Interface
+  annotations:
+    github.com/project-slug: Bandwidth/cli
+  organization: BW
+  costCenter: 
+  platformType: 
+  buildPlatform: GitHub Actions
+spec:
+  type: Service
+  owner: github/band-swi
+  lifecycle: Prototype
+  
