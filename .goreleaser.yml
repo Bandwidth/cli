@@ -52,15 +52,15 @@ docker_manifests:
       - "ghcr.io/bandwidth/cli:{{ .Version }}-arm64"
 
 brews:
-  - repository:
+  - name: band
+    repository:
       owner: Bandwidth
       name: homebrew-tap
+      branch: "band-{{.Version}}"
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
       pull_request:
         enabled: true
         base:
-          owner: Bandwidth
-          name: homebrew-tap
           branch: main
     homepage: "https://github.com/Bandwidth/cli"
     description: "Bandwidth CLI — manage voice, messaging, numbers, and more from the command line"
