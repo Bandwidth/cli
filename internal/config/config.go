@@ -13,6 +13,14 @@ type Profile struct {
 	AccountID   string   `json:"account_id,omitempty"`
 	Accounts    []string `json:"accounts,omitempty"`
 	Environment string   `json:"environment,omitempty"` // prod, test
+
+	// Roles lists the JWT-granted role names on this credential. Used to
+	// gate commands locally and produce capability hints in `auth status`.
+	Roles []string `json:"roles,omitempty"`
+
+	// Express is true when the credential's JWT carries `express: true`,
+	// indicating a Bandwidth Build account (voice-only, credit-based).
+	Express bool `json:"express,omitempty"`
 }
 
 // Config holds the CLI configuration values persisted to ~/.band/config.json.

@@ -231,6 +231,35 @@ func TestProfileSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestProfileRolesAndExpressRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := &Config{Format: "json"}
+	cfg.SetProfile("default", &Profile{
+		ClientID: "build-id",
+		Roles:    []string{"HttpVoice", "HTTP Application Management"},
+		Express:  true,
+	})
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := loaded.Profiles["default"]
+	if !p.Express {
+		t.Errorf("Express = false, want true")
+	}
+	if len(p.Roles) != 2 || p.Roles[0] != "HttpVoice" {
+		t.Errorf("Roles = %v, want [HttpVoice, HTTP Application Management]", p.Roles)
+	}
+}
+
 func TestHasMultipleEnvironments(t *testing.T) {
 	tests := []struct {
 		name     string
