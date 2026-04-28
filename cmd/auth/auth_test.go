@@ -43,6 +43,78 @@ func TestTokenURLForEnvironment(t *testing.T) {
 	}
 }
 
+func TestCapabilities(t *testing.T) {
+	tests := []struct {
+		name  string
+		roles []string
+		want  map[string]bool
+	}{
+		{
+			name:  "build account roles",
+			roles: []string{"HTTP Application Management", "HttpVoice", "brtcAccessRole"},
+			want: map[string]bool{
+				"voice":               true,
+				"app_management":      true,
+				"messaging":           false,
+				"numbers":             false,
+				"vcp":                 false,
+				"campaign_management": false,
+				"tfv":                 false,
+			},
+		},
+		{
+			name:  "no roles",
+			roles: nil,
+			want: map[string]bool{
+				"voice":               false,
+				"app_management":      false,
+				"messaging":           false,
+				"numbers":             false,
+				"vcp":                 false,
+				"campaign_management": false,
+				"tfv":                 false,
+			},
+		},
+		{
+			name:  "messaging-capable",
+			roles: []string{"Messaging", "HttpVoice"},
+			want: map[string]bool{
+				"voice":               true,
+				"app_management":      false,
+				"messaging":           true,
+				"numbers":             false,
+				"vcp":                 false,
+				"campaign_management": false,
+				"tfv":                 false,
+			},
+		},
+		{
+			name:  "campaign and tfv",
+			roles: []string{"Campaign Management", "TFV"},
+			want: map[string]bool{
+				"voice":               false,
+				"app_management":      false,
+				"messaging":           false,
+				"numbers":             false,
+				"vcp":                 false,
+				"campaign_management": true,
+				"tfv":                 true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Capabilities(tt.roles)
+			for k, want := range tt.want {
+				if got[k] != want {
+					t.Errorf("Capabilities[%q] = %v, want %v (roles=%v)", k, got[k], want, tt.roles)
+				}
+			}
+		})
+	}
+}
+
 func TestParseJWTClaims(t *testing.T) {
 	claims := map[string]any{
 		"accounts": []string{"9900001", "9900002"},
