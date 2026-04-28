@@ -231,7 +231,7 @@ func TestProfileSaveAndLoad(t *testing.T) {
 	}
 }
 
-func TestProfileRolesAndExpressRoundTrip(t *testing.T) {
+func TestProfileRolesAndBuildRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
@@ -239,7 +239,7 @@ func TestProfileRolesAndExpressRoundTrip(t *testing.T) {
 	cfg.SetProfile("default", &Profile{
 		ClientID: "build-id",
 		Roles:    []string{"HttpVoice", "HTTP Application Management"},
-		Express:  true,
+		Build:    true,
 	})
 
 	if err := Save(path, cfg); err != nil {
@@ -252,8 +252,8 @@ func TestProfileRolesAndExpressRoundTrip(t *testing.T) {
 	}
 
 	p := loaded.Profiles["default"]
-	if !p.Express {
-		t.Errorf("Express = false, want true")
+	if !p.Build {
+		t.Errorf("Build = false, want true")
 	}
 	if len(p.Roles) != 2 || p.Roles[0] != "HttpVoice" {
 		t.Errorf("Roles = %v, want [HttpVoice, HTTP Application Management]", p.Roles)

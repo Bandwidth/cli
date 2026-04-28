@@ -78,7 +78,7 @@ func fetchAccountNumbers(client *api.Client, acctID, status string) ([]string, e
 
 		var result interface{}
 		if err := client.Get("/tns?"+q.Encode(), &result); err != nil {
-			return nil, wrapTNsError(err, acctID, cmdutil.ActiveExpress())
+			return nil, wrapTNsError(err, acctID, cmdutil.ActiveBuild())
 		}
 
 		batch := extractFullNumbers(result)

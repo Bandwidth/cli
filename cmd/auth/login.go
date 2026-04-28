@@ -161,7 +161,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		Accounts:    accounts,
 		Environment: environment,
 		Roles:       claims.Roles,
-		Express:     claims.Express,
+		Build:       claims.Build,
 	}
 
 	// Step 5: Select active account
@@ -235,7 +235,7 @@ func selectAccount(cmd *cobra.Command, accounts []string) string {
 type jwtClaims struct {
 	Accounts []string `json:"accounts"`
 	Roles    []string `json:"roles"`
-	Express  bool     `json:"express"`
+	Build    bool     `json:"express"`
 }
 
 func parseJWTClaims(token string) (*jwtClaims, error) {

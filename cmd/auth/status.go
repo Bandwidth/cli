@@ -33,7 +33,7 @@ type statusJSON struct {
 	AccountID     string          `json:"account_id,omitempty"`
 	Accounts      []string        `json:"accounts,omitempty"`
 	Environment   string          `json:"environment,omitempty"`
-	Express       bool            `json:"express,omitempty"`
+	Build         bool            `json:"build,omitempty"`
 	Roles         []string        `json:"roles,omitempty"`
 	Capabilities  map[string]bool `json:"capabilities,omitempty"`
 	Error         string          `json:"error,omitempty"`
@@ -82,7 +82,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			AccountID:     p.AccountID,
 			Accounts:      p.Accounts,
 			Environment:   env,
-			Express:       p.Express,
+			Build:         p.Build,
 			Roles:         p.Roles,
 			Capabilities:  Capabilities(p.Roles),
 		}
@@ -115,7 +115,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	} else if len(p.Accounts) == 0 && p.AccountID == "" {
 		fmt.Println("Scope:       system-wide (use --account-id to target an account)")
 	}
-	if p.Express {
+	if p.Build {
 		fmt.Printf("Type:        %s (voice-only, credit-based)\n", ui.Bold("Bandwidth Build"))
 		fmt.Printf("Capable of:  %s\n", capabilitySummary(Capabilities(p.Roles)))
 	}

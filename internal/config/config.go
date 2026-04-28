@@ -18,9 +18,9 @@ type Profile struct {
 	// gate commands locally and produce capability hints in `auth status`.
 	Roles []string `json:"roles,omitempty"`
 
-	// Express is true when the credential's JWT carries `express: true`,
-	// indicating a Bandwidth Build account (voice-only, credit-based).
-	Express bool `json:"express,omitempty"`
+	// Build is true when the credential is for a Bandwidth Build account
+	// (voice-only, credit-based).
+	Build bool `json:"build,omitempty"`
 }
 
 // Config holds the CLI configuration values persisted to ~/.band/config.json.

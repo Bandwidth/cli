@@ -35,7 +35,7 @@ func NewFeatureLimit(msg string, cause error) error {
 // Wrap403 inspects err and, when it is a 403, returns a FeatureLimitError
 // shaped to the active profile.
 //
-// On Build (express) accounts, the message points at the plan limit and
+// On Bandwidth Build accounts, the message points at the plan limit and
 // the upgrade path. On other accounts, it tells the user which role to
 // request from their Bandwidth account manager.
 //
@@ -51,7 +51,7 @@ func Wrap403(err error, feature, role string) error {
 		return fmt.Errorf("%s: %w", feature, err)
 	}
 
-	if ActiveExpress() {
+	if ActiveBuild() {
 		return NewFeatureLimit(fmt.Sprintf("%s: Bandwidth Build accounts are voice-only — this requires a full Bandwidth account.\n"+
 			"Talk to an expert: https://www.bandwidth.com/talk-to-an-expert/",
 			feature), err)
@@ -66,12 +66,12 @@ func Wrap403(err error, feature, role string) error {
 		"Contact your Bandwidth account manager.", feature), err)
 }
 
-// ActiveExpress reports whether the active profile is a Bandwidth Build
+// ActiveBuild reports whether the active profile is a Bandwidth Build
 // account. Returns false on any config-load failure — best-effort, used
 // only to shape error messages.
-func ActiveExpress() bool {
+func ActiveBuild() bool {
 	p := loadActiveProfile()
-	return p != nil && p.Express
+	return p != nil && p.Build
 }
 
 func loadActiveProfile() *config.Profile {

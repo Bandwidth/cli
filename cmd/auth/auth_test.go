@@ -132,8 +132,8 @@ func TestParseJWTClaims(t *testing.T) {
 	if len(parsed.Accounts) != 2 || parsed.Accounts[0] != "9900001" {
 		t.Errorf("Accounts = %v, want [9900001 9900002]", parsed.Accounts)
 	}
-	if !parsed.Express {
-		t.Errorf("Express = false, want true")
+	if !parsed.Build {
+		t.Errorf("Build = false, want true")
 	}
 	if len(parsed.Roles) != 1 || parsed.Roles[0] != "admin" {
 		t.Errorf("Roles = %v, want [admin]", parsed.Roles)
