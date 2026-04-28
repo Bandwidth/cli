@@ -15,6 +15,7 @@ const (
 	ExitConflict  = 4
 	ExitTimeout   = 5
 	ExitFlagError = 6
+	ExitRateLimit = 7
 )
 
 // ExitCodeForError maps an error to the appropriate exit code.
@@ -36,10 +37,14 @@ func ExitCodeForError(err error) int {
 		switch apiErr.StatusCode {
 		case 401, 403:
 			return ExitAuth
+		case 402:
+			return ExitConflict
 		case 404:
 			return ExitNotFound
 		case 409:
 			return ExitConflict
+		case 429:
+			return ExitRateLimit
 		}
 	}
 	return ExitGeneral
