@@ -45,9 +45,9 @@ func TestTokenURLForEnvironment(t *testing.T) {
 
 func TestParseJWTClaims(t *testing.T) {
 	claims := map[string]any{
-		"accounts":   []string{"9900001", "9900002"},
-		"acct_scope": "9900001",
-		"roles":      []string{"admin"},
+		"accounts": []string{"9900001", "9900002"},
+		"roles":    []string{"admin"},
+		"express":  true,
 	}
 	payload, _ := json.Marshal(claims)
 	encoded := base64.RawURLEncoding.EncodeToString(payload)
@@ -57,11 +57,14 @@ func TestParseJWTClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if parsed.AcctScope != "9900001" {
-		t.Errorf("AcctScope = %q, want %q", parsed.AcctScope, "9900001")
-	}
 	if len(parsed.Accounts) != 2 || parsed.Accounts[0] != "9900001" {
 		t.Errorf("Accounts = %v, want [9900001 9900002]", parsed.Accounts)
+	}
+	if !parsed.Express {
+		t.Errorf("Express = false, want true")
+	}
+	if len(parsed.Roles) != 1 || parsed.Roles[0] != "admin" {
+		t.Errorf("Roles = %v, want [admin]", parsed.Roles)
 	}
 }
 

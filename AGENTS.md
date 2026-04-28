@@ -46,7 +46,7 @@ band auth profiles                # list all stored profiles
 band auth use admin               # switch the active profile
 ```
 
-If a credential's `acct_scope` is "All" (system-scope), it can access any account but the CLI will show guidance about passing `--account-id`. Always pass `--account-id` explicitly with system-scope credentials.
+If your credentials are not bound to a specific account, the CLI will prompt you to pass `--account-id` explicitly. Always pass `--account-id` on every command in that case.
 
 ### Account Hint
 
