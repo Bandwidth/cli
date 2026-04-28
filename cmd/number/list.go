@@ -78,7 +78,7 @@ func fetchAccountNumbers(client *api.Client, acctID, status string) ([]string, e
 
 		var result interface{}
 		if err := client.Get("/tns?"+q.Encode(), &result); err != nil {
-			return nil, wrapTNsError(err, acctID)
+			return nil, wrapTNsError(err, acctID, cmdutil.ActiveExpress())
 		}
 
 		batch := extractFullNumbers(result)
@@ -92,22 +92,27 @@ func fetchAccountNumbers(client *api.Client, acctID, status string) ([]string, e
 		tnsMaxPages, tnsMaxPages*tnsMaxPageSize)
 }
 
-// wrapTNsError annotates /tns errors with actionable context. The endpoint
-// returns an empty body on 403, so the raw APIError message is just
-// "API error 403:" — not useful to the user. The most common 403 cases are
-// Build (express) credentials, which don't yet include the Numbers role
-// (coming in a future Build update), and regular credentials missing the role.
-func wrapTNsError(err error, acctID string) error {
+// wrapTNsError annotates /tns errors with actionable context. /tns returns
+// an empty body on 403, so the raw APIError message ("API error 403:") is
+// not useful to the user. Build accounts get a tailored hint that their
+// pre-provisioned number is reachable via the account portal; other
+// accounts are pointed at the Numbers role. isBuild is parameterized so
+// the function is testable without depending on a loaded config.
+func wrapTNsError(err error, acctID string, isBuild bool) error {
 	var apiErr *api.APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode == 403 {
-		return fmt.Errorf("listing phone numbers: credential lacks the Numbers role on account %s.\n"+
-			"Build credentials don't include this role yet — it'll be added in an upcoming\n"+
-			"Build update. In the meantime, your pre-provisioned number is visible in the\n"+
-			"Bandwidth account portal and is already wired to the default voice application.\n"+
-			"For non-Build accounts, contact your Bandwidth account manager to grant the\n"+
-			"Numbers role: %w", acctID, err)
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 403 {
+		return fmt.Errorf("listing phone numbers: %w", err)
 	}
-	return fmt.Errorf("listing phone numbers: %w", err)
+	if isBuild {
+		return cmdutil.NewFeatureLimit(
+			"phone number listing isn't available on Bandwidth Build accounts yet.\n"+
+				"Your pre-provisioned number is visible in the Bandwidth account portal\n"+
+				"and is already wired to the default voice application. Listing support\n"+
+				"is planned for an upcoming Build update.", err)
+	}
+	return cmdutil.NewFeatureLimit(fmt.Sprintf(
+		"listing phone numbers: credential lacks the Numbers role on account %s.\n"+
+			"Contact your Bandwidth account manager to assign this role.", acctID), err)
 }
 
 // extractFullNumbers walks a decoded /tns response and returns each

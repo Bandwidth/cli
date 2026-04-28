@@ -53,8 +53,8 @@ func tfvError(err error, number string) error {
 	}
 	switch apiErr.StatusCode {
 	case 403:
-		return fmt.Errorf("access denied — your credentials don't have the TFV role.\n"+
-			"Contact your Bandwidth account manager to enable it")
+		return cmdutil.NewFeatureLimit("access denied — your credentials don't have the TFV role.\n"+
+			"Contact your Bandwidth account manager to enable it", err)
 	case 404:
 		return fmt.Errorf("no verification request found for %s — submit one with: band tfv submit %s",
 			number, number)

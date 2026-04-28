@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 )
 
 // roleGateError wraps a 403 API error with a targeted message based on the
@@ -13,6 +14,9 @@ import (
 //   - "import customer is not enabled" — account is a direct (not import) customer
 //   - "is not enabled on account" — campaign management feature disabled
 //   - "does not have access rights" — credential lacks the Campaign Management role
+//
+// Returns a FeatureLimitError so ExitCodeForError maps these to exit 4
+// (escalate to user) rather than exit 2 (re-auth).
 func roleGateError(err error, roleName string) error {
 	apiErr, ok := err.(*api.APIError)
 	if !ok || apiErr.StatusCode != 403 {
@@ -23,30 +27,30 @@ func roleGateError(err error, roleName string) error {
 
 	switch {
 	case strings.Contains(body, "not enabled for the Registration Center"):
-		return fmt.Errorf("your account is not enabled for the Registration Center.\n"+
-			"Contact your Bandwidth account manager to enable the Registration Center feature")
+		return cmdutil.NewFeatureLimit("your account is not enabled for the Registration Center.\n"+
+			"Contact your Bandwidth account manager to enable the Registration Center feature", err)
 
 	case strings.Contains(body, "import customer is not enabled"):
-		return fmt.Errorf("these commands are for customers who register campaigns through TCR and import\n"+
+		return cmdutil.NewFeatureLimit("these commands are for customers who register campaigns through TCR and import\n"+
 			"them to Bandwidth. Direct campaign registration through the CLI is coming mid-2026.\n"+
-			"In the meantime, use the Bandwidth App or the existing Campaign Management API")
+			"In the meantime, use the Bandwidth App or the existing Campaign Management API", err)
 
 	case strings.Contains(body, "direct customer is not enabled"):
-		return fmt.Errorf("these commands are for customers who register campaigns directly through Bandwidth.\n"+
+		return cmdutil.NewFeatureLimit("these commands are for customers who register campaigns directly through Bandwidth.\n"+
 			"Your account is set up as an import customer (campaigns registered through TCR).\n"+
-			"Use the import-specific endpoints or contact your Bandwidth account manager")
+			"Use the import-specific endpoints or contact your Bandwidth account manager", err)
 
 	case strings.Contains(body, "is not enabled on account"):
-		return fmt.Errorf("10DLC campaign management is not enabled on this account.\n"+
-			"Contact your Bandwidth account manager to enable messaging and campaign management")
+		return cmdutil.NewFeatureLimit("10DLC campaign management is not enabled on this account.\n"+
+			"Contact your Bandwidth account manager to enable messaging and campaign management", err)
 
 	case strings.Contains(body, "does not have access rights"):
-		return fmt.Errorf("your credentials don't have the %s role.\n"+
-			"Contact your Bandwidth account manager to assign the role to your API user", roleName)
+		return cmdutil.NewFeatureLimit(fmt.Sprintf("your credentials don't have the %s role.\n"+
+			"Contact your Bandwidth account manager to assign the role to your API user", roleName), err)
 
 	default:
-		return fmt.Errorf("access denied (403): %s\n"+
-			"Contact your Bandwidth account manager to check your account configuration", body)
+		return cmdutil.NewFeatureLimit(fmt.Sprintf("access denied (403): %s\n"+
+			"Contact your Bandwidth account manager to check your account configuration", body), err)
 	}
 }
 
