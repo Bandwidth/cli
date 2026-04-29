@@ -76,7 +76,7 @@ func TestCapabilities(t *testing.T) {
 			},
 		},
 		{
-			name:  "messaging-capable",
+			name:  "messaging and voice",
 			roles: []string{"Messaging", "HttpVoice"},
 			want: map[string]bool{
 				"voice":               true,

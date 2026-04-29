@@ -97,7 +97,7 @@ Then complete setup in your browser:
 
 Once your credentials are ready, run `band auth login` and you're off.
 
-**What you get:** Every Build account ships with a voice application and a phone number already provisioned. Run `band auth status` to confirm your account type and capabilities, then `band app list` to see your pre-provisioned voice app — you're ready to [make a call](#make-a-call). (Your pre-provisioned number is also visible in the Bandwidth account portal.)
+**What you get:** Every Build account ships with a voice application and a phone number already provisioned. Run `band auth status` to confirm your account type and capabilities, then `band app list` to see your pre-provisioned voice app — then you're ready to [make a call](#make-a-call). (Your pre-provisioned number is also visible in the Bandwidth App.)
 
 **Build is voice-only.** Messaging, number ordering, sub-accounts, VCPs, 10DLC, and toll-free verification all require a full Bandwidth account. If you try one of those commands on a Build account, the CLI fails fast (exit code 4) and points you at the upgrade path. For current Build pricing, credit costs, and trial limits, see [dev.bandwidth.com](https://dev.bandwidth.com/docs/voice/programmable-voice/build-free-trial). [Talk to an expert](https://www.bandwidth.com/talk-to-an-expert/) when you're ready to upgrade.
 
