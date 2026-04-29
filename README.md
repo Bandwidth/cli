@@ -294,10 +294,11 @@ A fresh UP account typically has one sub-account and one location already create
 ### Numbers
 
 ```sh
-band number list                                    # list your numbers
-band number search --area-code 919 --quantity 5     # search available numbers
-band number order +19195551234 --wait               # order (blocks until active)
-band number release +19195551234                    # release a number
+band number list                                              # list your numbers
+band number search --area-code 919 --quantity 5               # search available numbers
+band number order +19195551234 --wait                         # order (blocks until active)
+band number activate +19195551234 --voice-inbound --wait      # turn on inbound voice
+band number release +19195551234                              # release a number
 ```
 
 ### Messaging
@@ -407,6 +408,8 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band number search` | Search available numbers by area code |
 | `band number order <number...>` | Order numbers |
 | `band number get <number>` | Get voice config details (including VCP assignment) |
+| `band number activate <number...>` | Activate voice/messaging services (e.g. enable inbound) |
+| `band number deactivate <number...>` | Deactivate voice/messaging services |
 | `band number list` | List your in-service numbers |
 | `band number release <number>` | Release a number |
 
