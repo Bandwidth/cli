@@ -97,7 +97,8 @@ auth login
         └─→ vcp create (links to app via --app-id)
               └─→ number search → number order
                     └─→ vcp assign (attach numbers to VCP)
-                          └─→ call create (requires --from, --app-id, --answer-url)
+                          └─→ number activate --voice-inbound (required for inbound)
+                                └─→ call create (requires --from, --app-id, --answer-url)
 ```
 
 ### Legacy
@@ -212,6 +213,7 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 | Command | On timeout | Recovery |
 |---------|-----------|----------|
 | `number order --wait` | Number may be activating | Check `band number list --plain` — if the number appears, it completed. If not, retry the order. |
+| `number activate --wait` / `number deactivate --wait` | Service activation order may still be RECEIVED/PROCESSING | Check `band number get <number> --plain` — the `inboundActivated` / `outbound*Activated` flags reflect the terminal state. Re-running the same activate is idempotent. |
 | `call create --wait` | Call may still be active | Check `band call get <call-id> --plain` — look at the `state` field. |
 | `transcription create --wait` | Transcription may be processing | Check `band transcription get <call-id> <rec-id> --plain`. |
 
@@ -260,7 +262,8 @@ account + auth
         └─→ vcp create (links to app)
               └─→ number search → number order
                     └─→ vcp assign
-                          └─→ call create
+                          └─→ number activate --voice-inbound
+                                └─→ call create
 ```
 
 **Voice (Legacy):**
@@ -323,6 +326,7 @@ band number list --plain                                                        
 band number search --area-code 919 --quantity 1 --plain
 band number order <number> --wait                                                   # 5. order number
 band vcp assign <vcp-id> <number>                                                   # 6. assign number to VCP
+band number activate <number> --voice-inbound --wait                                # 7. enable inbound voice
 ```
 
 If step 2 fails with 409 "HTTP voice feature is required," or step 3 fails with 403, fall back to legacy.

@@ -180,3 +180,131 @@ func TestWrapTNsError_500(t *testing.T) {
 		t.Errorf("500 should not get the 403 message, got %q", err.Error())
 	}
 }
+
+// --- Service Activation ---
+
+func TestBuildServiceActivationBody_VoiceInboundOnly(t *testing.T) {
+	body, err := BuildServiceActivationBody(ServiceActivationOpts{
+		Action:       "ACTIVATE",
+		PhoneNumbers: []string{"+19195551234"},
+		VoiceInbound: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["action"] != "ACTIVATE" {
+		t.Errorf("action = %v, want ACTIVATE", body["action"])
+	}
+	nums, _ := body["phoneNumbers"].([]string)
+	if len(nums) != 1 || nums[0] != "+19195551234" {
+		t.Errorf("phoneNumbers = %v, want [+19195551234]", nums)
+	}
+	services, _ := body["services"].(map[string]interface{})
+	voice, _ := services["voice"].([]string)
+	if len(voice) != 1 || voice[0] != "INBOUND" {
+		t.Errorf("services.voice = %v, want [INBOUND]", voice)
+	}
+	if _, has := services["messaging"]; has {
+		t.Errorf("messaging should not be set when --messaging is false")
+	}
+	if _, has := body["customerOrderId"]; has {
+		t.Errorf("customerOrderId should be omitted when not provided")
+	}
+}
+
+func TestBuildServiceActivationBody_AllVoiceServices(t *testing.T) {
+	body, err := BuildServiceActivationBody(ServiceActivationOpts{
+		Action:       "ACTIVATE",
+		PhoneNumbers: []string{"+19195551234", "+19195551235"},
+		VoiceInbound: true,
+		VoiceOutNat:  true,
+		VoiceOutInt:  true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	services := body["services"].(map[string]interface{})
+	voice := services["voice"].([]string)
+	want := []string{"INBOUND", "OUTBOUND_NATIONAL", "OUTBOUND_INTERNATIONAL"}
+	if len(voice) != len(want) {
+		t.Fatalf("expected %d voice services, got %d: %v", len(want), len(voice), voice)
+	}
+	for i, w := range want {
+		if voice[i] != w {
+			t.Errorf("voice[%d] = %q, want %q", i, voice[i], w)
+		}
+	}
+}
+
+func TestBuildServiceActivationBody_VoiceAndMessaging(t *testing.T) {
+	body, err := BuildServiceActivationBody(ServiceActivationOpts{
+		Action:       "ACTIVATE",
+		PhoneNumbers: []string{"+19195551234"},
+		VoiceInbound: true,
+		Messaging:    true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	services := body["services"].(map[string]interface{})
+	if _, has := services["voice"]; !has {
+		t.Error("voice should be present")
+	}
+	msg, _ := services["messaging"].([]string)
+	if len(msg) != 1 || msg[0] != "ALL" {
+		t.Errorf("messaging = %v, want [ALL]", msg)
+	}
+}
+
+func TestBuildServiceActivationBody_DeactivateAction(t *testing.T) {
+	body, err := BuildServiceActivationBody(ServiceActivationOpts{
+		Action:       "DEACTIVATE",
+		PhoneNumbers: []string{"+19195551234"},
+		VoiceInbound: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["action"] != "DEACTIVATE" {
+		t.Errorf("action = %v, want DEACTIVATE", body["action"])
+	}
+}
+
+func TestBuildServiceActivationBody_NoServicesIsError(t *testing.T) {
+	_, err := BuildServiceActivationBody(ServiceActivationOpts{
+		Action:       "ACTIVATE",
+		PhoneNumbers: []string{"+19195551234"},
+	})
+	if err == nil {
+		t.Fatal("expected error when no services flagged, got nil")
+	}
+	if !strings.Contains(err.Error(), "--voice-inbound") {
+		t.Errorf("error should hint at the available flags, got %q", err.Error())
+	}
+}
+
+func TestBuildServiceActivationBody_CustomerOrderIDIncluded(t *testing.T) {
+	body, err := BuildServiceActivationBody(ServiceActivationOpts{
+		Action:          "ACTIVATE",
+		PhoneNumbers:    []string{"+19195551234"},
+		VoiceInbound:    true,
+		CustomerOrderID: "my-order-123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["customerOrderId"] != "my-order-123" {
+		t.Errorf("customerOrderId = %v, want my-order-123", body["customerOrderId"])
+	}
+}
+
+func TestBuildCheckerBody(t *testing.T) {
+	body := BuildCheckerBody([]string{"+19195551234", "+19195551235"})
+	nums, ok := body["phoneNumbers"].([]string)
+	if !ok {
+		t.Fatalf("phoneNumbers wrong type: %T", body["phoneNumbers"])
+	}
+	if len(nums) != 2 {
+		t.Errorf("expected 2 numbers, got %d", len(nums))
+	}
+}
