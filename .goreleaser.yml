@@ -53,6 +53,7 @@ docker_manifests:
 
 brews:
   - name: band
+    directory: Formula
     repository:
       owner: Bandwidth
       name: homebrew-tap
