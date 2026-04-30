@@ -50,8 +50,8 @@ func runList(cmd *cobra.Command, args []string) error {
 
 func shortcodeError(err error) error {
 	if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 403 {
-		return fmt.Errorf("access denied — your credentials may not have short code access.\n"+
-			"Contact your Bandwidth account manager to verify")
+		return cmdutil.NewFeatureLimit("access denied — your credentials may not have short code access.\n"+
+			"Contact your Bandwidth account manager to verify", err)
 	}
 	return fmt.Errorf("listing short codes: %w", err)
 }

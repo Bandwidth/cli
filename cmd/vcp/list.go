@@ -27,7 +27,7 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Get(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &result); err != nil {
-		return fmt.Errorf("listing VCPs: %w", err)
+		return cmdutil.Wrap403(err, "listing VCPs", "VCP")
 	}
 
 	format, plain := cmdutil.OutputFlags(cmd)

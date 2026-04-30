@@ -128,15 +128,15 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 	ui.Successf("Credentials verified")
 
-	// Step 2: Extract accounts and scope from JWT
+	// Step 2: Extract accounts from JWT
 	claims, err := parseJWTClaims(token)
 	if err != nil {
 		return fmt.Errorf("reading token claims: %w", err)
 	}
 	accounts := claims.Accounts
 
-	if len(accounts) == 0 && claims.AcctScope != "" {
-		ui.Infof("Credential scope: %s (access to all accounts)", claims.AcctScope)
+	if len(accounts) == 0 {
+		ui.Infof("Your credentials are not bound to a specific account.")
 		ui.Infof("Use --account-id on commands to target a specific account.")
 	}
 
@@ -160,6 +160,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		ClientID:    clientID,
 		Accounts:    accounts,
 		Environment: environment,
+		Roles:       claims.Roles,
+		Build:       claims.Build,
 	}
 
 	// Step 5: Select active account
@@ -231,9 +233,9 @@ func selectAccount(cmd *cobra.Command, accounts []string) string {
 }
 
 type jwtClaims struct {
-	Accounts  []string `json:"accounts"`
-	AcctScope string   `json:"acct_scope"`
-	Roles     []string `json:"roles"`
+	Accounts []string `json:"accounts"`
+	Roles    []string `json:"roles"`
+	Build    bool     `json:"express"`
 }
 
 func parseJWTClaims(token string) (*jwtClaims, error) {

@@ -136,6 +136,15 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Build accounts are voice-only — short-circuit before the dashboard
+	// preflight, which otherwise flags the pre-provisioned sample callback
+	// as a placeholder and points users at an irrelevant fix.
+	if cmdutil.ActiveBuild() {
+		return cmdutil.NewFeatureLimit(
+			"sending messages: Bandwidth Build accounts are voice-only — this requires a full Bandwidth account.\n"+
+				"Talk to an expert: https://www.bandwidth.com/talk-to-an-expert/", nil)
+	}
+
 	// Preflight: verify the messaging app is linked to a location.
 	dashClient, dashAcctID, dashErr := cmdutil.DashboardClient(cmdutil.AccountIDFlag(cmd))
 	if dashErr == nil {

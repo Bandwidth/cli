@@ -97,11 +97,9 @@ Then complete setup in your browser:
 
 Once your credentials are ready, run `band auth login` and you're off.
 
-**What you get:** Every Build account ships with a voice application and a phone number already provisioned — no need to create them yourself. After login, run `band app list` and `band number list` to see them, and skip straight to [make a call](#make-a-call).
+**What you get:** Every Build account ships with a voice application and a phone number already provisioned. Run `band auth status` to confirm your account type and capabilities, then `band app list` to see your pre-provisioned voice app — then you're ready to [make a call](#make-a-call). (Your pre-provisioned number is also visible in the Bandwidth App.)
 
-**Important note**:  a Bandwidth Build account is for our Voice API **only**. Usage limits and terms and conditions apply. If you would like to send
-messages, order numbers, and more, you will need a full Bandwidth Account. [Talk to an expert](https://www.bandwidth.com/talk-to-an-expert/) to start 
-your onboarding process today.
+**Build is voice-only.** Messaging, number ordering, sub-accounts, VCPs, 10DLC, and toll-free verification all require a full Bandwidth account. If you try one of those commands on a Build account, the CLI fails fast (exit code 4) and points you at the upgrade path. For current Build pricing, credit costs, and trial limits, see [dev.bandwidth.com](https://dev.bandwidth.com/docs/voice/programmable-voice/build-free-trial). [Talk to an expert](https://www.bandwidth.com/talk-to-an-expert/) when you're ready to upgrade.
 
 ---
 
@@ -531,8 +529,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | 1 | Bad input or unexpected error |
 | 2 | Authentication or permission problem |
 | 3 | Resource not found |
-| 4 | Conflict (duplicate resource or missing feature) |
+| 4 | Conflict, feature limit, or payment required (duplicate resource, missing role, plan limit, out of credits) |
 | 5 | Timed out waiting |
+| 7 | Rate limited or quota exceeded (back off and retry) |
 
 ---
 
@@ -567,7 +566,7 @@ This CLI is agent-native — not just "agent-compatible." The design principles:
 - **`--plain` everywhere.** Flat, stable JSON output. Auto-enabled when stdout is piped, so agents in pipelines don't need the flag.
 - **`--if-not-exists` for idempotency.** Create commands can be retried safely without duplicating resources.
 - **`--wait` for async operations.** Agents can't poll. `--wait` blocks until the number is active, the call completes, or the transcription is ready.
-- **Structured exit codes.** 0 success, 2 auth, 3 not found, 4 conflict, 5 timeout. Use exit codes for control flow, not string parsing.
+- **Structured exit codes.** 0 success, 2 auth, 3 not found, 4 conflict/feature limit, 5 timeout, 7 rate limit. Use exit codes for control flow, not string parsing.
 - **Env-var-driven auth.** `BW_CLIENT_ID` + `BW_CLIENT_SECRET` — no interactive prompts required.
 
 For the full agent reference — dependency chains, provisioning workflows, error patterns, and copy-pasteable scripts — see [AGENTS.md](AGENTS.md).
