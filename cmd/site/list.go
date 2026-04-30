@@ -27,7 +27,7 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Get(fmt.Sprintf("/accounts/%s/sites", acctID), &result); err != nil {
-		return fmt.Errorf("listing sub-accounts: %w", err)
+		return cmdutil.Wrap403(err, "listing sub-accounts", "Sub-Accounts")
 	}
 
 	format, plain := cmdutil.OutputFlags(cmd)

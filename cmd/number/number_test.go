@@ -125,9 +125,9 @@ func TestExtractFullNumbers_Empty(t *testing.T) {
 	}
 }
 
-func TestWrapTNsError_403(t *testing.T) {
+func TestWrapTNsError_403_NonBuild(t *testing.T) {
 	apiErr := &api.APIError{StatusCode: 403, Body: ""}
-	err := wrapTNsError(apiErr, "9901409")
+	err := wrapTNsError(apiErr, "9901409", false)
 	if err == nil {
 		t.Fatal("expected non-nil error")
 	}
@@ -138,9 +138,6 @@ func TestWrapTNsError_403(t *testing.T) {
 	if !strings.Contains(msg, "Numbers role") {
 		t.Errorf("error should mention missing role, got %q", msg)
 	}
-	if !strings.Contains(msg, "Build credentials") {
-		t.Errorf("error should mention Build credentials, got %q", msg)
-	}
 	// Must preserve the underlying APIError for exit-code mapping.
 	var unwrapped *api.APIError
 	if !errors.As(err, &unwrapped) || unwrapped.StatusCode != 403 {
@@ -148,8 +145,28 @@ func TestWrapTNsError_403(t *testing.T) {
 	}
 }
 
+func TestWrapTNsError_403_Build(t *testing.T) {
+	apiErr := &api.APIError{StatusCode: 403, Body: ""}
+	err := wrapTNsError(apiErr, "9901409", true)
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Bandwidth Build") {
+		t.Errorf("Build-account 403 message should reference Bandwidth Build, got %q", msg)
+	}
+	if strings.Contains(msg, "Numbers role") {
+		t.Errorf("Build-account message should not point users at the Numbers role, got %q", msg)
+	}
+	// Must preserve the underlying APIError so ExitCodeForError can read it.
+	var unwrapped *api.APIError
+	if !errors.As(err, &unwrapped) || unwrapped.StatusCode != 403 {
+		t.Errorf("wrapped error should unwrap to APIError 403")
+	}
+}
+
 func TestWrapTNsError_NonAPIError(t *testing.T) {
-	err := wrapTNsError(errors.New("network down"), "9901409")
+	err := wrapTNsError(errors.New("network down"), "9901409", false)
 	if !strings.Contains(err.Error(), "network down") {
 		t.Errorf("should pass through non-API error, got %q", err.Error())
 	}
@@ -158,8 +175,8 @@ func TestWrapTNsError_NonAPIError(t *testing.T) {
 func TestWrapTNsError_500(t *testing.T) {
 	// Non-403 API errors should pass through without the 403-specific message.
 	apiErr := &api.APIError{StatusCode: 500, Body: "server broke"}
-	err := wrapTNsError(apiErr, "9901409")
-	if strings.Contains(err.Error(), "Build credentials") {
+	err := wrapTNsError(apiErr, "9901409", false)
+	if strings.Contains(err.Error(), "Numbers role") {
 		t.Errorf("500 should not get the 403 message, got %q", err.Error())
 	}
 }

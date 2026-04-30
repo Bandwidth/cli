@@ -50,7 +50,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	var result interface{}
 	path := fmt.Sprintf("/accounts/%s/availableNumbers?%s", acctID, q.Encode())
 	if err := client.Get(path, &result); err != nil {
-		return fmt.Errorf("searching available numbers: %w", err)
+		return cmdutil.Wrap403(err, "searching available numbers", "Numbers")
 	}
 
 	format, plain := cmdutil.OutputFlags(cmd)

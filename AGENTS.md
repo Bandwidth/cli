@@ -46,7 +46,16 @@ band auth profiles                # list all stored profiles
 band auth use admin               # switch the active profile
 ```
 
-If a credential's `acct_scope` is "All" (system-scope), it can access any account but the CLI will show guidance about passing `--account-id`. Always pass `--account-id` explicitly with system-scope credentials.
+If your credentials are not bound to a specific account, the CLI will prompt you to pass `--account-id` explicitly. Always pass `--account-id` on every command in that case.
+
+### Account Type and Capabilities
+
+`band auth status --plain` returns structured JSON describing what the active account can do. The two fields agents care about most:
+
+- **`build: true`** — this is a Bandwidth Build account. Voice-only, credit-based. Messaging, number ordering, sub-accounts, VCPs, 10DLC, and toll-free verification are not available; commands targeting those exit with code 4 and a clear message pointing at the upgrade path.
+- **`capabilities`** — a derived map (`voice`, `messaging`, `numbers`, `vcp`, `campaign_management`, `tfv`, `app_management`) flipping `true`/`false` based on the credential's roles. Use this to gate work locally rather than discovering limits via 4xx errors.
+
+Branch on these before attempting feature-gated work. The CLI also fails fast at the moment you try a restricted command, but checking capabilities up front avoids wasted setup.
 
 ### Account Hint
 
@@ -236,7 +245,7 @@ band auth status   # confirm
 
 After calling `band account register`, stop and tell the user they need to complete setup in their browser. Do not attempt to poll or wait — the next CLI step (`band auth login`) requires credentials that are only available after the human finishes the browser flow.
 
-**After login, the account already has a voice app and a phone number.** Build accounts ship with both pre-provisioned. Run `band app list --plain` and `band number list --plain` to discover them — do **not** call `app create` or `number order` on a fresh Build account, you already have what you need to make a call.
+**After login, the account already has a voice app and a phone number.** Build accounts ship with both pre-provisioned. Run `band app list --plain` to discover the voice app — do **not** call `app create` or `number order` on a fresh Build account, you already have what you need to make a call. (`band number list` doesn't work on Build yet; the pre-provisioned number is reachable via the account portal and already wired to the default voice app.)
 
 ---
 
@@ -460,10 +469,11 @@ band number list --plain                # → all numbers on account
 |------|---------|------|
 | 0 | Success | Command completed |
 | 1 | General error | Missing flags, invalid input, unexpected failures |
-| 2 | Auth/permission error | 401/403 — bad credentials, token expired, or credential lacks a required role (e.g., VCP, Campaign Management, TFV). An agent's branching logic should treat exit code 2 as "try a different path or escalate" rather than only "re-authenticate" |
+| 2 | Auth error | 401 — bad credentials or token expired. Re-authenticate. |
 | 3 | Not found | 404 — resource doesn't exist |
-| 4 | Conflict | 409 — duplicate resource or feature not enabled |
+| 4 | Conflict / feature limit / payment required | 402, 409, or 403 due to a plan/role gate (e.g., Build account trying to message, missing VCP/Campaign Management/TFV role, out of credits, declined card). Non-retryable — stop and escalate to the user. |
 | 5 | Timeout | `--wait` exceeded `--timeout` |
+| 7 | Rate limited / quota exceeded | 429 or concurrent-resource ceiling. Back off and retry. |
 
 **Use exit codes for control flow, not string parsing.**
 
@@ -475,9 +485,13 @@ band number list --plain                # → all numbers on account
 | "account ID not set" | 1 | No active account | `band auth switch <id>` or pass `--account-id` |
 | "credential verification failed" | 2 | Bad client ID or secret | Check credentials |
 | "API error 401" | 2 | Token expired or invalid | Re-run `band auth login` |
-| "API error 403" | 2 | Credential lacks permission | Check roles — VCP role for UP voice, Campaign Management role for `tendlc`, TFV role for `tfv`. Could also mean the account doesn't have the Registration Center feature enabled. Escalate to account manager if unclear |
+| "...isn't available on Bandwidth Build accounts" | 4 | Build account hit a feature outside its plan (messaging, numbers, VCPs, 10DLC, TFV) | Stop and tell the user — non-retryable. Upgrade path: https://www.bandwidth.com/talk-to-an-expert/ |
+| "credential lacks the X role" | 4 | Credential lacks a role on a non-Build account | Escalate to the user's Bandwidth account manager to assign the role |
+| "API error 402" / "Insufficient credits" | 4 | Out of credits, declined card, or no payment method on file | Stop and tell the user — non-retryable; they need to top up or fix billing |
+| "API error 403" | 2 | True auth failure (token expired or invalid). Feature/role 403s now surface as exit 4 with a tailored message — see the rows above. | Re-run `band auth login` |
 | "API error 404" | 3 | Resource doesn't exist | Verify the ID; check you're on the right account |
 | "API error 409" | 4 | Conflict / duplicate | Use `--if-not-exists`; or feature not enabled on account |
+| "API error 429" | 7 | Rate limited or quota exceeded | Back off and retry — eventually retryable |
 | "HTTP voice feature is required" | 4 | Legacy voice not available | Try VCP path (UP account) or contact support |
 | "required flag not set" | 1 | Missing a required flag | Check `--help` for required flags |
 
@@ -685,6 +699,7 @@ band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text 
 
 ## Limitations
 
+- **Bandwidth Build accounts are voice-only.** Detect via `band auth status --plain` (`build: true`). On a Build account, only voice and app-management commands work — `message send`, `number search`/`order`, `vcp *`, `subaccount *`, `tendlc *`, `tfv *` all exit 4 with a Build-aware message and an upgrade link. Pre-provisioned voice app and number ship with the account; `band number list` doesn't work yet (the number is reachable via the account portal). Build also has runtime limits not surfaced in `auth status` — verified-number-only outbound on Free Trial, a 30-min cap per call, a 5-concurrent-call ceiling. See [dev.bandwidth.com](https://dev.bandwidth.com/docs/voice/programmable-voice/build-free-trial) for current pricing and limits; treat any 402 (exit 4) as "out of credits, escalate" and any 429 (exit 7) as "back off and retry."
 - **No real-time call control.** The CLI can initiate calls and query state, but cannot receive or respond to mid-call callbacks. Dynamic call control requires a separate callback-handling server.
 - **No message delivery confirmation.** The CLI verifies your setup is correct before sending (app-location link, callback URL, campaign), but it cannot confirm whether a message was actually delivered. Delivery status (`message-delivered`, `message-failed`) arrives via webhooks on your callback server. The CLI's `message get` and `message list` return metadata only — not delivery status.
 - **No message content retrieval.** Bandwidth does not store message bodies. After sending, the message text is gone forever. `message get` and `message list` return timestamps, direction, and segment counts only.

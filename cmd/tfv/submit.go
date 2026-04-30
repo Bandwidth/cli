@@ -136,8 +136,8 @@ func runSubmit(cmd *cobra.Command, args []string) error {
 		if apiErr, ok := err.(*api.APIError); ok {
 			switch apiErr.StatusCode {
 			case 403:
-				return fmt.Errorf("access denied — your credentials don't have the TFV role.\n"+
-					"Contact your Bandwidth account manager to enable it")
+				return cmdutil.NewFeatureLimit("access denied — your credentials don't have the TFV role.\n"+
+					"Contact your Bandwidth account manager to enable it", err)
 			case 400:
 				return fmt.Errorf("validation error: %s", apiErr.Body)
 			}
