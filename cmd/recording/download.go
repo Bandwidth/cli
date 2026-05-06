@@ -42,7 +42,10 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("downloading recording: %w", err)
 	}
 
-	if err := os.WriteFile(downloadOutput, data, 0644); err != nil {
+	// Recordings can contain customer call audio (PII, financial discussions,
+	// voicemail). Write owner-only so other local users on shared hosts can't
+	// read the file.
+	if err := os.WriteFile(downloadOutput, data, 0600); err != nil {
 		return fmt.Errorf("writing recording to file: %w", err)
 	}
 
