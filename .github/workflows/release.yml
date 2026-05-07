@@ -60,4 +60,20 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  bump-formula:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: band
+          formula-path: Formula/band.rb
+          homebrew-tap: Bandwidth/homebrew-tap
+          base-branch: main
+          download-url: https://github.com/Bandwidth/cli/archive/refs/tags/${{ github.ref_name }}.tar.gz
+          commit-message: |
+            {{formulaName}} {{version}}
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
