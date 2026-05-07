@@ -11,24 +11,39 @@ import (
 )
 
 var (
-	listStatus string
-	listFrom   string
-	listTo     string
+	listStatus          string
+	listStartDate       string
+	listEndDate         string
+	listTN              string
+	listOrderTN         string
+	listCustomerOrderID string
+	listPON             string
+	listPage            int
+	listSize            int
 )
 
 func init() {
 	listCmd.Flags().StringVar(&listStatus, "status", "", "Filter by order status (DRAFT, SUBMITTED, FOC, COMPLETE, CANCELLED, etc.)")
-	listCmd.Flags().StringVar(&listFrom, "from", "", "Modified date lower bound (ISO 8601)")
-	listCmd.Flags().StringVar(&listTo, "to", "", "Modified date upper bound (ISO 8601)")
+	listCmd.Flags().StringVar(&listStartDate, "start-date", "", "Earliest last-modified date (YYYY-MM-DD)")
+	listCmd.Flags().StringVar(&listEndDate, "end-date", "", "Latest last-modified date (YYYY-MM-DD)")
+	listCmd.Flags().StringVar(&listTN, "tn", "", "Filter by billing TN")
+	listCmd.Flags().StringVar(&listOrderTN, "order-tn", "", "Filter by one of the TNs being ported")
+	listCmd.Flags().StringVar(&listCustomerOrderID, "customer-order-id", "", "Filter by customer-supplied order ID")
+	listCmd.Flags().StringVar(&listPON, "pon", "", "Filter by PON (purchase order number)")
+	listCmd.Flags().IntVar(&listPage, "page", 1, "Page number (pagination)")
+	listCmd.Flags().IntVar(&listSize, "size", 30, "Page size (pagination)")
 	Cmd.AddCommand(listCmd)
 }
 
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List port-in orders on the active account",
+	Long: `Searches port-in orders on the active account. Pagination is mandatory
+on the API side — defaults are page=1 size=30. Filters are AND-ed.`,
 	Example: `  band portin list
-  band portin list --status SUBMITTED
-  band portin list --from 2026-01-01T00:00:00Z --to 2026-04-01T00:00:00Z`,
+  band portin list --status SUBMITTED --size 100
+  band portin list --start-date 2026-01-01 --end-date 2026-04-01
+  band portin list --customer-order-id agent-run-42`,
 	RunE: runList,
 }
 
@@ -39,20 +54,32 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	params := url.Values{}
+	// page and size are documented as required by the Numbers API.
+	params.Set("page", fmt.Sprintf("%d", listPage))
+	params.Set("size", fmt.Sprintf("%d", listSize))
 	if listStatus != "" {
 		params.Set("status", listStatus)
 	}
-	if listFrom != "" {
-		params.Set("modifiedDateFrom", listFrom)
+	if listStartDate != "" {
+		params.Set("startdate", listStartDate)
 	}
-	if listTo != "" {
-		params.Set("modifiedDateTo", listTo)
+	if listEndDate != "" {
+		params.Set("enddate", listEndDate)
+	}
+	if listTN != "" {
+		params.Set("tn", listTN)
+	}
+	if listOrderTN != "" {
+		params.Set("orderTn", listOrderTN)
+	}
+	if listCustomerOrderID != "" {
+		params.Set("customerOrderId", listCustomerOrderID)
+	}
+	if listPON != "" {
+		params.Set("pon", listPON)
 	}
 
-	path := fmt.Sprintf("/accounts/%s/portins", acctID)
-	if len(params) > 0 {
-		path += "?" + params.Encode()
-	}
+	path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, params.Encode())
 
 	var result interface{}
 	if err := client.Get(path, &result); err != nil {
@@ -72,7 +99,6 @@ func runList(cmd *cobra.Command, args []string) error {
 // instead of a list.
 func flattenPortInList(result interface{}) []map[string]interface{} {
 	out := []map[string]interface{}{}
-	// Look for PortInOrder entries anywhere in the response.
 	walkPortInOrders(result, &out)
 	return out
 }
@@ -80,7 +106,6 @@ func flattenPortInList(result interface{}) []map[string]interface{} {
 func walkPortInOrders(v interface{}, out *[]map[string]interface{}) {
 	switch val := v.(type) {
 	case map[string]interface{}:
-		// If this map has an OrderId, treat it as a single port-in.
 		if _, has := val["OrderId"]; has {
 			*out = append(*out, flattenPortInResult(val, ""))
 			return

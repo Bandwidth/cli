@@ -15,7 +15,6 @@ var (
 	suppFOCDate string
 	suppSiteID  string
 	suppPeerID  string
-	suppWait    bool
 	suppTimeout time.Duration
 )
 
@@ -23,22 +22,22 @@ func init() {
 	suppCmd.Flags().StringVar(&suppFOCDate, "foc", "", "Requested FOC date (ISO 8601)")
 	suppCmd.Flags().StringVar(&suppSiteID, "site", "", "Site (sub-account) ID to switch the order to")
 	suppCmd.Flags().StringVar(&suppPeerID, "peer", "", "SIP peer (location) ID to switch the order to")
-	suppCmd.Flags().BoolVar(&suppWait, "wait", false, "Wait for the supplement to propagate (retries the verifying GET)")
-	suppCmd.Flags().DurationVar(&suppTimeout, "timeout", 30*time.Second, "Maximum time to wait (default 30s)")
+	suppCmd.Flags().DurationVar(&suppTimeout, "timeout", 30*time.Second, "Maximum time to wait for propagation (default 30s)")
 	Cmd.AddCommand(suppCmd)
 }
 
 var suppCmd = &cobra.Command{
 	Use:   "supp <order-id>",
 	Short: "Supplement an existing port-in order (change FOC, site, peer, etc.)",
-	Long: `Sends a supplement (PUT) to an existing port-in order, then verifies the
-change actually propagated. The Bandwidth API has a documented behavior where
-a supp on a wireless_to_wireless order past FOC returns 200 on the PUT but
+	Long: `Sends a supplement (PUT) to an existing port-in order and waits for the
+change to propagate. The Bandwidth API has a documented behavior where a
+supp on a wireless_to_wireless order past FOC returns 200 on the PUT but
 sets error code 7300 on the next GET — meaning Neustar never received the
-change. This command always does the follow-up GET and exits 1 with a clear
-message if 7300 is detected, so the supp doesn't silently fail.`,
+change. This command always polls until either the order's last-modified
+timestamp advances past the pre-PUT value, or 7300 surfaces, or the
+timeout expires. Exit 1 on 7300 with a clear message; exit 5 on timeout.`,
 	Example: `  band portin supp b9ef682b-2b42-4287-bfe4-ba03ec57cb07 --foc 2026-06-01Z
-  band portin supp b9ef682b --site 1234 --peer 5678 --wait`,
+  band portin supp b9ef682b --site 1234 --peer 5678 --timeout 60s`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSupp,
 }
@@ -65,6 +64,14 @@ func runSupp(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Capture the pre-PUT lastModifiedDate so we can detect actual propagation
+	// rather than guessing.
+	var pre interface{}
+	if err := client.Get(fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID), &pre); err != nil {
+		return portinError(err, "fetching order before supplement")
+	}
+	preTS := digString(pre, "LastModifiedDate")
+
 	var putResult interface{}
 	if err := client.Put(
 		fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
@@ -74,10 +81,7 @@ func runSupp(cmd *cobra.Command, args []string) error {
 		return portinError(err, "supplementing port-in order")
 	}
 
-	// Always do a follow-up GET — even without --wait — to surface the silent
-	// 7300 trap. Without --wait we do a single check; with --wait we retry
-	// until lastModifiedDate advances or 7300 surfaces or timeout expires.
-	verified, err := verifySupp(client, acctID, orderID, suppWait, suppTimeout)
+	verified, err := waitForSuppPropagation(client, acctID, orderID, preTS, suppTimeout)
 	if err != nil {
 		return err
 	}
@@ -92,24 +96,10 @@ func runSupp(cmd *cobra.Command, args []string) error {
 	return output.StdoutAuto(format, plain, verified)
 }
 
-// verifySupp does a follow-up GET. Without wait, returns the single GET
-// response. With wait, retries until either the order's lastModifiedDate
-// advances past the pre-PUT timestamp or 7300 surfaces or timeout expires.
-//
-// We don't actually have the pre-PUT timestamp here, so the wait-mode poll
-// just gives the API a few cycles to settle and watches for 7300 to appear.
-func verifySupp(client *api.Client, acctID, orderID string, wait bool, timeout time.Duration) (interface{}, error) {
-	if !wait {
-		var r interface{}
-		if err := client.Get(
-			fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
-			&r,
-		); err != nil {
-			return nil, portinError(err, "verifying supplement")
-		}
-		return r, nil
-	}
-
+// waitForSuppPropagation polls until the order's LastModifiedDate advances
+// past the pre-PUT timestamp (real propagation), or error code 7300 appears
+// (silent failure), or the timeout expires.
+func waitForSuppPropagation(client *api.Client, acctID, orderID, preTS string, timeout time.Duration) (interface{}, error) {
 	return cmdutil.Poll(cmdutil.PollConfig{
 		Interval: 2 * time.Second,
 		Timeout:  timeout,
@@ -121,14 +111,11 @@ func verifySupp(client *api.Client, acctID, orderID string, wait bool, timeout t
 			); err != nil {
 				return false, nil, portinError(err, "verifying supplement")
 			}
-			// 7300 means the supp was rejected silently — terminate immediately.
 			if is7300(r) {
 				return true, r, nil
 			}
-			// On success, the order should have a meaningful status — return on
-			// any non-empty status (the supp endpoint doesn't change status
-			// itself, but the API stamps a fresh lastModifiedDate).
-			if digString(r, "ProcessingStatus") != "" {
+			cur := digString(r, "LastModifiedDate")
+			if cur != "" && cur != preTS {
 				return true, r, nil
 			}
 			return false, nil, nil

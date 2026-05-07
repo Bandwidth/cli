@@ -48,23 +48,49 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 		"Description": args[1],
 	}
 
-	var result interface{}
-	if err := client.Post(
+	// The notes endpoint returns 201 Created with an empty body and the new
+	// note's URL in the Location header. Use the Location-aware POST so we
+	// can return the noteId on plain output.
+	location, err := client.PostXMLReturnLocation(
 		fmt.Sprintf("/accounts/%s/portins/%s/notes", acctID, args[0]),
 		api.XMLBody{RootElement: "Note", Data: body},
-		&result,
-	); err != nil {
+	)
+	if err != nil {
 		return portinError(err, "adding note to port-in order")
 	}
 
+	noteID := noteIDFromLocation(location)
+
 	format, plain := cmdutil.OutputFlags(cmd)
-	if plain {
-		return output.StdoutAuto(format, plain, map[string]interface{}{
-			"orderId": args[0],
-			"noteId":  digString(result, "NoteId"),
-		})
+	out := map[string]interface{}{
+		"orderId":  args[0],
+		"noteId":   noteID,
+		"location": location,
 	}
-	return output.StdoutAuto(format, plain, result)
+	return output.StdoutAuto(format, plain, out)
+}
+
+// noteIDFromLocation extracts the trailing path segment from a Location
+// header that looks like /accounts/{acct}/portins/{order}/notes/{id} or an
+// absolute URL with the same suffix.
+func noteIDFromLocation(loc string) string {
+	if loc == "" {
+		return ""
+	}
+	// Trim any query/fragment.
+	for i, c := range loc {
+		if c == '?' || c == '#' {
+			loc = loc[:i]
+			break
+		}
+	}
+	// Take the segment after the final /.
+	for i := len(loc) - 1; i >= 0; i-- {
+		if loc[i] == '/' {
+			return loc[i+1:]
+		}
+	}
+	return loc
 }
 
 func runNotesList(cmd *cobra.Command, args []string) error {

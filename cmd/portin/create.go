@@ -138,12 +138,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 }
 
 // findByCustomerOrderID returns the existing port-in order matching the given
-// customer order ID, or nil if none exists. A 404 from the search endpoint
-// means "no match" — that's the most common case and not an error from the
-// caller's perspective. Other API errors propagate.
+// customer order ID, or nil if none exists. The Numbers API requires page
+// and size on every list call, so we always include them.
 func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (interface{}, error) {
 	q := url.Values{}
 	q.Set("customerOrderId", customerOrderID)
+	q.Set("page", "1")
+	q.Set("size", "10")
 	path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, q.Encode())
 
 	var result interface{}
@@ -156,7 +157,6 @@ func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (
 		return nil, portinError(err, "checking for existing port-in by customer-order-id")
 	}
 
-	// Walk the response for an order whose CustomerOrderId matches exactly.
 	flat := flattenPortInList(result)
 	for _, o := range flat {
 		if id, _ := o["customerOrderId"].(string); id == customerOrderID {

@@ -218,7 +218,7 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 | `transcription create --wait` | Transcription may be processing | Check `band transcription get <call-id> <rec-id> --plain`. |
 | `portin validate-tf --wait` | TF validation order may still be PROCESSING | Check `band portin validate-tf <numbers> --plain` again — caching means a re-run is cheap. |
 | `portin submit --wait` | Order may still be in VALIDATE_TFNS | Check `band portin get <order-id> --plain` — look at the `status` field. |
-| `portin supp --wait` | Supp may not have been verified yet | Check `band portin get <order-id> --plain`. The CLI's silent-fail check (error code 7300) only runs against the GET it observed before timeout — re-run the GET before retrying the supp. |
+| `portin supp` | Supp's propagation poll timed out | Check `band portin get <order-id> --plain`. The CLI's silent-fail check (error code 7300) only runs against the GET it observed before timeout — re-run the GET before retrying the supp. |
 | `portin bulk get-tns --wait` | TN list may still be VALIDATE_DRAFT_TNS | Re-run `band portin bulk get-tns <id> --plain`. |
 
 **General rule:** after a timeout, query the resource state before retrying. Don't blindly re-run a create that might have succeeded.
@@ -519,13 +519,13 @@ band portin bulk get-tns <bulk-order-id> --wait --plain
 **5. Modify an existing order (supp):**
 
 ```bash
-band portin supp <order-id> --foc 2026-07-01Z --wait
-# CRITICAL: a documented Bandwidth API behavior returns 200 on the PUT but
-# error code 7300 on the next GET, meaning Neustar never received the
-# change (typically wireless_to_wireless after FOC, or post-FOC field
-# changes). `band portin supp` always does a verifying GET and exits 1
-# with a clear message when 7300 is detected — your supp did NOT take
-# effect. Do not assume success on exit 0 from a raw PUT.
+band portin supp <order-id> --foc 2026-07-01Z
+# `supp` always polls for propagation by default — it captures the order's
+# pre-PUT lastModifiedDate, then waits until either that timestamp advances
+# (real propagation) or error code 7300 appears (silent failure on the
+# Bandwidth side, typically wireless_to_wireless after FOC). Exits 1 with
+# a clear message on 7300; exits 5 on timeout. Do not assume success
+# without running this command — a raw PUT can succeed without propagating.
 ```
 
 **6. Lifecycle ops:**
