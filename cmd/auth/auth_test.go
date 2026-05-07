@@ -3,7 +3,10 @@ package auth
 import (
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"testing"
+
+	"github.com/Bandwidth/cli/internal/config"
 )
 
 func TestCmdStructure(t *testing.T) {
@@ -151,5 +154,54 @@ func TestParseJWTClaimsInvalidPayload(t *testing.T) {
 	_, err := parseJWTClaims("header.!!!invalid-base64!!!.sig")
 	if err == nil {
 		t.Fatal("expected error for invalid base64 payload")
+	}
+}
+
+// TestRunSwitch_PersistsTargetIntoActiveProfile guards against the bug where
+// switch only updated the legacy top-level cfg.AccountID, leaving the active
+// profile's AccountID stale — so subsequent commands continued targeting the
+// pre-switch account.
+func TestRunSwitch_PersistsTargetIntoActiveProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// On macOS, UserHomeDir checks HOME first, but ensure XDG_CONFIG_HOME isn't
+	// pointing somewhere else for this test.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	cfgPath, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{Format: "json"}
+	cfg.SetProfile("default", &config.Profile{
+		ClientID:  "id1",
+		AccountID: "ACCT_A",
+		Accounts:  []string{"ACCT_A", "ACCT_B"},
+	})
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runSwitch(nil, []string{"ACCT_B"}); err != nil {
+		t.Fatalf("runSwitch returned error: %v", err)
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := loaded.Profiles["default"]
+	if p == nil {
+		t.Fatal("default profile missing after switch")
+	}
+	if p.AccountID != "ACCT_B" {
+		t.Errorf("profile AccountID after switch = %q, want %q", p.AccountID, "ACCT_B")
+	}
+	// Active-profile lookup must agree (this is what subsequent commands consult).
+	active := loaded.ActiveProfileConfig()
+	if active.AccountID != "ACCT_B" {
+		t.Errorf("ActiveProfileConfig().AccountID after switch = %q, want %q", active.AccountID, "ACCT_B")
 	}
 }

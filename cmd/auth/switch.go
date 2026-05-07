@@ -105,7 +105,20 @@ func runSwitch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Persist into both the active profile (the source of truth consulted by
+	// subsequent commands) and the legacy top-level field. Updating only one
+	// leaves them disagreeing, which silently routes commands to the old
+	// account.
 	cfg.AccountID = target
+	if len(cfg.Profiles) > 0 {
+		name := cfg.ActiveProfile
+		if name == "" {
+			name = "default"
+		}
+		if p, ok := cfg.Profiles[name]; ok {
+			p.AccountID = target
+		}
+	}
 	if err := config.Save(configPath, cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}

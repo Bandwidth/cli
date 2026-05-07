@@ -42,9 +42,30 @@ type Config struct {
 	Environment string   `json:"environment,omitempty"`
 }
 
-// ActiveProfileConfig returns the active profile, resolving legacy config if needed.
+// ActiveProfileConfig returns the active profile with BW_* env overlays applied.
+// The returned *Profile is always a fresh copy — mutating it does not affect
+// stored profiles, so writers (Load → Save flows) cannot accidentally leak
+// session env values onto disk.
 func (c *Config) ActiveProfileConfig() *Profile {
-	// If we have profiles, use the active one
+	base := c.activeStoredProfile()
+	overlay := *base
+	if v := os.Getenv("BW_CLIENT_ID"); v != "" {
+		overlay.ClientID = v
+	}
+	if v := os.Getenv("BW_ACCOUNT_ID"); v != "" {
+		overlay.AccountID = v
+	}
+	if v := os.Getenv("BW_ENVIRONMENT"); v != "" {
+		overlay.Environment = v
+	}
+	return &overlay
+}
+
+// activeStoredProfile returns the profile as persisted on disk, with no env
+// overlays. It returns a pointer into c.Profiles when one exists, or a synthetic
+// profile from the legacy top-level fields. Callers must not mutate the result
+// unless they are intentionally rewriting stored state.
+func (c *Config) activeStoredProfile() *Profile {
 	if len(c.Profiles) > 0 {
 		name := c.ActiveProfile
 		if name == "" {
@@ -53,13 +74,10 @@ func (c *Config) ActiveProfileConfig() *Profile {
 		if p, ok := c.Profiles[name]; ok {
 			return p
 		}
-		// Active profile doesn't exist — return first available
 		for _, p := range c.Profiles {
 			return p
 		}
 	}
-
-	// Legacy: no profiles map, use top-level fields
 	return &Profile{
 		ClientID:    c.ClientID,
 		AccountID:   c.AccountID,
@@ -133,8 +151,10 @@ func DefaultPath() (string, error) {
 	return newPath, nil
 }
 
-// Load reads config from path, overlays env vars, and returns defaults if the
-// file does not exist. The default format is "json".
+// Load reads config from path and returns defaults if the file does not exist.
+// The default format is "json". BW_* env overlays are applied at read time by
+// ActiveProfileConfig, never mutated into stored fields here — otherwise a
+// later Save would persist the session value onto disk.
 func Load(path string) (*Config, error) {
 	cfg := &Config{Format: "json"}
 
@@ -147,24 +167,6 @@ func Load(path string) (*Config, error) {
 		if err := json.Unmarshal(data, cfg); err != nil {
 			return nil, err
 		}
-	}
-
-	// Overlay environment variables on the active profile
-	p := cfg.ActiveProfileConfig()
-	if v := os.Getenv("BW_CLIENT_ID"); v != "" {
-		p.ClientID = v
-		cfg.ClientID = v
-	}
-	if v := os.Getenv("BW_ACCOUNT_ID"); v != "" {
-		p.AccountID = v
-		cfg.AccountID = v
-	}
-	if v := os.Getenv("BW_FORMAT"); v != "" {
-		cfg.Format = v
-	}
-	if v := os.Getenv("BW_ENVIRONMENT"); v != "" {
-		p.Environment = v
-		cfg.Environment = v
 	}
 
 	return cfg, nil

@@ -123,12 +123,18 @@ func TestEnvVarOverride(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.AccountID != "FROM_ENV" {
-		t.Errorf("AccountID = %q, want %q (env override)", cfg.AccountID, "FROM_ENV")
+	// Env overlay is applied at read time via ActiveProfileConfig,
+	// not mutated into stored fields during Load.
+	p := cfg.ActiveProfileConfig()
+	if p.AccountID != "FROM_ENV" {
+		t.Errorf("ActiveProfileConfig().AccountID = %q, want %q (env override)", p.AccountID, "FROM_ENV")
 	}
-	// Other fields should still come from file
-	if cfg.ClientID != "FROM_FILE" {
-		t.Errorf("ClientID = %q, want %q", cfg.ClientID, "FROM_FILE")
+	if p.ClientID != "FROM_FILE" {
+		t.Errorf("ActiveProfileConfig().ClientID = %q, want %q", p.ClientID, "FROM_FILE")
+	}
+	// Stored fields must remain untouched so Save can't leak env values to disk.
+	if cfg.AccountID != "ACC_FROM_FILE" {
+		t.Errorf("stored cfg.AccountID = %q, want %q (Load must not mutate stored fields)", cfg.AccountID, "ACC_FROM_FILE")
 	}
 }
 
@@ -326,13 +332,13 @@ func TestAllEnvVarOverrides(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 
 	base := &Config{Format: "json"}
+	base.SetProfile("default", &Profile{ClientID: "fileclientid", AccountID: "fileaccount", Environment: "prod"})
 	if err := Save(path, base); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
 
 	t.Setenv("BW_CLIENT_ID", "envclientid")
 	t.Setenv("BW_ACCOUNT_ID", "envaccount")
-	t.Setenv("BW_FORMAT", "table")
 	t.Setenv("BW_ENVIRONMENT", "custom")
 
 	cfg, err := Load(path)
@@ -340,16 +346,108 @@ func TestAllEnvVarOverrides(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.ClientID != "envclientid" {
-		t.Errorf("ClientID = %q, want %q", cfg.ClientID, "envclientid")
+	p := cfg.ActiveProfileConfig()
+	if p.ClientID != "envclientid" {
+		t.Errorf("ActiveProfileConfig().ClientID = %q, want %q", p.ClientID, "envclientid")
 	}
-	if cfg.AccountID != "envaccount" {
-		t.Errorf("AccountID = %q, want %q", cfg.AccountID, "envaccount")
+	if p.AccountID != "envaccount" {
+		t.Errorf("ActiveProfileConfig().AccountID = %q, want %q", p.AccountID, "envaccount")
 	}
-	if cfg.Format != "table" {
-		t.Errorf("Format = %q, want %q", cfg.Format, "table")
+	if p.Environment != "custom" {
+		t.Errorf("ActiveProfileConfig().Environment = %q, want %q", p.Environment, "custom")
 	}
-	if cfg.Environment != "custom" {
-		t.Errorf("Environment = %q, want %q", cfg.Environment, "custom")
+
+	// Stored profile must remain untouched.
+	stored := cfg.Profiles["default"]
+	if stored.ClientID != "fileclientid" || stored.AccountID != "fileaccount" || stored.Environment != "prod" {
+		t.Errorf("stored profile mutated by Load: %+v", stored)
+	}
+}
+
+// TestLoad_EnvOverlayDoesNotPersistOntoStoredProfiles guards against the
+// regression where Load applied env vars to the live *Profile pointer in
+// cfg.Profiles, so that any subsequent Save (login, switch, etc.) would
+// silently rewrite the previously-active profile on disk with env values.
+func TestLoad_EnvOverlayDoesNotPersistOntoStoredProfiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := &Config{Format: "json"}
+	cfg.SetProfile("prod", &Profile{ClientID: "prod-id", AccountID: "ACCT_A", Environment: "prod"})
+	cfg.SetProfile("dev", &Profile{ClientID: "dev-id", AccountID: "ACCT_B", Environment: "test"})
+	cfg.ActiveProfile = "prod"
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("BW_ACCOUNT_ID", "ENV_ACCT_Z")
+	t.Setenv("BW_CLIENT_ID", "ENV_CLIENT_Z")
+	t.Setenv("BW_ENVIRONMENT", "ENV_HOST_Z")
+
+	// Simulate a writer flow: Load → mutate something unrelated → Save.
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.ActiveProfile = "dev"
+	if err := Save(path, loaded); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-read with env vars cleared to see only what was persisted.
+	t.Setenv("BW_ACCOUNT_ID", "")
+	t.Setenv("BW_CLIENT_ID", "")
+	t.Setenv("BW_ENVIRONMENT", "")
+
+	fresh, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	prod := fresh.Profiles["prod"]
+	if prod.AccountID != "ACCT_A" || prod.ClientID != "prod-id" || prod.Environment != "prod" {
+		t.Errorf("prod profile leaked env values: %+v", prod)
+	}
+	dev := fresh.Profiles["dev"]
+	if dev.AccountID != "ACCT_B" || dev.ClientID != "dev-id" || dev.Environment != "test" {
+		t.Errorf("dev profile leaked env values: %+v", dev)
+	}
+}
+
+func TestActiveProfileConfig_AppliesEnvOverlay(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetProfile("default", &Profile{ClientID: "id1", AccountID: "ACCT_A", Environment: "prod"})
+
+	t.Setenv("BW_ACCOUNT_ID", "ENV_ACCT_Z")
+	t.Setenv("BW_CLIENT_ID", "ENV_CLIENT_Z")
+	t.Setenv("BW_ENVIRONMENT", "test")
+
+	p := cfg.ActiveProfileConfig()
+	if p.AccountID != "ENV_ACCT_Z" {
+		t.Errorf("AccountID = %q, want %q", p.AccountID, "ENV_ACCT_Z")
+	}
+	if p.ClientID != "ENV_CLIENT_Z" {
+		t.Errorf("ClientID = %q, want %q", p.ClientID, "ENV_CLIENT_Z")
+	}
+	if p.Environment != "test" {
+		t.Errorf("Environment = %q, want %q", p.Environment, "test")
+	}
+
+	// Stored profile must not be mutated by ActiveProfileConfig.
+	stored := cfg.Profiles["default"]
+	if stored.AccountID != "ACCT_A" || stored.ClientID != "id1" || stored.Environment != "prod" {
+		t.Errorf("stored profile mutated by ActiveProfileConfig: %+v", stored)
+	}
+}
+
+func TestActiveProfileConfig_ReturnsCopySafeToMutate(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetProfile("default", &Profile{ClientID: "id1", AccountID: "ACCT_A"})
+
+	p := cfg.ActiveProfileConfig()
+	p.AccountID = "MUTATED"
+
+	if cfg.Profiles["default"].AccountID != "ACCT_A" {
+		t.Errorf("mutating ActiveProfileConfig() result leaked into stored profile: %q", cfg.Profiles["default"].AccountID)
 	}
 }
