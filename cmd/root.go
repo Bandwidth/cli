@@ -21,6 +21,7 @@ import (
 	locationcmd "github.com/Bandwidth/cli/cmd/location"
 	messagecmd "github.com/Bandwidth/cli/cmd/message"
 	numbercmd "github.com/Bandwidth/cli/cmd/number"
+	portincmd "github.com/Bandwidth/cli/cmd/portin"
 	quickstartcmd "github.com/Bandwidth/cli/cmd/quickstart"
 	recordingcmd "github.com/Bandwidth/cli/cmd/recording"
 	shortcodecmd "github.com/Bandwidth/cli/cmd/shortcode"
@@ -101,6 +102,7 @@ func init() {
 	rootCmd.AddCommand(shortcodecmd.Cmd)
 	rootCmd.AddCommand(tfvcmd.Cmd)
 	rootCmd.AddCommand(tnoptioncmd.Cmd)
+	rootCmd.AddCommand(portincmd.Cmd)
 	rootCmd.AddCommand(versionCmd)
 }
 

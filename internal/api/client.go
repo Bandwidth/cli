@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -251,4 +253,31 @@ func (c *Client) PutRaw(path string, data []byte, contentType string) error {
 	req.Header.Set("Content-Type", contentType)
 	_, err = c.doRaw(req)
 	return err
+}
+
+// PostMultipart performs a POST request with a multipart/form-data body containing
+// a single file part. Used for endpoints that accept document uploads (LOAs,
+// supporting docs on port-in orders).
+func (c *Client) PostMultipart(path, fieldName, filename string, fileData []byte, fileContentType string) ([]byte, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, fieldName, filename))
+	h.Set("Content-Type", fileContentType)
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return nil, fmt.Errorf("creating multipart part: %w", err)
+	}
+	if _, err := part.Write(fileData); err != nil {
+		return nil, fmt.Errorf("writing multipart part: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
+	}
+	req, err := c.newRequest(http.MethodPost, path, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	return c.doRaw(req)
 }

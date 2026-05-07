@@ -216,6 +216,10 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 | `number activate --wait` / `number deactivate --wait` | Service activation order may still be RECEIVED/PROCESSING | Check `band number get <number> --plain` — the `inboundActivated` / `outbound*Activated` flags reflect the terminal state. Re-running the same activate is idempotent. |
 | `call create --wait` | Call may still be active | Check `band call get <call-id> --plain` — look at the `state` field. |
 | `transcription create --wait` | Transcription may be processing | Check `band transcription get <call-id> <rec-id> --plain`. |
+| `portin validate-tf --wait` | TF validation order may still be PROCESSING | Check `band portin validate-tf <numbers> --plain` again — caching means a re-run is cheap. |
+| `portin submit --wait` | Order may still be in VALIDATE_TFNS | Check `band portin get <order-id> --plain` — look at the `status` field. |
+| `portin supp --wait` | Supp may not have been verified yet | Check `band portin get <order-id> --plain`. The CLI's silent-fail check (error code 7300) only runs against the GET it observed before timeout — re-run the GET before retrying the supp. |
+| `portin bulk get-tns --wait` | TN list may still be VALIDATE_DRAFT_TNS | Re-run `band portin bulk get-tns <id> --plain`. |
 
 **General rule:** after a timeout, query the resource state before retrying. Don't blindly re-run a create that might have succeeded.
 
@@ -467,6 +471,85 @@ band app peers <app-id> --plain         # → locations linked to app (includes 
 band number list --plain                # → all numbers on account
 ```
 
+### Port a number into Bandwidth
+
+Six end-to-end flows are completable via the public API. Anything outside this list (port-out, manual toll-free, internal toll-free, NASC overrides, international ports) requires Bandwidth ops or the Dashboard — `band portin` will not let you start those flows.
+
+**1. Check toll-free portability before submitting an order:**
+
+```bash
+band portin validate-tf +18005551234 --wait --plain
+# → [{"telephoneNumber":"+18005551234","portable":true,"respOrgId":"TST51","reason":""}]
+# Exits 1 with the per-number reason if any number is non-portable.
+```
+
+**2. On-net domestic port-in (BWC000) end-to-end:**
+
+```bash
+band portin create \
+  --numbers +19195551234,+19195551235 \
+  --site <site-id> --peer <peer-id> \
+  --foc 2026-06-01Z \
+  --loa-authorizing-person "Jane Doe" \
+  --loa ./loa.pdf \
+  --customer-order-id agent-run-42 --if-not-exists --plain
+# → {"orderId":"...","status":"DRAFT","numbers":["+19195551234","+19195551235"], ...}
+
+ORDER_ID=$(... extract from above ...)
+band portin submit $ORDER_ID --wait --plain
+# Blocks until status leaves VALIDATE_TFNS — usually PENDING_DOCUMENTS or FOC_GRANTED.
+
+band portin get $ORDER_ID --plain
+# Re-poll later for FOC progression. Don't try to --wait for FOC; can take days.
+```
+
+**3. Toll-free Phase 1 port-in:** Same shape as on-net. The TF validation phase runs automatically. Requires `TOLL_FREE_AUTOMATION_PHASE_1` enabled on the account — without it, `create` exits 4 with a message naming the gate. Don't retry on exit 4; escalate to the Bandwidth account manager.
+
+**4. Bulk port-in:**
+
+```bash
+band portin bulk create --numbers-file ./tns.txt --site <id> --peer <id> --plain
+# → {"bulkOrderId":"...","status":"VALIDATE_DRAFT_TNS","childOrderIds":[], ...}
+
+band portin bulk get-tns <bulk-order-id> --wait --plain
+# Blocks until VALID_DRAFT_TNS or INVALID_DRAFT_TNS. childOrderIds populates with
+# one ID per validated group — drive each through `band portin get`/`submit`.
+```
+
+**5. Modify an existing order (supp):**
+
+```bash
+band portin supp <order-id> --foc 2026-07-01Z --wait
+# CRITICAL: a documented Bandwidth API behavior returns 200 on the PUT but
+# error code 7300 on the next GET, meaning Neustar never received the
+# change (typically wireless_to_wireless after FOC, or post-FOC field
+# changes). `band portin supp` always does a verifying GET and exits 1
+# with a clear message when 7300 is detected — your supp did NOT take
+# effect. Do not assume success on exit 0 from a raw PUT.
+```
+
+**6. Lifecycle ops:**
+
+```bash
+band portin upload-loa <order-id> ./loa.pdf       # post-creation document upload
+band portin notes add <order-id> "Please expedite — customer outage"
+band portin notes list <order-id> --plain
+band portin history <order-id> --plain            # state change audit
+band portin cancel <order-id>                      # typically irreversible
+```
+
+**Idempotency.** `create` and `bulk create` accept `--customer-order-id <id> --if-not-exists`. On retry, an existing order with the same ID is returned with the same `--plain` shape — safe inside an agent reconciliation loop.
+
+**Out of scope (will not work via API):**
+
+| Flow | What happens if you try | Where to go instead |
+|---|---|---|
+| Port-out | No `band portout` exists; not a public API | Bandwidth Dashboard; ops |
+| Toll-free Phase 2 / non-automated | `create` exits 4 with the Phase 1 gate message | Bandwidth ops |
+| Toll-free internal port (BW account → BW account) | `create` will succeed creating a draft, but FOC requires manual provisioning | Bandwidth ops |
+| International / non-NANP | Country-specific manual forms | Per-country ops process |
+| NASC manual override | Email Somos Helpdesk | Internal ops process |
+
 ## Exit Codes
 
 | Code | Meaning | When |
@@ -498,6 +581,9 @@ band number list --plain                # → all numbers on account
 | "API error 429" | 7 | Rate limited or quota exceeded | Back off and retry — eventually retryable |
 | "HTTP voice feature is required" | 4 | Legacy voice not available | Try VCP path (UP account) or contact support |
 | "required flag not set" | 1 | Missing a required flag | Check `--help` for required flags |
+| "toll-free port-ins via the API require Phase 1 automation" | 4 | Account doesn't have `TOLL_FREE_AUTOMATION_PHASE_1` enabled | Stop — escalate to the Bandwidth account manager. The number must be ported through the Dashboard or ops. |
+| "supplement was accepted by the API but did not propagate to Neustar" | 1 | `band portin supp` detected error code 7300 on the verifying GET | The supp did NOT take effect. Typical cause: order is past FOC for wireless_to_wireless, or attempting a SUP-3 field change. Adjust strategy — don't blindly retry. |
+| "one or more numbers are not portable" | 1 | `band portin validate-tf` returned `portable: false` for at least one TN | Inspect the per-number `reason` in the JSON; do not proceed to `create` for those numbers. |
 
 ### Messaging delivery errors
 
@@ -709,6 +795,7 @@ band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text 
 - **No message content retrieval.** Bandwidth does not store message bodies. After sending, the message text is gone forever. `message get` and `message list` return timestamps, direction, and segment counts only.
 - **10DLC: read + assign only.** The CLI can list campaigns, check number registration status, diagnose failures (`band tendlc`), and assign numbers to campaigns (`band tnoption assign`). It cannot create campaigns or register brands — those require the Bandwidth App. The CLI checks that a number is on a campaign and blocks sends if it's not.
 - **TFV is check-and-submit.** The CLI can check toll-free verification status and submit new requests (`band tfv`), but cannot approve or expedite reviews — those happen on the carrier side.
+- **Porting is port-IN only.** `band portin` covers the six end-to-end flows that complete via the public API: TF validation, on-net domestic, automated off-net (Level 3), TF Phase 1 (gated), bulk, and lifecycle ops (notes, supp, cancel, history, doc upload). Out of scope: port-out (no public API), manual TF, internal TF, NASC manual override, and international ports — these need ops or the Dashboard. `band portin create` exits 4 if the account doesn't have `TOLL_FREE_AUTOMATION_PHASE_1` for a TF order. `band portin supp` defends against the documented Bandwidth API behavior where a supp returns 200 on PUT but error code 7300 on the next GET (Neustar never received it) — exits 1 with a clear message rather than silently succeeding.
 - **10DLC, TFV, and short code commands are role-gated.** A 403 can mean the credential lacks the required role (Campaign Management, TFV), the account doesn't have the Registration Center feature, or messaging isn't enabled. The CLI provides a diagnostic message — if it says "access denied," escalate to the Bandwidth account manager rather than retrying.
 - **No batch operations.** Each command operates on one resource (except `vcp assign` which handles multiple numbers and `message send` which supports multiple recipients).
 - **Dashboard API uses XML internally.** The CLI handles XML serialization transparently — you always send and receive JSON. Use `--plain` for predictable, flat output.
