@@ -75,6 +75,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if existing != nil {
+			// The list response is a summary — fetch the full order so the
+			// idempotent return has the same plain shape as a fresh create.
+			orderID := digString(existing, "OrderId")
+			if orderID != "" {
+				var full interface{}
+				if err := client.Get(
+					fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
+					&full,
+				); err == nil {
+					return emitWithOrderID(cmd, full, orderID)
+				}
+			}
 			return emit(cmd, existing)
 		}
 	}
@@ -138,40 +150,75 @@ func runCreate(cmd *cobra.Command, args []string) error {
 }
 
 // findByCustomerOrderID returns the existing port-in order matching the given
-// customer order ID, or nil if none exists. The Numbers API requires page
-// and size on every list call, so we always include them.
+// customer order ID, or nil if none exists.
+//
+// The Numbers API has a quirk where searching by customerOrderId without a
+// status filter excludes draft-state orders entirely — empirically observed
+// against stage. To make idempotency work regardless of order state, we
+// iterate across all plausible statuses and short-circuit on the first
+// match. This is more requests than ideal but correct.
+//
+// Status names and ordering are deliberate: live/active states first since
+// those are the most common targets for idempotent retries.
 func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (interface{}, error) {
-	q := url.Values{}
-	q.Set("customerOrderId", customerOrderID)
-	q.Set("page", "1")
-	q.Set("size", "10")
-	path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, q.Encode())
-
-	var result interface{}
-	err := client.Get(path, &result)
-	if err != nil {
-		var apiErr *api.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
-			return nil, nil
-		}
-		return nil, portinError(err, "checking for existing port-in by customer-order-id")
+	statuses := []string{
+		"submitted",
+		"pending_documents",
+		"pending_carrier_approval",
+		"requested_supp",
+		"foc",
+		"complete",
+		"valid_draft_tfns",
+		"validate_draft_tfns",
+		"validate_tfns",
+		"draft",
+		"missing_requirements",
+		"exception",
+		"snapback",
+		"requested_cancel",
+		"cancelled",
+		"invalid_tfns",
+		"invalid_draft_tfns",
 	}
+	for _, status := range statuses {
+		q := url.Values{}
+		q.Set("customerOrderId", customerOrderID)
+		q.Set("status", status)
+		q.Set("page", "1")
+		q.Set("size", "10")
+		path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, q.Encode())
 
-	flat := flattenPortInList(result)
-	for _, o := range flat {
-		if id, _ := o["customerOrderId"].(string); id == customerOrderID {
-			return result, nil
+		var result interface{}
+		err := client.Get(path, &result)
+		if err != nil {
+			var apiErr *api.APIError
+			if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
+				continue
+			}
+			return nil, portinError(err, "checking for existing port-in by customer-order-id")
+		}
+
+		flat := flattenPortInList(result)
+		for _, o := range flat {
+			if id, _ := o["customerOrderId"].(string); id == customerOrderID {
+				return result, nil
+			}
 		}
 	}
 	return nil, nil
 }
 
 func emit(cmd *cobra.Command, result interface{}) error {
+	return emitWithOrderID(cmd, result, "")
+}
+
+// emitWithOrderID is like emit but threads a known orderId through to the
+// flatten so endpoints whose response body lacks OrderId (e.g. GET) still
+// produce the full v1 plain shape.
+func emitWithOrderID(cmd *cobra.Command, result interface{}, fallbackOrderID string) error {
 	format, plain := cmdutil.OutputFlags(cmd)
 	if plain {
-		// On create, the OrderId comes back in the response body, so we
-		// don't need a fallback — pass "" and let the dig find it.
-		return output.StdoutAuto(format, plain, flattenPortInResult(result, ""))
+		return output.StdoutAuto(format, plain, flattenPortInResult(result, fallbackOrderID))
 	}
 	return output.StdoutAuto(format, plain, result)
 }
