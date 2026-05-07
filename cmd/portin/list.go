@@ -82,7 +82,7 @@ func walkPortInOrders(v interface{}, out *[]map[string]interface{}) {
 	case map[string]interface{}:
 		// If this map has an OrderId, treat it as a single port-in.
 		if _, has := val["OrderId"]; has {
-			*out = append(*out, flattenPortInResult(val))
+			*out = append(*out, flattenPortInResult(val, ""))
 			return
 		}
 		for _, child := range val {

@@ -108,7 +108,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 func loadNumbers() ([]string, error) {
 	out := []string{}
 	for _, n := range createNumbers {
-		out = append(out, stripE164(cmdutil.NormalizeNumber(n)))
+		out = append(out, cmdutil.NormalizeNumber(n))
 	}
 	if createNumbersFile != "" {
 		f, err := os.Open(createNumbersFile)
@@ -124,7 +124,7 @@ func loadNumbers() ([]string, error) {
 			}
 			for _, part := range strings.Split(line, ",") {
 				if p := strings.TrimSpace(part); p != "" {
-					out = append(out, stripE164(cmdutil.NormalizeNumber(p)))
+					out = append(out, cmdutil.NormalizeNumber(p))
 				}
 			}
 		}

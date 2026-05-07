@@ -87,7 +87,7 @@ func runSupp(cmd *cobra.Command, args []string) error {
 
 	format, plain := cmdutil.OutputFlags(cmd)
 	if plain {
-		return output.StdoutAuto(format, plain, flattenPortInResult(verified))
+		return output.StdoutAuto(format, plain, flattenPortInResult(verified, orderID))
 	}
 	return output.StdoutAuto(format, plain, verified)
 }

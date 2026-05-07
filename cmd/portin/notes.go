@@ -44,6 +44,7 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	body := map[string]interface{}{
+		"UserId":      cmdutil.ActiveUserID(),
 		"Description": args[1],
 	}
 
@@ -96,11 +97,14 @@ func flattenNotes(result interface{}) []map[string]interface{} {
 func walkNotes(v interface{}, out *[]map[string]interface{}) {
 	switch val := v.(type) {
 	case map[string]interface{}:
-		if _, has := val["NoteId"]; has {
+		// A Note map has at least an Id and a Description.
+		_, hasID := val["Id"]
+		_, hasDesc := val["Description"]
+		if hasID && hasDesc {
 			*out = append(*out, map[string]interface{}{
-				"noteId":    digString(val, "NoteId"),
-				"timestamp": digString(val, "Timestamp"),
-				"actor":     digString(val, "User"),
+				"noteId":    digString(val, "Id"),
+				"timestamp": digString(val, "LastDateModifier"),
+				"actor":     digString(val, "UserId"),
 				"text":      digString(val, "Description"),
 			})
 			return

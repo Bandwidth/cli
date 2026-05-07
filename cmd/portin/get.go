@@ -34,7 +34,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	format, plain := cmdutil.OutputFlags(cmd)
 	if plain {
-		return output.StdoutAuto(format, plain, flattenPortInResult(result))
+		return output.StdoutAuto(format, plain, flattenPortInResult(result, args[0]))
 	}
 	return output.StdoutAuto(format, plain, result)
 }

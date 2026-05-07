@@ -96,22 +96,72 @@ func is7300(result interface{}) bool {
 // flattenPortInResult collapses the nested XML port-in response into the v1
 // stable plain shape: a flat object with orderId/status/focDate/numbers/
 // customerOrderId/errorCode keys. Missing fields default to "" or [].
-func flattenPortInResult(result interface{}) map[string]interface{} {
+//
+// fallbackOrderID is used when the API response itself does not carry the
+// OrderId — most notably the GET endpoint, where the ID is part of the URL
+// rather than the body. Pass "" if you do not have a fallback.
+func flattenPortInResult(result interface{}, fallbackOrderID string) map[string]interface{} {
 	numbers := []string{}
 	digAllStrings(result, "PhoneNumber", &numbers)
 	for i, n := range numbers {
 		numbers[i] = cmdutil.NormalizeNumber(n)
 	}
 
-	errorCode := digString(result, "Code")
+	orderID := digString(result, "OrderId")
+	if orderID == "" {
+		orderID = fallbackOrderID
+	}
 
 	return map[string]interface{}{
-		"orderId":         digString(result, "OrderId"),
+		"orderId":         orderID,
 		"status":          digString(result, "ProcessingStatus"),
 		"focDate":         digString(result, "RequestedFocDate"),
 		"numbers":         numbers,
 		"customerOrderId": digString(result, "CustomerOrderId"),
-		"errorCode":       errorCode,
+		"errorCode":       extractErrorCode(result),
+	}
+}
+
+// extractErrorCode pulls a real error code out of an Errors/ErrorList block.
+// HTTP success codes (e.g. 201 in <Status><Code>201</Code></Status>) are
+// explicitly ignored — those aren't errors. Returns "" when there is no
+// error-bearing code.
+func extractErrorCode(result interface{}) string {
+	codes := []string{}
+	collectErrorCodes(result, &codes)
+	for _, c := range codes {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		// HTTP 2xx codes that show up under <Status> are not real errors.
+		if len(c) == 3 && c[0] == '2' {
+			continue
+		}
+		return c
+	}
+	return ""
+}
+
+// collectErrorCodes recurses, but only into keys whose names suggest an
+// error-bearing block (Errors, ErrorList, Error). This avoids capturing
+// the Code in <Status><Code>201</Code></Status> which is HTTP success
+// metadata, not an error.
+func collectErrorCodes(v interface{}, out *[]string) {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, child := range val {
+			lk := strings.ToLower(k)
+			if lk == "error" || lk == "errors" || lk == "errorlist" {
+				digAllStrings(child, "Code", out)
+				continue
+			}
+			collectErrorCodes(child, out)
+		}
+	case []interface{}:
+		for _, item := range val {
+			collectErrorCodes(item, out)
+		}
 	}
 }
 

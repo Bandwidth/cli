@@ -47,7 +47,7 @@ func runValidateTF(cmd *cobra.Command, args []string) error {
 
 	tns := make([]string, len(args))
 	for i, n := range args {
-		tns[i] = stripE164(cmdutil.NormalizeNumber(n))
+		tns[i] = cmdutil.NormalizeNumber(n)
 	}
 
 	body := map[string]interface{}{

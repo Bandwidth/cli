@@ -81,7 +81,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	numbers := make([]string, len(createNumbers))
 	for i, n := range createNumbers {
-		numbers[i] = stripE164(cmdutil.NormalizeNumber(n))
+		numbers[i] = cmdutil.NormalizeNumber(n)
 	}
 
 	body := map[string]interface{}{
@@ -117,16 +117,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	orderID := digString(result, "OrderId")
 
-	// Optional LOA upload chained onto the create.
+	// Optional LOA upload chained onto the create. If the upload fails, the
+	// order itself was already created — surface the orderId in the error
+	// so the user can retry the upload separately rather than orphaning a
+	// draft they can no longer find.
 	if createLoaPath != "" && orderID != "" {
 		data, err := os.ReadFile(createLoaPath)
 		if err != nil {
-			return fmt.Errorf("reading LOA file: %w", err)
+			return fmt.Errorf("port-in order created (id: %s) but reading LOA file failed: %w", orderID, err)
 		}
 		ct := detectContentType(createLoaPath)
-		path := fmt.Sprintf("/accounts/%s/portins/%s/loas", acctID, orderID)
+		path := fmt.Sprintf("/accounts/%s/portins/%s/loas?documentType=LOA", acctID, orderID)
 		if _, err := client.PostMultipart(path, "loaFile", filepath.Base(createLoaPath), data, ct); err != nil {
-			return portinError(err, "uploading LOA")
+			return fmt.Errorf("port-in order created (id: %s) but LOA upload failed — retry with: band portin upload-loa %s %s\n  underlying error: %w",
+				orderID, orderID, createLoaPath, err)
 		}
 	}
 
@@ -134,14 +138,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 }
 
 // findByCustomerOrderID returns the existing port-in order matching the given
-// customer order ID, or nil if none exists. Errors only on hard API failures.
+// customer order ID, or nil if none exists. A 404 from the search endpoint
+// means "no match" — that's the most common case and not an error from the
+// caller's perspective. Other API errors propagate.
 func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (interface{}, error) {
 	q := url.Values{}
 	q.Set("customerOrderId", customerOrderID)
 	path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, q.Encode())
 
 	var result interface{}
-	if err := client.Get(path, &result); err != nil {
+	err := client.Get(path, &result)
+	if err != nil {
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
+			return nil, nil
+		}
 		return nil, portinError(err, "checking for existing port-in by customer-order-id")
 	}
 
@@ -158,7 +169,9 @@ func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (
 func emit(cmd *cobra.Command, result interface{}) error {
 	format, plain := cmdutil.OutputFlags(cmd)
 	if plain {
-		return output.StdoutAuto(format, plain, flattenPortInResult(result))
+		// On create, the OrderId comes back in the response body, so we
+		// don't need a fallback — pass "" and let the dig find it.
+		return output.StdoutAuto(format, plain, flattenPortInResult(result, ""))
 	}
 	return output.StdoutAuto(format, plain, result)
 }

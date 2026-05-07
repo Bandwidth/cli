@@ -42,7 +42,10 @@ func runUploadLoa(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	path := fmt.Sprintf("/accounts/%s/portins/%s/loas", acctID, orderID)
+	// The Numbers API requires documentType be specified via query param or
+	// header. We default to LOA — the most common case by far. Future flags
+	// can extend this for invoices, CSRs, etc.
+	path := fmt.Sprintf("/accounts/%s/portins/%s/loas?documentType=LOA", acctID, orderID)
 	if _, err := client.PostMultipart(path, "loaFile", filepath.Base(filePath), data, contentType); err != nil {
 		return portinError(err, "uploading LOA")
 	}

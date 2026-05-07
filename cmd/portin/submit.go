@@ -62,7 +62,7 @@ func runSubmit(cmd *cobra.Command, args []string) error {
 
 	format, plain := cmdutil.OutputFlags(cmd)
 	if plain {
-		return output.StdoutAuto(format, plain, flattenPortInResult(result))
+		return output.StdoutAuto(format, plain, flattenPortInResult(result, orderID))
 	}
 	return output.StdoutAuto(format, plain, result)
 }

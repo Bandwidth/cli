@@ -138,7 +138,7 @@ func TestFlattenPortInResultLocksV1Shape(t *testing.T) {
 			},
 		},
 	}
-	got := flattenPortInResult(resp)
+	got := flattenPortInResult(resp, "")
 	keys := []string{"orderId", "status", "focDate", "numbers", "customerOrderId", "errorCode"}
 	for _, k := range keys {
 		if _, ok := got[k]; !ok {
