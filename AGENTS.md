@@ -550,6 +550,63 @@ band portin cancel <order-id>                      # typically irreversible
 | International / non-NANP | Country-specific manual forms | Per-country ops process |
 | NASC manual override | Email Somos Helpdesk | Internal ops process |
 
+### Porting reference
+
+**`--plain` shapes (v1, locked).** Field names will not change without a `--plain-version` migration.
+
+| Command | Shape |
+|---|---|
+| `validate-tf` | `[{telephoneNumber, portable, respOrgId, reason}]` — array always, even for one TN |
+| `create` / `get` / `submit` / `supp` | `{orderId, status, focDate, numbers, customerOrderId, errorCode}` |
+| `list` | array of the create/get shape |
+| `history` | `[{state, timestamp, actor}]` |
+| `notes add` | `{orderId, noteId, location}` |
+| `notes list` | `[{noteId, timestamp, actor, text}]` |
+| `cancel` | `{orderId, status}` (always `status: "CANCELLED"`) |
+| `upload-loa` | `{orderId, file, contentType, status}` (always `status: "UPLOADED"`) |
+| `bulk create` / `bulk get` / `bulk get-tns` | `{bulkOrderId, status, childOrderIds, portableNumbers, nonPortable}` where `nonPortable: [{number, code, reason}]` |
+| `bulk list` | array of the bulk create/get shape |
+
+**Port-in state machine.** Poll `status` from `band portin get`:
+
+```
+DRAFT
+  → VALIDATE_DRAFT_TFNS (TF validation running)
+      → VALID_DRAFT_TFNS    (ready for submit)
+      → INVALID_DRAFT_TFNS  (terminal — fix TNs, recreate)
+  → (after `submit`)
+      → SUBMITTED → VALIDATE_TFNS → PENDING_DOCUMENTS
+          → FOC / FOC_GRANTED → COMPLETE   (success path; FOC takes days)
+          → REJECTED                        (terminal — read errorCode)
+          → FAILED                          (terminal — system error)
+  → CANCELLED  (terminal — from explicit `cancel`)
+```
+
+`band portin submit --wait` blocks at the next stable state (`PENDING_DOCUMENTS` / `FOC` / terminal). It does **not** wait for `COMPLETE` — that requires the FOC date to arrive, which is days to weeks out.
+
+**Reconciliation idiom.** Tag every create with a unique customer-order-id; retries are then idempotent:
+
+```bash
+COID="agent-run-$(uuidgen)"
+band portin create --numbers +1... --site <id> --peer <id> --foc <date> \
+  --customer-order-id "$COID" --if-not-exists --plain
+# On retry: returns the existing order's plain shape, same orderId. No duplicate.
+```
+
+**Common error codes encountered on porting endpoints:**
+
+| Code | Where | Meaning | Fix |
+|---|---|---|---|
+| 1022 | any | TN format invalid | Pass numbers in full E.164 with country code (`+18005551234`, not `8005551234`) |
+| 5217 | `notes add` | UserId required | Auto-handled by the CLI — should not surface unless config is corrupted |
+| 7300 | `supp` (verifying GET) | Supp accepted by API but not propagated to Neustar | Order is in a state where supps are blocked (e.g., wireless_to_wireless past FOC). The CLI exits 1 — do not retry blindly; investigate the order state |
+| 7615 | `validate-tf`, `create` (TF) | Invalid toll-free number | TN is malformed or out of TF range |
+| 7626 | `validate-tf` | Toll-free vendor timeout (300s) | Transient — retry the validation |
+| 7640 | `upload-loa` | documentType not specified | The CLI defaults to `documentType=LOA` — should not surface |
+| 7642 | `validate-tf`, `bulk` | TF in spare status, not portable | Number must be acquired through ordering, not porting |
+| 7643 | `validate-tf`, `bulk` | TF in unavailable status | Reserved by SOMOS — not portable |
+| 7671 | `get`, `list` | Order was cancelled | Visible in `errorCode` on a cancelled order; not actionable |
+
 ## Exit Codes
 
 | Code | Meaning | When |
