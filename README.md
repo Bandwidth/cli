@@ -463,6 +463,27 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
 
+### Porting
+
+`band portin` covers the porting flows that can complete entirely through the public API. Port-out, manual toll-free, internal toll-free, NASC overrides, and international ports require Bandwidth ops or the Dashboard.
+
+| Command | What it does |
+|---------|-------------|
+| `band portin validate-tf <number...>` | Check whether toll-free numbers can be ported (with `--wait` to block until validation completes) |
+| `band portin create --numbers <...>` | Create a draft port-in (optionally chains an `--loa` upload; supports `--customer-order-id` + `--if-not-exists` for idempotent retries) |
+| `band portin get <order-id>` | Get the current state of a port-in order |
+| `band portin list` | List port-in orders (filter by `--status`, `--from`, `--to`) |
+| `band portin submit <order-id>` | Submit a draft port-in to Neustar / SOMOS (with `--wait`) |
+| `band portin supp <order-id>` | Supplement an existing order; defends against the silent error 7300 trap |
+| `band portin cancel <order-id>` | Cancel a port-in order |
+| `band portin history <order-id>` | State-change history |
+| `band portin upload-loa <order-id> <file>` | Attach an LOA / supporting document |
+| `band portin notes add <order-id> <text>` | Add a note (used to communicate with Bandwidth's LNP team) |
+| `band portin notes list <order-id>` | List notes |
+| `band portin bulk create` | Submit a bulk port-in from a TN list |
+| `band portin bulk get-tns <id>` | Poll the asynchronous TN-list validation |
+| `band portin bulk get <id>` / `bulk list` | Inspect bulk orders |
+
 ### Other
 
 | Command | What it does |

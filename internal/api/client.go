@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -251,4 +253,60 @@ func (c *Client) PutRaw(path string, data []byte, contentType string) error {
 	req.Header.Set("Content-Type", contentType)
 	_, err = c.doRaw(req)
 	return err
+}
+
+// PostXMLReturnLocation performs a POST with an XML body and returns the
+// Location response header. Useful for endpoints that respond 201 Created
+// with an empty body and put the new resource's URL in Location (the
+// Bandwidth Numbers API does this for notes, sippeers, sites, etc.).
+func (c *Client) PostXMLReturnLocation(path string, body XMLBody) (string, error) {
+	data, err := MapToXML(body.RootElement, body.Data)
+	if err != nil {
+		return "", fmt.Errorf("marshaling XML request body: %w", err)
+	}
+	req, err := c.newRequest(http.MethodPost, path, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/xml")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response body: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+	}
+	return resp.Header.Get("Location"), nil
+}
+
+// PostMultipart performs a POST request with a multipart/form-data body containing
+// a single file part. Used for endpoints that accept document uploads (LOAs,
+// supporting docs on port-in orders).
+func (c *Client) PostMultipart(path, fieldName, filename string, fileData []byte, fileContentType string) ([]byte, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, fieldName, filename))
+	h.Set("Content-Type", fileContentType)
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return nil, fmt.Errorf("creating multipart part: %w", err)
+	}
+	if _, err := part.Write(fileData); err != nil {
+		return nil, fmt.Errorf("writing multipart part: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
+	}
+	req, err := c.newRequest(http.MethodPost, path, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	return c.doRaw(req)
 }
