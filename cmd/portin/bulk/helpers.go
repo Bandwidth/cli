@@ -89,9 +89,7 @@ func flattenBulkResult(result interface{}) map[string]interface{} {
 	digAllStrings(result, "TollFreeNumber", &portable)
 	tnPortable := []string{}
 	digAllStrings(result, "TN", &tnPortable)
-	for _, t := range tnPortable {
-		portable = append(portable, t)
-	}
+	portable = append(portable, tnPortable...)
 	for i, p := range portable {
 		portable[i] = cmdutil.NormalizeNumber(p)
 	}
