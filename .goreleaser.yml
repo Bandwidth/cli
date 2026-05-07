@@ -51,26 +51,6 @@ docker_manifests:
       - "ghcr.io/bandwidth/cli:{{ .Version }}-amd64"
       - "ghcr.io/bandwidth/cli:{{ .Version }}-arm64"
 
-brews:
-  - name: band
-    directory: Formula
-    repository:
-      owner: Bandwidth
-      name: homebrew-tap
-      branch: "band-{{.Version}}"
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-      pull_request:
-        enabled: true
-        base:
-          branch: main
-    homepage: "https://github.com/Bandwidth/cli"
-    description: "Bandwidth CLI — manage voice, messaging, numbers, and more from the command line"
-    license: "MIT"
-    install: |
-      bin.install "band"
-    test: |
-      system "#{bin}/band", "version"
-
 changelog:
   sort: asc
   filters:
