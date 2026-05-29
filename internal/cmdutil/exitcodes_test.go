@@ -26,6 +26,7 @@ func TestExitCodeForError(t *testing.T) {
 		{"feature limit wraps 403", NewFeatureLimit("nope", &api.APIError{StatusCode: 403}), ExitConflict},
 		{"feature limit precedence beats raw 401", NewFeatureLimit("nope", &api.APIError{StatusCode: 401}), ExitConflict},
 		{"wrapped 429 keeps rate limit", fmt.Errorf("wrap: %w", &api.APIError{StatusCode: 429}), ExitRateLimit},
+		{"wrapped ErrPollTimeout", fmt.Errorf("timed out: %w", ErrPollTimeout), ExitTimeout},
 	}
 
 	for _, tt := range tests {
