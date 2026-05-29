@@ -128,35 +128,9 @@ func TestExtractPhoneNumber(t *testing.T) {
 	}
 }
 
-func TestBuildQuickstartOrderBody(t *testing.T) {
-	t.Run("mirrors number.BuildOrderBody shape (top-level TelephoneNumberList)", func(t *testing.T) {
-		body := buildQuickstartOrderBody("+19195551234", "")
-		if _, wrong := body.Data["ExistingTelephoneNumberOrderType"]; wrong {
-			t.Fatalf("must not use the ExistingTelephoneNumberOrderType wrapper: %#v", body.Data)
-		}
-		tnl, ok := body.Data["TelephoneNumberList"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("missing top-level TelephoneNumberList: %#v", body.Data)
-		}
-		// number.BuildOrderBody uses a []string even for a single TN — mirror it.
-		got, ok := tnl["TelephoneNumber"].([]string)
-		if !ok || len(got) != 1 || got[0] != "+19195551234" {
-			t.Fatalf("TelephoneNumber = %#v, want []string{\"+19195551234\"}", tnl["TelephoneNumber"])
-		}
-	})
-	t.Run("vcp path omits SiteId", func(t *testing.T) {
-		body := buildQuickstartOrderBody("+19195551234", "")
-		if _, ok := body.Data["SiteId"]; ok {
-			t.Fatalf("vcp order body must not include SiteId: %#v", body.Data)
-		}
-	})
-	t.Run("legacy path scopes to the created sub-account", func(t *testing.T) {
-		body := buildQuickstartOrderBody("+19195551234", "site-9")
-		if body.Data["SiteId"] != "site-9" {
-			t.Fatalf("legacy order body SiteId = %v, want site-9", body.Data["SiteId"])
-		}
-	})
-}
+// Order-body construction now lives in number.BuildOrderBody (SiteId +
+// ExistingTelephoneNumberOrderType wrapper, live-verified) and is covered by
+// cmd/number/number_test.go's TestBuildOrderBody.
 
 func TestFindInMap(t *testing.T) {
 	tests := []struct {

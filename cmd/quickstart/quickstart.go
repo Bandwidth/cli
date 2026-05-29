@@ -6,9 +6,11 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	numbercmd "github.com/Bandwidth/cli/cmd/number"
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/output"
@@ -158,7 +160,13 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 		result.Status = "complete"
 		ui.Successf("Number (existing): %s", ui.ID(existingNum))
 	} else {
-		phoneNumber, err := searchAndOrderNumber(dashClient, acctID, "")
+		// Orders require a sub-account (SiteId), so ensure one exists before ordering.
+		siteID, err := ensureSubaccount(dashClient, acctID, qsName+" Sub-account")
+		if err != nil {
+			return failWithPartial(result, err)
+		}
+		result.SiteID = siteID
+		phoneNumber, err := searchAndOrderNumber(dashClient, acctID, siteID)
 		if err != nil {
 			result.Status = "complete_no_number"
 			ui.Warnf("%v", err)
@@ -166,19 +174,33 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 			result.PhoneNumber = phoneNumber
 			ui.Successf("Number: %s", ui.ID(phoneNumber))
 
-			// Step 4: Assign number to VCP
+			// Step 4: Assign number to VCP. The just-ordered number takes a
+			// moment to become provisionable for voice (the order is async), so
+			// the bulk assign returns VCS-0044 until provisioning catches up.
+			// Retry until it succeeds or we time out.
 			assignSpin := ui.NewSpinner("Assigning number to VCP...")
 			assignSpin.Start()
 			assignBody := map[string]interface{}{
 				"action":       "ADD",
 				"phoneNumbers": []string{phoneNumber},
 			}
-			var assignResp interface{}
-			assignErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
+			var lastAssignErr error
+			_, pollErr := cmdutil.Poll(cmdutil.PollConfig{
+				Interval: 3 * time.Second,
+				Timeout:  90 * time.Second,
+				Check: func() (bool, interface{}, error) {
+					var assignResp interface{}
+					if err := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp); err != nil {
+						lastAssignErr = err // transient while the number provisions
+						return false, nil, nil
+					}
+					return true, assignResp, nil
+				},
+			})
 			assignSpin.Stop()
-			if assignErr != nil {
+			if pollErr != nil {
 				result.PhoneNumber = phoneNumber
-				return failWithPartial(result, fmt.Errorf("assigning number %s to VCP %s: %w", phoneNumber, vcpID, assignErr))
+				return failWithPartial(result, fmt.Errorf("assigning number %s to VCP %s (number may still be provisioning): %w", phoneNumber, vcpID, lastAssignErr))
 			}
 			ui.Successf("Number assigned to VCP")
 			result.Status = "complete"
@@ -399,20 +421,54 @@ func firstAssignedNumber(client *api.Client, acctID, vcpID string) (string, erro
 	return firstE164(resp), nil
 }
 
-// buildQuickstartOrderBody mirrors number.BuildOrderBody — a top-level
-// TelephoneNumberList with no order-type wrapper, exactly like the proven
-// `number order` command. siteID scopes the order to a sub-account on the
-// legacy path; pass "" on the VCP path (no sub-account) to omit SiteId.
-func buildQuickstartOrderBody(phoneNumber, siteID string) api.XMLBody {
-	data := map[string]interface{}{
-		"TelephoneNumberList": map[string]interface{}{
-			"TelephoneNumber": []string{phoneNumber}, // []string, exactly like number.BuildOrderBody
-		},
+// ensureSubaccount finds-or-creates a sub-account AND a default SIP peer
+// (location) in it, returning the site ID. Ordering a number requires both a
+// SiteId AND a default SIP peer on that site — without the peer the orders API
+// fails with code 5020 ("No default SIP peer is set on the account and site").
+// Idempotent: re-running reuses the same named sub-account and location.
+func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
+	// Sub-account (site).
+	siteID, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites", acctID), "Name", name, "Id", "id", "siteId")
+	if err != nil {
+		return "", err
 	}
 	if siteID != "" {
-		data["SiteId"] = siteID
+		ui.Successf("Sub-account (existing): %s", ui.ID(siteID))
+	} else {
+		spin := ui.NewSpinner("Creating sub-account...")
+		spin.Start()
+		var resp interface{}
+		body := api.XMLBody{RootElement: "Site", Data: map[string]interface{}{"Name": name}}
+		err = client.Post(fmt.Sprintf("/accounts/%s/sites", acctID), body, &resp)
+		spin.Stop()
+		if err != nil {
+			return "", fmt.Errorf("creating sub-account: %w", err)
+		}
+		siteID = extractIDFromResponse(resp, "Id", "id", "siteId")
+		ui.Successf("Sub-account: %s", ui.ID(siteID))
 	}
-	return api.XMLBody{RootElement: "Order", Data: data}
+
+	// Default SIP peer (location) — required for ordering (avoids code 5020).
+	peerName := name + " Location"
+	existingPeer, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), "PeerName", peerName, "PeerId", "Id", "id")
+	if err != nil {
+		return "", err
+	}
+	if existingPeer != "" {
+		ui.Successf("Location (existing): %s", ui.ID(existingPeer))
+	} else {
+		spin := ui.NewSpinner("Creating default location...")
+		spin.Start()
+		var resp interface{}
+		body := api.XMLBody{RootElement: "SipPeer", Data: map[string]interface{}{"PeerName": peerName, "IsDefaultPeer": "true"}}
+		err = client.Post(fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), body, &resp)
+		spin.Stop()
+		if err != nil {
+			return "", fmt.Errorf("creating default location: %w", err)
+		}
+		ui.Successf("Location: %s", ui.ID(extractIDFromResponse(resp, "PeerId", "Id", "id")))
+	}
+	return siteID, nil
 }
 
 func searchAndOrderNumber(client *api.Client, acctID, siteID string) (string, error) {
@@ -433,7 +489,8 @@ func searchAndOrderNumber(client *api.Client, acctID, siteID string) (string, er
 	orderSpin := ui.NewSpinner(fmt.Sprintf("Ordering %s...", phoneNumber))
 	orderSpin.Start()
 	var orderResp interface{}
-	orderBody := buildQuickstartOrderBody(phoneNumber, siteID)
+	// Reuse the shared, live-verified order body (SiteId + ExistingTelephoneNumberOrderType).
+	orderBody := api.XMLBody{RootElement: "Order", Data: numbercmd.BuildOrderBody(siteID, []string{phoneNumber})}
 	orderErr := client.Post(fmt.Sprintf("/accounts/%s/orders", acctID), orderBody, &orderResp)
 	orderSpin.Stop()
 	if orderErr != nil {
