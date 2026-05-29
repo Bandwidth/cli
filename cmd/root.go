@@ -204,7 +204,11 @@ func showAccountHint(cmd *cobra.Command) {
 
 	// Show environment when the user operates across multiple environments
 	// or is on a non-default one. Customers with only prod don't need the noise.
+	// Honor the --environment flag override so the hint matches actual routing.
 	env := p.Environment
+	if cmdutil.EnvironmentOverride != "" {
+		env = cmdutil.EnvironmentOverride
+	}
 	if env == "" {
 		env = "prod"
 	}
