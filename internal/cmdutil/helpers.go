@@ -41,18 +41,18 @@ func voiceHostForEnvironment(env string) string {
 	}
 }
 
-// messagingHostForEnvironment maps an environment name to its Messaging API host.
-// Non-production environments can be overridden with BW_MESSAGING_URL.
-func messagingHostForEnvironment(env string) string {
+// messagingHost returns the Messaging API base host. The Bandwidth Messaging
+// API is PRODUCTION-ONLY — there is no public test/sandbox host, so unlike the
+// api/voice clients it does NOT vary by --environment. (Confirmed against all
+// six Bandwidth SDKs, which define only the prod server, and internal docs: UAT
+// shares the prod entry point, and messaging is tested with test
+// accounts/numbers rather than a separate host.) BW_MESSAGING_URL overrides the
+// base URL for local proxies or the internal lab environment.
+func messagingHost() string {
 	if v := os.Getenv("BW_MESSAGING_URL"); v != "" {
 		return strings.TrimRight(v, "/")
 	}
-	switch env {
-	case "test", "uat":
-		return "https://test.messaging.bandwidth.com"
-	default:
-		return "https://messaging.bandwidth.com"
-	}
+	return "https://messaging.bandwidth.com"
 }
 
 // loadConfigAndAuth loads the config, retrieves the client secret, and returns
@@ -194,10 +194,12 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 }
 
 // MessagingClient returns a client for the Bandwidth Messaging API v2.
+// Messaging is production-only (see messagingHost), so the environment from
+// authenticate is intentionally ignored for host selection.
 func MessagingClient(accountIDOverride string) (*api.Client, string, error) {
-	tm, acctID, env, err := authenticate(accountIDOverride)
+	tm, acctID, _, err := authenticate(accountIDOverride)
 	if err != nil {
 		return nil, "", err
 	}
-	return api.NewClient(messagingHostForEnvironment(env)+"/api/v2", tm), acctID, nil
+	return api.NewClient(messagingHost()+"/api/v2", tm), acctID, nil
 }

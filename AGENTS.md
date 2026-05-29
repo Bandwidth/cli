@@ -79,7 +79,7 @@ This is stderr only — it won't break piped output parsing.
 | `BW_ENVIRONMENT` | API environment: `prod` (default), `test` |
 | `BW_API_URL` | Override API base URL (overrides environment-based default) |
 | `BW_VOICE_URL` | Override Voice API base URL (overrides environment-based default) |
-| `BW_MESSAGING_URL` | Override Messaging API base URL (overrides environment-based default) |
+| `BW_MESSAGING_URL` | Override Messaging API base URL. Messaging is production-only — `--environment test` does NOT change the host (no test messaging endpoint exists); only this override does. |
 | `BW_FORMAT` | Output format override |
 
 **Config file location:** `~/.config/band/config.json` (XDG). Falls back to `~/.band/config.json` if the XDG path doesn't exist.
