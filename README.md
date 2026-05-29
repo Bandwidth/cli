@@ -498,6 +498,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `BW_FORMAT` | Default output format |
 | `BW_API_URL` | Override the API base URL |
 | `BW_VOICE_URL` | Override the Voice API base URL |
+| `BW_MESSAGING_URL` | Override the Messaging API base URL (for testing or local proxies) |
 
 ---
 

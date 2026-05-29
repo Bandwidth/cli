@@ -41,6 +41,20 @@ func voiceHostForEnvironment(env string) string {
 	}
 }
 
+// messagingHostForEnvironment maps an environment name to its Messaging API host.
+// Non-production environments can be overridden with BW_MESSAGING_URL.
+func messagingHostForEnvironment(env string) string {
+	if v := os.Getenv("BW_MESSAGING_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	switch env {
+	case "test", "uat":
+		return "https://test.messaging.bandwidth.com"
+	default:
+		return "https://messaging.bandwidth.com"
+	}
+}
+
 // loadConfigAndAuth loads the config, retrieves the client secret, and returns
 // everything needed to build an API client.
 func loadConfigAndAuth() (*config.Config, *config.Profile, string, error) {
@@ -178,5 +192,9 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 
 // MessagingClient returns a client for the Bandwidth Messaging API v2.
 func MessagingClient(accountIDOverride string) (*api.Client, string, error) {
-	return BuildClient("https://messaging.bandwidth.com/api/v2", accountIDOverride)
+	tm, acctID, env, err := authenticate(accountIDOverride)
+	if err != nil {
+		return nil, "", err
+	}
+	return api.NewClient(messagingHostForEnvironment(env)+"/api/v2", tm), acctID, nil
 }
