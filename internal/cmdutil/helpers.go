@@ -11,7 +11,24 @@ import (
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/auth"
 	"github.com/Bandwidth/cli/internal/config"
+	"github.com/Bandwidth/cli/internal/ui"
 )
+
+// EnvironmentOverride, when non-empty, overrides the profile/BW_ENVIRONMENT
+// environment used for host selection. It is set from the --environment
+// persistent flag by the root command's PersistentPreRun. Flag beats
+// BW_ENVIRONMENT beats profile config (matching how --account-id overrides).
+var EnvironmentOverride string
+
+// resolveEnvironment applies EnvironmentOverride (the --environment flag) on top
+// of the profile-derived environment (which already includes any BW_ENVIRONMENT
+// overlay).
+func resolveEnvironment(profileEnv string) string {
+	if EnvironmentOverride != "" {
+		return EnvironmentOverride
+	}
+	return profileEnv
+}
 
 // apiHostForEnvironment maps an environment name to its API host.
 // Non-production environments can be overridden with BW_API_URL.
@@ -128,9 +145,10 @@ func authenticate(accountIDOverride string) (*auth.TokenManager, string, string,
 		return nil, "", "", err
 	}
 
-	apiHost := apiHostForEnvironment(p.Environment)
+	env := resolveEnvironment(p.Environment)
+	apiHost := apiHostForEnvironment(env)
 	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHost)
-	return tm, acctID, p.Environment, nil
+	return tm, acctID, env, nil
 }
 
 // BuildClient returns an authenticated JSON API client.
@@ -193,13 +211,27 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 	return api.NewClient(apiHostForEnvironment(env), tm), acctID, nil
 }
 
+// messagingProdOnlyWarning returns a user warning when env is a non-production
+// environment, because the Bandwidth Messaging API is production-only (there is
+// no test host). Returns "" when no warning is needed.
+func messagingProdOnlyWarning(env string) string {
+	if env == "test" || env == "uat" {
+		return "Bandwidth Messaging has no test environment — this request uses PRODUCTION regardless of --environment. Sends are real and billable."
+	}
+	return ""
+}
+
 // MessagingClient returns a client for the Bandwidth Messaging API v2.
-// Messaging is production-only (see messagingHost), so the environment from
-// authenticate is intentionally ignored for host selection.
+// Messaging is production-only (see messagingHost) — the host never varies by
+// --environment. When env is test or uat, a warning is printed to stderr because
+// sends are real and billable.
 func MessagingClient(accountIDOverride string) (*api.Client, string, error) {
-	tm, acctID, _, err := authenticate(accountIDOverride)
+	tm, acctID, env, err := authenticate(accountIDOverride)
 	if err != nil {
 		return nil, "", err
+	}
+	if w := messagingProdOnlyWarning(env); w != "" {
+		ui.Warnf("%s", w)
 	}
 	return api.NewClient(messagingHost()+"/api/v2", tm), acctID, nil
 }

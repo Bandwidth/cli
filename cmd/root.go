@@ -9,6 +9,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/config"
 	"github.com/Bandwidth/cli/internal/ui"
 	versionpkg "github.com/Bandwidth/cli/internal/version"
@@ -50,6 +51,11 @@ var rootCmd = &cobra.Command{
 	Short: "Bandwidth CLI — manage voice, messaging, numbers, and more from the command line",
 	Long:  "The official Bandwidth CLI. Build and debug voice applications, send messages, manage phone numbers, and control calls.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Wire the --environment flag into host/environment resolution.
+		if environment != "" {
+			cmdutil.EnvironmentOverride = environment
+		}
+
 		// Kick off version check in background so it doesn't slow down the command.
 		updateResult = make(chan *versionpkg.CheckResult, 1)
 		go func() {

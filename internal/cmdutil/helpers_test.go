@@ -65,6 +65,35 @@ func TestMessagingHost_BW_MESSAGING_URL_TrailingSlash(t *testing.T) {
 	}
 }
 
+func TestResolveEnvironment(t *testing.T) {
+	t.Run("no override returns profile env", func(t *testing.T) {
+		EnvironmentOverride = ""
+		if got := resolveEnvironment("prod"); got != "prod" {
+			t.Errorf("got %q, want prod", got)
+		}
+	})
+	t.Run("override wins over profile env", func(t *testing.T) {
+		EnvironmentOverride = "test"
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		if got := resolveEnvironment("prod"); got != "test" {
+			t.Errorf("got %q, want test", got)
+		}
+	})
+}
+
+func TestMessagingProdOnlyWarning(t *testing.T) {
+	for _, env := range []string{"test", "uat"} {
+		if messagingProdOnlyWarning(env) == "" {
+			t.Errorf("expected a warning for env %q", env)
+		}
+	}
+	for _, env := range []string{"", "prod", "staging"} {
+		if messagingProdOnlyWarning(env) != "" {
+			t.Errorf("expected NO warning for env %q, got one", env)
+		}
+	}
+}
+
 func TestAPIHostForEnvironment(t *testing.T) {
 	tests := []struct {
 		name string
