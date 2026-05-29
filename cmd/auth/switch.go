@@ -3,9 +3,9 @@ package auth
 import (
 	"bufio"
 	"fmt"
+	"github.com/spf13/cobra"
 	"os"
 	"strings"
-	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/config"

@@ -68,12 +68,12 @@ func runNumbers(cmd *cobra.Command, args []string) error {
 }
 
 var numberGetCmd = &cobra.Command{
-	Use:   "number <phoneNumber>",
-	Short: "Get 10DLC registration details for a phone number",
-	Long:  "Shows the 10DLC registration status, campaign assignment, and brand for a specific phone number.",
+	Use:     "number <phoneNumber>",
+	Short:   "Get 10DLC registration details for a phone number",
+	Long:    "Shows the 10DLC registration status, campaign assignment, and brand for a specific phone number.",
 	Example: `  band tendlc number +19195551234`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runNumberGet,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runNumberGet,
 }
 
 func runNumberGet(cmd *cobra.Command, args []string) error {

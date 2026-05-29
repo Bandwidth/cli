@@ -180,4 +180,3 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 func MessagingClient(accountIDOverride string) (*api.Client, string, error) {
 	return BuildClient("https://messaging.bandwidth.com/api/v2", accountIDOverride)
 }
-

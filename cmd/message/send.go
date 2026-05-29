@@ -61,14 +61,14 @@ var sendCmd = &cobra.Command{
 
 // SendOpts holds the parameters for sending a message.
 type SendOpts struct {
-	To          []string
-	From        string
-	Text        string
-	Media       []string
-	AppID       string
-	Tag         string
-	Priority    string
-	Expiration  string
+	To         []string
+	From       string
+	Text       string
+	Media      []string
+	AppID      string
+	Tag        string
+	Priority   string
+	Expiration string
 }
 
 // ValidateSendOpts validates the send options before making the API call.
