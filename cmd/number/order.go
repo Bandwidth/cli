@@ -12,32 +12,41 @@ import (
 )
 
 var (
-	orderWait    bool
-	orderTimeout time.Duration
+	orderWait       bool
+	orderTimeout    time.Duration
+	orderSubaccount string
 )
 
 func init() {
+	orderCmd.Flags().StringVar(&orderSubaccount, "subaccount", "", "Sub-account ID to order the number(s) into (required; see `band subaccount list`)")
 	orderCmd.Flags().BoolVar(&orderWait, "wait", false, "Wait until the ordered number(s) appear in service")
 	orderCmd.Flags().DurationVar(&orderTimeout, "timeout", 30*time.Second, "Maximum time to wait (default 30s)")
+	_ = orderCmd.MarkFlagRequired("subaccount")
 	Cmd.AddCommand(orderCmd)
 }
 
 var orderCmd = &cobra.Command{
 	Use:   "order [number...]",
 	Short: "Order one or more phone numbers",
-	Long:  "Orders one or more phone numbers from a search result. Use --wait to block until the numbers are active.",
-	Example: `  band number order +19195551234
-  band number order +19195551234 +19195551235
-  band number order +19195551234 --wait --timeout 30s`,
+	Long:  "Orders one or more phone numbers (from a search result) into a sub-account. The Bandwidth orders API requires a sub-account, so --subaccount is required. Use --wait to block until the numbers are active.",
+	Example: `  band number order +19195551234 --subaccount 152681
+  band number order +19195551234 +19195551235 --subaccount 152681
+  band number order +19195551234 --subaccount 152681 --wait --timeout 30s`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runOrder,
 }
 
-// BuildOrderBody builds the XML request body for ordering phone numbers.
-func BuildOrderBody(numbers []string) map[string]interface{} {
+// BuildOrderBody builds the XML request body for ordering existing (available)
+// phone numbers into a sub-account. The Bandwidth orders API requires the
+// ExistingTelephoneNumberOrderType wrapper and a SiteId (sub-account); omitting
+// either fails (bare TelephoneNumberList → HTTP 500; missing SiteId → 5022).
+func BuildOrderBody(siteID string, numbers []string) map[string]interface{} {
 	return map[string]interface{}{
-		"TelephoneNumberList": map[string]interface{}{
-			"TelephoneNumber": numbers,
+		"SiteId": siteID,
+		"ExistingTelephoneNumberOrderType": map[string]interface{}{
+			"TelephoneNumberList": map[string]interface{}{
+				"TelephoneNumber": numbers,
+			},
 		},
 	}
 }
@@ -48,7 +57,7 @@ func runOrder(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	bodyData := BuildOrderBody(args)
+	bodyData := BuildOrderBody(orderSubaccount, args)
 
 	var result interface{}
 	if err := client.Post(fmt.Sprintf("/accounts/%s/orders", acctID), api.XMLBody{RootElement: "Order", Data: bodyData}, &result); err != nil {
