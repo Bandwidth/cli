@@ -27,9 +27,14 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// The disconnects API requires the DisconnectTelephoneNumberOrderType
+	// wrapper around the TelephoneNumberList; omitting it fails with 5001
+	// ("Invalid input telephone number list").
 	bodyData := map[string]interface{}{
-		"TelephoneNumberList": map[string]interface{}{
-			"TelephoneNumber": []string{args[0]},
+		"DisconnectTelephoneNumberOrderType": map[string]interface{}{
+			"TelephoneNumberList": map[string]interface{}{
+				"TelephoneNumber": []string{args[0]},
+			},
 		},
 	}
 
