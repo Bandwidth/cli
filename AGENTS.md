@@ -203,7 +203,7 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 ### Quickstart
 
-- **Agents should not use `band quickstart`.** It creates real resources that cost money (orders a phone number), doesn't support `--if-not-exists` (running it twice creates duplicate resources and orders a second number), doesn't return structured output for each step, and can't be partially retried if it fails midway. Use the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section instead.
+- **Agents should prefer the step-by-step provisioning workflows over `band quickstart`.** Quickstart creates real resources that cost money (it orders a phone number). The default (VCP) path is idempotent — re-running reuses existing resources via find-or-create and will not order a second number — and on failure it prints the resource IDs created so far (`status: partial`, see below) so a re-run can resume. The `--legacy` path is NOT idempotent (re-running it may order an additional number). Because quickstart bundles several steps behind one command, prefer the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section when you need per-step structured output or fine-grained control.
 
 - **`band quickstart` output `status` values** (VCP path only — `--legacy` is not idempotent):
   - `complete` — all resources created and number assigned; ready to use.
