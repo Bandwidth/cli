@@ -121,7 +121,7 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 	ui.Successf("VCP: %s", ui.ID(vcpID))
 
 	// Step 3: Search and order a number
-	phoneNumber, err := searchAndOrderNumber(dashClient, acctID)
+	phoneNumber, err := searchAndOrderNumber(dashClient, acctID, "")
 	if err != nil {
 		result.Status = "complete_no_number"
 		ui.Warnf("%v", err)
@@ -226,7 +226,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 	ui.Successf("Application: %s", ui.ID(appID))
 
 	// Step 4: Search and order a number
-	phoneNumber, err := searchAndOrderNumber(client, acctID)
+	phoneNumber, err := searchAndOrderNumber(client, acctID, siteID)
 	if err != nil {
 		result.Status = "complete_no_number"
 		ui.Warnf("%v", err)
@@ -247,7 +247,23 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 	return printResult(result)
 }
 
-func searchAndOrderNumber(client *api.Client, acctID string) (string, error) {
+// buildQuickstartOrderBody mirrors number.BuildOrderBody — a top-level
+// TelephoneNumberList with no order-type wrapper, exactly like the proven
+// `number order` command. siteID scopes the order to a sub-account on the
+// legacy path; pass "" on the VCP path (no sub-account) to omit SiteId.
+func buildQuickstartOrderBody(phoneNumber, siteID string) api.XMLBody {
+	data := map[string]interface{}{
+		"TelephoneNumberList": map[string]interface{}{
+			"TelephoneNumber": []string{phoneNumber}, // []string, exactly like number.BuildOrderBody
+		},
+	}
+	if siteID != "" {
+		data["SiteId"] = siteID
+	}
+	return api.XMLBody{RootElement: "Order", Data: data}
+}
+
+func searchAndOrderNumber(client *api.Client, acctID, siteID string) (string, error) {
 	searchSpin := ui.NewSpinner(fmt.Sprintf("Searching for number in area code %s...", qsAreaCode))
 	searchSpin.Start()
 	var searchResp interface{}
@@ -265,17 +281,7 @@ func searchAndOrderNumber(client *api.Client, acctID string) (string, error) {
 	orderSpin := ui.NewSpinner(fmt.Sprintf("Ordering %s...", phoneNumber))
 	orderSpin.Start()
 	var orderResp interface{}
-	orderBody := api.XMLBody{
-		RootElement: "Order",
-		Data: map[string]interface{}{
-			"ExistingTelephoneNumberOrderType": map[string]interface{}{
-				"TelephoneNumberList": map[string]interface{}{
-					"TelephoneNumber": phoneNumber,
-				},
-			},
-			"SiteId": acctID, // orders need a site ID; for VCP path this may need adjustment
-		},
-	}
+	orderBody := buildQuickstartOrderBody(phoneNumber, siteID)
 	orderErr := client.Post(fmt.Sprintf("/accounts/%s/orders", acctID), orderBody, &orderResp)
 	orderSpin.Stop()
 	if orderErr != nil {
