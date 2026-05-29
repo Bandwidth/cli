@@ -172,14 +172,17 @@ func DashboardClient(accountIDOverride string) (*api.Client, string, error) {
 	return api.NewXMLClient(apiHostForEnvironment(env)+"/api/v2", tm), acctID, nil
 }
 
-// VoiceClient returns a client for the Bandwidth Voice API v2.
-func VoiceClient(accountIDOverride string) (*api.Client, string, error) {
+func voiceClient(accountIDOverride string) (api.Requester, string, error) {
 	tm, acctID, env, err := authenticate(accountIDOverride)
 	if err != nil {
 		return nil, "", err
 	}
 	return api.NewClient(voiceHostForEnvironment(env)+"/api/v2", tm), acctID, nil
 }
+
+// VoiceClient returns a client for the Bandwidth Voice API v2.
+// It is a var so tests can substitute a fake that implements api.Requester.
+var VoiceClient ClientFunc = voiceClient
 
 // PlatformClient creates a JSON API client for Universal Platform v2 endpoints (e.g. VCP).
 func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
