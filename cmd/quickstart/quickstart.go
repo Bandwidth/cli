@@ -3,12 +3,15 @@ package quickstart
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
+	"github.com/Bandwidth/cli/internal/output"
 	"github.com/Bandwidth/cli/internal/ui"
 )
 
@@ -26,7 +29,12 @@ var Cmd = &cobra.Command{
 	Long: `Quickstart creates everything you need to make voice calls.
 
 By default, it uses the Universal Platform path (VCP). If your account
-is on the legacy platform, use --legacy for the sub-account/location path.`,
+is on the legacy platform, use --legacy for the sub-account/location path.
+
+Re-running quickstart is safe on the default (VCP) path: existing resources
+are reused and a second number is never ordered. NOTE: re-running --legacy
+may order an additional paid number because legacy number ordering is not
+idempotent; prefer the default VCP path, which is.`,
 	Example: `  # Universal Platform (default)
   band quickstart --callback-url https://example.com/voice
 
@@ -77,75 +85,105 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 
 	result := quickstartResult{CallbackURL: qsCallbackURL, Path: "vcp"}
 
-	// Step 1: Create voice application
-	appSpin := ui.NewSpinner("Creating voice application...")
-	appSpin.Start()
-	var appResp interface{}
-	appBody := api.XMLBody{
-		RootElement: "Application",
-		Data: map[string]interface{}{
-			"ServiceType":              "Voice-V2",
-			"AppName":                  qsName + " App",
-			"CallInitiatedCallbackUrl": qsCallbackURL,
-		},
-	}
-	appErr := dashClient.Post(fmt.Sprintf("/accounts/%s/applications", acctID), appBody, &appResp)
-	appSpin.Stop()
-	if appErr != nil {
-		// If voice app creation fails with 409, suggest --legacy
-		fmt.Fprintf(os.Stderr, "\nVoice application creation failed. If this is a legacy account, try:\n")
-		fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
-		return fmt.Errorf("creating voice application: %w", appErr)
-	}
-	appID := extractIDFromResponse(appResp, "ApplicationId", "applicationId")
-	result.AppID = appID
-	ui.Successf("Application: %s", ui.ID(appID))
-
-	// Step 2: Create VCP linked to the app
-	vcpSpin := ui.NewSpinner("Creating Voice Configuration Package...")
-	vcpSpin.Start()
-	var vcpResp interface{}
-	vcpBody := map[string]interface{}{
-		"name":                     qsName + " VCP",
-		"httpVoiceV2ApplicationId": appID,
-	}
-	vcpErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), vcpBody, &vcpResp)
-	vcpSpin.Stop()
-	if vcpErr != nil {
-		fmt.Fprintf(os.Stderr, "\nVCP creation failed. If this is a legacy account, try:\n")
-		fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
-		return fmt.Errorf("creating VCP: %w", vcpErr)
-	}
-	vcpID := extractIDFromResponse(vcpResp, "voiceConfigurationPackageId")
-	result.VCPID = vcpID
-	ui.Successf("VCP: %s", ui.ID(vcpID))
-
-	// Step 3: Search and order a number
-	phoneNumber, err := searchAndOrderNumber(dashClient, acctID, "")
+	// Step 1: Create voice application (idempotent: reuse if already exists)
+	appName := qsName + " App"
+	existingApp, err := findExistingID(dashClient, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
 	if err != nil {
-		result.Status = "complete_no_number"
-		ui.Warnf("%v", err)
+		return failWithPartial(result, err)
+	}
+	result.AppID = existingApp
+	if result.AppID != "" {
+		ui.Successf("Application (existing): %s", ui.ID(result.AppID))
 	} else {
-		result.PhoneNumber = phoneNumber
-		ui.Successf("Number: %s", ui.ID(phoneNumber))
-
-		// Step 4: Assign number to VCP
-		assignSpin := ui.NewSpinner("Assigning number to VCP...")
-		assignSpin.Start()
-		assignBody := map[string]interface{}{
-			"action":       "ADD",
-			"phoneNumbers": []string{phoneNumber},
+		appSpin := ui.NewSpinner("Creating voice application...")
+		appSpin.Start()
+		var appResp interface{}
+		appBody := api.XMLBody{
+			RootElement: "Application",
+			Data: map[string]interface{}{
+				"ServiceType":              "Voice-V2",
+				"AppName":                  appName,
+				"CallInitiatedCallbackUrl": qsCallbackURL,
+			},
 		}
-		var assignResp interface{}
-		assignErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
-		assignSpin.Stop()
-		if assignErr != nil {
-			ui.Warnf("Failed to assign number to VCP: %v", assignErr)
-		} else {
-			ui.Successf("Number assigned to VCP")
+		appErr := dashClient.Post(fmt.Sprintf("/accounts/%s/applications", acctID), appBody, &appResp)
+		appSpin.Stop()
+		if appErr != nil {
+			// If voice app creation fails with 409, suggest --legacy
+			fmt.Fprintf(os.Stderr, "\nVoice application creation failed. If this is a legacy account, try:\n")
+			fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
+			return failWithPartial(result, fmt.Errorf("creating voice application: %w", appErr))
 		}
+		result.AppID = extractIDFromResponse(appResp, "ApplicationId", "applicationId")
+		ui.Successf("Application: %s", ui.ID(result.AppID))
+	}
+	appID := result.AppID
 
+	// Step 2: Create VCP linked to the app (idempotent: reuse if already exists)
+	vcpName := qsName + " VCP"
+	existingVCP, err := findExistingID(platClient, fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), "name", vcpName, "voiceConfigurationPackageId")
+	if err != nil {
+		return failWithPartial(result, err)
+	}
+	result.VCPID = existingVCP
+	if result.VCPID != "" {
+		ui.Successf("VCP (existing): %s", ui.ID(result.VCPID))
+	} else {
+		vcpSpin := ui.NewSpinner("Creating Voice Configuration Package...")
+		vcpSpin.Start()
+		var vcpResp interface{}
+		vcpBody := map[string]interface{}{
+			"name":                     vcpName,
+			"httpVoiceV2ApplicationId": appID,
+		}
+		vcpErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), vcpBody, &vcpResp)
+		vcpSpin.Stop()
+		if vcpErr != nil {
+			fmt.Fprintf(os.Stderr, "\nVCP creation failed. If this is a legacy account, try:\n")
+			fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
+			return failWithPartial(result, fmt.Errorf("creating VCP: %w", vcpErr))
+		}
+		result.VCPID = extractIDFromResponse(vcpResp, "voiceConfigurationPackageId")
+		ui.Successf("VCP: %s", ui.ID(result.VCPID))
+	}
+	vcpID := result.VCPID
+
+	// Step 3: Search and order a number (idempotent: skip if VCP already has one)
+	existingNum, err := firstAssignedNumber(platClient, acctID, vcpID)
+	if err != nil {
+		return failWithPartial(result, err)
+	}
+	if existingNum != "" {
+		result.PhoneNumber = existingNum
 		result.Status = "complete"
+		ui.Successf("Number (existing): %s", ui.ID(existingNum))
+	} else {
+		phoneNumber, err := searchAndOrderNumber(dashClient, acctID, "")
+		if err != nil {
+			result.Status = "complete_no_number"
+			ui.Warnf("%v", err)
+		} else {
+			result.PhoneNumber = phoneNumber
+			ui.Successf("Number: %s", ui.ID(phoneNumber))
+
+			// Step 4: Assign number to VCP
+			assignSpin := ui.NewSpinner("Assigning number to VCP...")
+			assignSpin.Start()
+			assignBody := map[string]interface{}{
+				"action":       "ADD",
+				"phoneNumbers": []string{phoneNumber},
+			}
+			var assignResp interface{}
+			assignErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
+			assignSpin.Stop()
+			if assignErr != nil {
+				ui.Warnf("Failed to assign number to VCP: %v", assignErr)
+			} else {
+				ui.Successf("Number assigned to VCP")
+			}
+
+			result.Status = "complete"
+		}
 	}
 
 	fmt.Fprintln(os.Stderr, "")
@@ -167,65 +205,103 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 
 	result := quickstartResult{CallbackURL: qsCallbackURL, Path: "legacy"}
 
-	// Step 1: Create sub-account
-	siteSpin := ui.NewSpinner("Creating sub-account...")
-	siteSpin.Start()
-	var siteResp interface{}
-	siteBody := api.XMLBody{
-		RootElement: "Site",
-		Data:        map[string]interface{}{"Name": qsName + " Sub-account"},
+	// Step 1: Create sub-account (idempotent: reuse if already exists)
+	siteName := qsName + " Sub-account"
+	existingSite, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites", acctID), "Name", siteName, "Id", "id", "siteId")
+	if err != nil {
+		return failWithPartial(result, err)
 	}
-	siteErr := client.Post(fmt.Sprintf("/accounts/%s/sites", acctID), siteBody, &siteResp)
-	siteSpin.Stop()
-	if siteErr != nil {
-		return fmt.Errorf("creating sub-account: %w", siteErr)
+	var siteID string
+	if existingSite != "" {
+		result.SiteID = existingSite
+		siteID = existingSite
+		ui.Successf("Sub-account (existing): %s", ui.ID(existingSite))
+	} else {
+		siteSpin := ui.NewSpinner("Creating sub-account...")
+		siteSpin.Start()
+		var siteResp interface{}
+		siteBody := api.XMLBody{
+			RootElement: "Site",
+			Data:        map[string]interface{}{"Name": siteName},
+		}
+		siteErr := client.Post(fmt.Sprintf("/accounts/%s/sites", acctID), siteBody, &siteResp)
+		siteSpin.Stop()
+		if siteErr != nil {
+			return failWithPartial(result, fmt.Errorf("creating sub-account: %w", siteErr))
+		}
+		siteID = extractIDFromResponse(siteResp, "Id", "id", "siteId")
+		result.SiteID = siteID
+		ui.Successf("Sub-account: %s", ui.ID(siteID))
 	}
-	siteID := extractIDFromResponse(siteResp, "Id", "id", "siteId")
-	result.SiteID = siteID
-	ui.Successf("Sub-account: %s", ui.ID(siteID))
 
-	// Step 2: Create SIP peer
-	sipSpin := ui.NewSpinner("Creating location...")
-	sipSpin.Start()
-	var sipResp interface{}
-	sipBody := api.XMLBody{
-		RootElement: "SipPeer",
-		Data: map[string]interface{}{
-			"PeerName":      qsName + " Location",
-			"IsDefaultPeer": "true",
-		},
+	// Step 2: Create SIP peer / location (idempotent: reuse if already exists)
+	peerName := qsName + " Location"
+	existingPeer, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), "PeerName", peerName, "PeerId", "Id", "id")
+	if err != nil {
+		return failWithPartial(result, err)
 	}
-	sipErr := client.Post(fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), sipBody, &sipResp)
-	sipSpin.Stop()
-	if sipErr != nil {
-		return fmt.Errorf("creating location: %w", sipErr)
+	if existingPeer != "" {
+		result.SIPPeerID = existingPeer
+		ui.Successf("Location (existing): %s", ui.ID(existingPeer))
+	} else {
+		sipSpin := ui.NewSpinner("Creating location...")
+		sipSpin.Start()
+		var sipResp interface{}
+		sipBody := api.XMLBody{
+			RootElement: "SipPeer",
+			Data: map[string]interface{}{
+				"PeerName":      peerName,
+				"IsDefaultPeer": "true",
+			},
+		}
+		sipErr := client.Post(fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), sipBody, &sipResp)
+		sipSpin.Stop()
+		if sipErr != nil {
+			return failWithPartial(result, fmt.Errorf("creating location: %w", sipErr))
+		}
+		result.SIPPeerID = extractIDFromResponse(sipResp, "PeerId", "Id", "id")
+		ui.Successf("Location: %s", ui.ID(result.SIPPeerID))
 	}
-	sipPeerID := extractIDFromResponse(sipResp, "PeerId", "Id", "id")
-	result.SIPPeerID = sipPeerID
-	ui.Successf("Location: %s", ui.ID(sipPeerID))
 
-	// Step 3: Create voice application
-	appSpin := ui.NewSpinner("Creating voice application...")
-	appSpin.Start()
-	var appResp interface{}
-	appBody := api.XMLBody{
-		RootElement: "Application",
-		Data: map[string]interface{}{
-			"ServiceType":              "Voice-V2",
-			"AppName":                  qsName + " App",
-			"CallInitiatedCallbackUrl": qsCallbackURL,
-		},
+	// Step 3: Create voice application (idempotent: reuse if already exists)
+	appName := qsName + " App"
+	existingApp, err := findExistingID(client, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
+	if err != nil {
+		return failWithPartial(result, err)
 	}
-	appErr := client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), appBody, &appResp)
-	appSpin.Stop()
-	if appErr != nil {
-		return fmt.Errorf("creating application: %w", appErr)
+	result.AppID = existingApp
+	if result.AppID != "" {
+		ui.Successf("Application (existing): %s", ui.ID(result.AppID))
+	} else {
+		appSpin := ui.NewSpinner("Creating voice application...")
+		appSpin.Start()
+		var appResp interface{}
+		appBody := api.XMLBody{
+			RootElement: "Application",
+			Data: map[string]interface{}{
+				"ServiceType":              "Voice-V2",
+				"AppName":                  appName,
+				"CallInitiatedCallbackUrl": qsCallbackURL,
+			},
+		}
+		appErr := client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), appBody, &appResp)
+		appSpin.Stop()
+		if appErr != nil {
+			return failWithPartial(result, fmt.Errorf("creating application: %w", appErr))
+		}
+		result.AppID = extractIDFromResponse(appResp, "ApplicationId", "applicationId")
+		ui.Successf("Application: %s", ui.ID(result.AppID))
 	}
-	appID := extractIDFromResponse(appResp, "ApplicationId", "applicationId")
-	result.AppID = appID
-	ui.Successf("Application: %s", ui.ID(appID))
+	appID := result.AppID
 
-	// Step 4: Search and order a number
+	// Step 4: Search and order a number.
+	// TODO: Legacy number ordering cannot be made idempotent here because there is no
+	// sub-account-scoped in-service TN listing endpoint. The account-wide /tns endpoint
+	// (used by number.fetchAccountNumbers) would wrongly skip ordering on accounts that
+	// already have unrelated numbers assigned to different sub-accounts. Close this TODO
+	// if Bandwidth exposes a sub-account-scoped in-service TN endpoint, or if
+	// number.fetchAccountNumbers is exported and a heuristic is deemed acceptable.
+	ui.Warnf("Note: the legacy number-ordering step is not idempotent — each time you re-run quickstart --legacy, another number may be ordered. The default (VCP) path does not have this limitation.")
 	phoneNumber, err := searchAndOrderNumber(client, acctID, siteID)
 	if err != nil {
 		result.Status = "complete_no_number"
@@ -245,6 +321,83 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 	}
 
 	return printResult(result)
+}
+
+// failWithPartial prints the partial result (so created resource IDs aren't
+// lost) and returns the wrapped error. Re-running quickstart reuses those
+// resources via the idempotency checks.
+func failWithPartial(result quickstartResult, err error) error {
+	result.Status = "partial"
+	_ = printResult(result)
+	return err
+}
+
+// findExistingID lists resources at listPath and returns the id of the first
+// whose nameField matches name (or "" if none). It FAILS CLOSED: a list error
+// is returned to the caller rather than swallowed, because quickstart spends
+// money — a transient list failure must NOT cause us to create a duplicate.
+func findExistingID(client *api.Client, listPath, nameField, name string, idKeys ...string) (string, error) {
+	var resp interface{}
+	if err := client.Get(listPath, &resp); err != nil {
+		return "", fmt.Errorf("checking for existing resource at %s: %w", listPath, err)
+	}
+	match := output.FindByName(resp, nameField, name)
+	if match == nil {
+		return "", nil
+	}
+	return extractIDFromResponse(match, idKeys...), nil
+}
+
+var e164Re = regexp.MustCompile(`^\+?\d{10,15}$`)
+
+// phoneKeyRe matches JSON keys that may hold a phone number (number, phoneNumber).
+// It can also match keys like orderNumber, but those won't contain E.164 values
+// in the VCP phoneNumbers/voice response, so firstE164 still picks the right one.
+var phoneKeyRe = regexp.MustCompile(`(?i)(phone)?number`)
+
+// firstE164 walks a decoded response and returns the first value that looks
+// like an E.164 phone number, preferring phone-number-looking keys before a
+// field-agnostic fallback. Account IDs are <10 digits and won't match e164Re.
+func firstE164(v interface{}) string {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		for k, child := range x { // prefer phone-number-looking keys
+			if phoneKeyRe.MatchString(k) {
+				if s, ok := child.(string); ok && e164Re.MatchString(s) {
+					return s
+				}
+			}
+		}
+		for _, child := range x { // field-agnostic fallback
+			if s := firstE164(child); s != "" {
+				return s
+			}
+		}
+	case []interface{}:
+		for _, item := range x {
+			if s := firstE164(item); s != "" {
+				return s
+			}
+		}
+	case string:
+		if e164Re.MatchString(x) {
+			return x
+		}
+	}
+	return ""
+}
+
+// firstAssignedNumber returns the first phone number already assigned to vcpID.
+// It FAILS CLOSED: a list error is returned, not swallowed, so the caller does
+// NOT order a duplicate paid number on a transient failure. Endpoint confirmed
+// from cmd/vcp/numbers.go.
+func firstAssignedNumber(client *api.Client, acctID, vcpID string) (string, error) {
+	var resp interface{}
+	path := fmt.Sprintf("/v2/accounts/%s/phoneNumbers/voice?voiceConfigurationPackageId=%s", acctID, url.QueryEscape(vcpID))
+	if err := client.Get(path, &resp); err != nil {
+		return "", fmt.Errorf("checking existing VCP numbers for %s: %w", vcpID, err)
+	}
+	return firstE164(resp), nil
 }
 
 // buildQuickstartOrderBody mirrors number.BuildOrderBody — a top-level
