@@ -205,6 +205,11 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 - **Agents should not use `band quickstart`.** It creates real resources that cost money (orders a phone number), doesn't support `--if-not-exists` (running it twice creates duplicate resources and orders a second number), doesn't return structured output for each step, and can't be partially retried if it fails midway. Use the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section instead.
 
+- **`band quickstart` output `status` values** (VCP path only — `--legacy` is not idempotent):
+  - `complete` — all resources created and number assigned; ready to use.
+  - `complete_no_number` — resources created but no number was available in the requested area code; re-run with `--area-code` to try a different code.
+  - `partial` — quickstart stopped after a failure but printed the resource IDs it created so far (app, VCP, and possibly an ordered phone number). Re-running quickstart reuses those resources via idempotency checks. If the assignment specifically failed, the ordered number is included in the partial output under `phoneNumber` so it isn't lost.
+
 ---
 
 ## Timeout Recovery

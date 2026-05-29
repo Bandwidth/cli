@@ -177,11 +177,10 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 			assignErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
 			assignSpin.Stop()
 			if assignErr != nil {
-				ui.Warnf("Failed to assign number to VCP: %v", assignErr)
-			} else {
-				ui.Successf("Number assigned to VCP")
+				result.PhoneNumber = phoneNumber
+				return failWithPartial(result, fmt.Errorf("assigning number %s to VCP %s: %w", phoneNumber, vcpID, assignErr))
 			}
-
+			ui.Successf("Number assigned to VCP")
 			result.Status = "complete"
 		}
 	}
