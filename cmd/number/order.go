@@ -1,6 +1,7 @@
 package number
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/output"
+	"github.com/Bandwidth/cli/internal/ui"
 )
 
 var (
@@ -98,6 +100,16 @@ func runOrder(cmd *cobra.Command, args []string) error {
 		},
 	})
 	if err != nil {
+		// The order itself already succeeded; --wait only verifies that the
+		// number reaches in-service. If this credential can't list numbers
+		// (lacks the Numbers role → FeatureLimitError), don't report that as a
+		// failure — surface the successful order and note we couldn't verify.
+		var fle *cmdutil.FeatureLimitError
+		if errors.As(err, &fle) {
+			ui.Warnf("Order placed, but in-service status can't be verified with this credential (it lacks the Numbers role for listing). Check the Bandwidth dashboard, or re-run without --wait.")
+			format, plain := cmdutil.OutputFlags(cmd)
+			return output.StdoutAuto(format, plain, result)
+		}
 		return err
 	}
 
