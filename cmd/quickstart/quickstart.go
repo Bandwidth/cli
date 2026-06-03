@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -29,7 +28,7 @@ func assignErrIsRetryable(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return true // transport/unknown error — treat as transient
 	}
-	if apiErr.StatusCode == 429 || apiErr.StatusCode >= 500 {
+	if apiErr.StatusCode == 429 || apiErr.StatusCode == 422 || apiErr.StatusCode >= 500 {
 		return true
 	}
 	return apiErr.StatusCode == 400 && strings.Contains(apiErr.Error(), "VCS-0044")
@@ -394,56 +393,31 @@ func findExistingID(client *api.Client, listPath, nameField, name string, idKeys
 	return extractIDFromResponse(match, idKeys...), nil
 }
 
-var e164Re = regexp.MustCompile(`^\+?\d{10,15}$`)
-
-// phoneKeyRe matches JSON keys that may hold a phone number (number, phoneNumber).
-// It can also match keys like orderNumber, but those won't contain E.164 values
-// in the VCP phoneNumbers/voice response, so firstE164 still picks the right one.
-var phoneKeyRe = regexp.MustCompile(`(?i)(phone)?number`)
-
-// firstE164 walks a decoded response and returns the first value that looks
-// like an E.164 phone number, preferring phone-number-looking keys before a
-// field-agnostic fallback. Account IDs are <10 digits and won't match e164Re.
-func firstE164(v interface{}) string {
-	switch x := v.(type) {
-	case map[string]interface{}:
-		for k, child := range x { // prefer phone-number-looking keys
-			if phoneKeyRe.MatchString(k) {
-				if s, ok := child.(string); ok && e164Re.MatchString(s) {
-					return s
-				}
-			}
-		}
-		for _, child := range x { // field-agnostic fallback
-			if s := firstE164(child); s != "" {
-				return s
-			}
-		}
-	case []interface{}:
-		for _, item := range x {
-			if s := firstE164(item); s != "" {
-				return s
-			}
-		}
-	case string:
-		if e164Re.MatchString(x) {
-			return x
-		}
-	}
-	return ""
-}
-
-// firstAssignedNumber returns the first phone number already assigned to vcpID.
-// It FAILS CLOSED: a list error is returned, not swallowed, so the caller does
-// NOT order a duplicate paid number on a transient failure. Endpoint confirmed
-// from cmd/vcp/numbers.go.
+// firstAssignedNumber returns the first phone number already assigned to vcpID,
+// reading the explicit `phoneNumber` field rather than sniffing for any numeric
+// value. It FAILS CLOSED: a list error is returned, not swallowed, so the caller
+// does NOT order a duplicate paid number on a transient failure. The
+// voiceConfigurationPackageId filter is honored server-side (verified live), and
+// the response shape is {"data":[{"phoneNumber":"+1...", ...}], ...}.
 func firstAssignedNumber(client *api.Client, acctID, vcpID string) (string, error) {
 	var resp interface{}
 	path := fmt.Sprintf("/v2/accounts/%s/phoneNumbers/voice?voiceConfigurationPackageId=%s", acctID, url.QueryEscape(vcpID))
 	if err := client.Get(path, &resp); err != nil {
 		return "", fmt.Errorf("checking existing VCP numbers for %s: %w", vcpID, err)
 	}
-	return firstE164(resp), nil
+	// FlattenResponse unwraps the {data, links, errors, page} envelope to the data array.
+	list, ok := output.FlattenResponse(resp).([]interface{})
+	if !ok {
+		return "", nil
+	}
+	for _, item := range list {
+		if m, ok := item.(map[string]interface{}); ok {
+			if pn, ok := m["phoneNumber"].(string); ok && pn != "" {
+				return pn, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // ensureSubaccount finds-or-creates a sub-account AND a default SIP peer

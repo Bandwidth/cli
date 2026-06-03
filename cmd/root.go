@@ -51,10 +51,10 @@ var rootCmd = &cobra.Command{
 	Short: "Bandwidth CLI — manage voice, messaging, numbers, and more from the command line",
 	Long:  "The official Bandwidth CLI. Build and debug voice applications, send messages, manage phone numbers, and control calls.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Wire the --environment flag into host/environment resolution.
-		if environment != "" {
-			cmdutil.EnvironmentOverride = environment
-		}
+		// Wire the --environment flag into host/environment resolution. Set
+		// unconditionally (empty when the flag is absent) so a value never
+		// leaks across invocations in a long-lived/multi-command process.
+		cmdutil.EnvironmentOverride = environment
 
 		// Kick off version check in background so it doesn't slow down the command.
 		updateResult = make(chan *versionpkg.CheckResult, 1)

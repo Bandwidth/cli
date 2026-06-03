@@ -18,6 +18,7 @@ func TestAssignErrIsRetryable(t *testing.T) {
 		{"401 auth", &api.APIError{StatusCode: 401, Body: ""}, false},
 		{"403 forbidden", &api.APIError{StatusCode: 403, Body: ""}, false},
 		{"404 not found", &api.APIError{StatusCode: 404, Body: ""}, false},
+		{"422 unprocessable (not ready)", &api.APIError{StatusCode: 422, Body: ""}, true},
 		{"429 rate limited", &api.APIError{StatusCode: 429, Body: ""}, true},
 		{"500 server error", &api.APIError{StatusCode: 500, Body: ""}, true},
 		{"transport error", errors.New("connection reset"), true},

@@ -68,15 +68,32 @@ func TestMessagingHost_BW_MESSAGING_URL_TrailingSlash(t *testing.T) {
 func TestResolveEnvironment(t *testing.T) {
 	t.Run("no override returns profile env", func(t *testing.T) {
 		EnvironmentOverride = ""
-		if got := resolveEnvironment("prod"); got != "prod" {
-			t.Errorf("got %q, want prod", got)
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "prod" {
+			t.Errorf("got %q, err %v; want prod, nil", got, err)
 		}
 	})
 	t.Run("override wins over profile env", func(t *testing.T) {
 		EnvironmentOverride = "test"
 		t.Cleanup(func() { EnvironmentOverride = "" })
-		if got := resolveEnvironment("prod"); got != "test" {
-			t.Errorf("got %q, want test", got)
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "test" {
+			t.Errorf("got %q, err %v; want test, nil", got, err)
+		}
+	})
+	t.Run("normalizes case and whitespace", func(t *testing.T) {
+		EnvironmentOverride = "  TEST "
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "test" {
+			t.Errorf("got %q, err %v; want test, nil", got, err)
+		}
+	})
+	t.Run("unknown env is an error (no silent prod fall-through)", func(t *testing.T) {
+		EnvironmentOverride = "staging"
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		if _, err := resolveEnvironment("prod"); err == nil {
+			t.Error("expected error for unknown env, got nil")
 		}
 	})
 }

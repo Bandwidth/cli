@@ -22,12 +22,20 @@ var EnvironmentOverride string
 
 // resolveEnvironment applies EnvironmentOverride (the --environment flag) on top
 // of the profile-derived environment (which already includes any BW_ENVIRONMENT
-// overlay).
-func resolveEnvironment(profileEnv string) string {
+// overlay), normalizes case/whitespace, and validates it. An unrecognized value
+// is an error rather than a silent fall-through to production.
+func resolveEnvironment(profileEnv string) (string, error) {
+	env := profileEnv
 	if EnvironmentOverride != "" {
-		return EnvironmentOverride
+		env = EnvironmentOverride
 	}
-	return profileEnv
+	env = strings.ToLower(strings.TrimSpace(env))
+	switch env {
+	case "", "prod", "test", "uat":
+		return env, nil
+	default:
+		return "", fmt.Errorf("unknown environment %q (expected one of: prod, test, uat)", env)
+	}
 }
 
 // apiHostForEnvironment maps an environment name to its API host.
@@ -145,7 +153,10 @@ func authenticate(accountIDOverride string) (*auth.TokenManager, string, string,
 		return nil, "", "", err
 	}
 
-	env := resolveEnvironment(p.Environment)
+	env, err := resolveEnvironment(p.Environment)
+	if err != nil {
+		return nil, "", "", err
+	}
 	apiHost := apiHostForEnvironment(env)
 	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHost)
 	return tm, acctID, env, nil
@@ -213,25 +224,38 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 
 // messagingProdOnlyWarning returns a user warning when env is a non-production
 // environment, because the Bandwidth Messaging API is production-only (there is
-// no test host). Returns "" when no warning is needed.
+// no test host). Worded to be accurate for any messaging command (not just
+// sends). Returns "" when no warning is needed.
 func messagingProdOnlyWarning(env string) string {
 	if env == "test" || env == "uat" {
-		return "Bandwidth Messaging has no test environment — this request uses PRODUCTION regardless of --environment. Sends are real and billable."
+		return "Bandwidth Messaging has no test environment — this request hits PRODUCTION regardless of --environment (any sends are real and billable)."
 	}
 	return ""
 }
 
 // MessagingClient returns a client for the Bandwidth Messaging API v2.
-// Messaging is production-only (see messagingHost) — the host never varies by
-// --environment. When env is test or uat, a warning is printed to stderr because
-// sends are real and billable.
+// Messaging is production-only (see messagingHost): the host never varies by
+// --environment, and — critically — the OAuth token is minted against the PROD
+// API host too. authenticate() would mint the token against the test realm
+// under --environment test, and a test-realm token is rejected by the prod
+// messaging endpoint, so we build the token manager directly here.
 func MessagingClient(accountIDOverride string) (*api.Client, string, error) {
-	tm, acctID, env, err := authenticate(accountIDOverride)
+	cfg, p, clientSecret, err := loadConfigAndAuth()
+	if err != nil {
+		return nil, "", err
+	}
+	acctID, err := resolveAccountID(cfg, p, accountIDOverride)
+	if err != nil {
+		return nil, "", err
+	}
+	env, err := resolveEnvironment(p.Environment)
 	if err != nil {
 		return nil, "", err
 	}
 	if w := messagingProdOnlyWarning(env); w != "" {
 		ui.Warnf("%s", w)
 	}
+	// Always mint the token against prod (apiHostForEnvironment("prod")).
+	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHostForEnvironment("prod"))
 	return api.NewClient(messagingHost()+"/api/v2", tm), acctID, nil
 }
