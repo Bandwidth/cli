@@ -138,7 +138,7 @@ Search for available numbers, then order one:
 
 ```sh
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --wait
+band number order +19195551234 --subaccount <subaccount-id> --wait
 ```
 
 The `--wait` flag blocks until the number is active, so you don't have to poll.
@@ -294,7 +294,7 @@ A fresh UP account typically has one sub-account and one location already create
 ```sh
 band number list                                              # list your numbers
 band number search --area-code 919 --quantity 5               # search available numbers
-band number order +19195551234 --wait                         # order (blocks until active)
+band number order +19195551234 --subaccount <subaccount-id> --wait                         # order (blocks until active)
 band number activate +19195551234 --voice-inbound --wait      # turn on inbound voice
 band number release +19195551234                              # release a number
 ```
@@ -347,7 +347,7 @@ band subaccount create --name "My Subaccount"
 band location create --subaccount <subaccount-id> --name "My Location"
 band app create --name "My Voice App" --type voice --callback-url https://your-server.example.com/callbacks
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --wait
+band number order +19195551234 --subaccount <subaccount-id> --wait
 ```
 
 Sub-accounts (formerly known as sites) are the top-level container. Locations (formerly known as SIP peers) sit inside sub-accounts and define where numbers get routed. The flow is: sub-account → location → application → number.

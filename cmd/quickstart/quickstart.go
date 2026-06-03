@@ -2,10 +2,12 @@ package quickstart
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,6 +18,22 @@ import (
 	"github.com/Bandwidth/cli/internal/output"
 	"github.com/Bandwidth/cli/internal/ui"
 )
+
+// assignErrIsRetryable reports whether a failed VCP number-assignment is worth
+// retrying. The just-ordered number provisions asynchronously, so the bulk
+// assign returns VCS-0044 (HTTP 400) until it's ready — that, plus rate limits,
+// 5xx, and transport errors, are transient. Auth/validation/not-found errors
+// (other 4xx) are not retryable and should fail fast.
+func assignErrIsRetryable(err error) bool {
+	var apiErr *api.APIError
+	if !errors.As(err, &apiErr) {
+		return true // transport/unknown error — treat as transient
+	}
+	if apiErr.StatusCode == 429 || apiErr.StatusCode >= 500 {
+		return true
+	}
+	return apiErr.StatusCode == 400 && strings.Contains(apiErr.Error(), "VCS-0044")
+}
 
 var (
 	qsCallbackURL string
@@ -190,17 +208,24 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 				Timeout:  90 * time.Second,
 				Check: func() (bool, interface{}, error) {
 					var assignResp interface{}
-					if err := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp); err != nil {
-						lastAssignErr = err // transient while the number provisions
-						return false, nil, nil
+					err := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
+					if err == nil {
+						return true, assignResp, nil
 					}
-					return true, assignResp, nil
+					lastAssignErr = err
+					if assignErrIsRetryable(err) {
+						return false, nil, nil // number still provisioning — keep polling
+					}
+					return false, nil, err // non-retryable (bad request/auth) — fail fast
 				},
 			})
 			assignSpin.Stop()
 			if pollErr != nil {
 				result.PhoneNumber = phoneNumber
-				return failWithPartial(result, fmt.Errorf("assigning number %s to VCP %s (number may still be provisioning): %w", phoneNumber, vcpID, lastAssignErr))
+				// pollErr is ErrPollTimeout on timeout (maps to exit 5) or the
+				// fail-fast error otherwise; keep it as %w and surface the last
+				// attempt as context. Tell the user how to finish manually.
+				return failWithPartial(result, fmt.Errorf("assigning number %s to VCP %s (last attempt: %v) — finish with: band vcp assign %s %s: %w", phoneNumber, vcpID, lastAssignErr, vcpID, phoneNumber, pollErr))
 			}
 			ui.Successf("Number assigned to VCP")
 			result.Status = "complete"

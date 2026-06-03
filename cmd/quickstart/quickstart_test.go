@@ -1,8 +1,35 @@
 package quickstart
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/Bandwidth/cli/internal/api"
 )
+
+func TestAssignErrIsRetryable(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"VCS-0044 (number provisioning)", &api.APIError{StatusCode: 400, Body: `{"errors":[{"code":"VCS-0044"}]}`}, true},
+		{"plain 400", &api.APIError{StatusCode: 400, Body: "bad request"}, false},
+		{"401 auth", &api.APIError{StatusCode: 401, Body: ""}, false},
+		{"403 forbidden", &api.APIError{StatusCode: 403, Body: ""}, false},
+		{"404 not found", &api.APIError{StatusCode: 404, Body: ""}, false},
+		{"429 rate limited", &api.APIError{StatusCode: 429, Body: ""}, true},
+		{"500 server error", &api.APIError{StatusCode: 500, Body: ""}, true},
+		{"transport error", errors.New("connection reset"), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := assignErrIsRetryable(c.err); got != c.want {
+				t.Errorf("assignErrIsRetryable(%v) = %v, want %v", c.err, got, c.want)
+			}
+		})
+	}
+}
 
 func TestExtractIDFromResponse(t *testing.T) {
 	tests := []struct {

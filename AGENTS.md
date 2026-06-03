@@ -142,7 +142,7 @@ All read operations (gets, lists, deletes) are safe to retry.
 Use `--wait` to block until completion:
 
 ```bash
-band number order +19195551234 --wait                           # blocks until number is active (30s default)
+band number order +19195551234 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
 band call create --from ... --to ... --wait --timeout 120       # blocks until call completes
 band transcription create <call-id> <rec-id> --wait             # blocks until transcription ready (60s default)
 ```
@@ -203,12 +203,12 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 ### Quickstart
 
-- **Agents should prefer the step-by-step provisioning workflows over `band quickstart`.** Quickstart creates real resources that cost money (it orders a phone number). The default (VCP) path is idempotent — re-running reuses existing resources via find-or-create and will not order a second number — and on failure it prints the resource IDs created so far (`status: partial`, see below) so a re-run can resume. The `--legacy` path is NOT idempotent (re-running it may order an additional number). Because quickstart bundles several steps behind one command, prefer the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section when you need per-step structured output or fine-grained control.
+- **Agents should prefer the step-by-step provisioning workflows over `band quickstart`.** Quickstart creates real resources that cost money (it orders a phone number). The default (VCP) path is idempotent — re-running reuses existing resources via find-or-create and will not order a second number — and on failure it prints the resource IDs created so far (`status: partial`, see below). Re-running reuses the app/VCP/sub-account/location — but a number that was ordered and then failed to assign to the VCP is NOT auto-reassigned; finish it with `band vcp assign <vcp-id> <number>`. The `--legacy` path is NOT idempotent (re-running it may order an additional number). Because quickstart bundles several steps behind one command, prefer the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section when you need per-step structured output or fine-grained control.
 
 - **`band quickstart` output `status` values** (VCP path only — `--legacy` is not idempotent):
   - `complete` — all resources created and number assigned; ready to use.
   - `complete_no_number` — resources created but no number was available in the requested area code; re-run with `--area-code` to try a different code.
-  - `partial` — quickstart stopped after a failure but printed the resource IDs it created so far (app, VCP, and possibly an ordered phone number). Re-running quickstart reuses those resources via idempotency checks. If the assignment specifically failed, the ordered number is included in the partial output under `phoneNumber` so it isn't lost.
+  - `partial` — quickstart stopped after a failure but printed the resource IDs it created so far (app, VCP, sub-account, location, and possibly an ordered phone number). Re-running reuses the app/VCP/sub-account/location via idempotency checks. **Caveat:** if a number was ordered but its VCP assignment failed, the number is printed under `phoneNumber` but is NOT auto-reassigned on re-run (a re-run would order a *new* number) — finish the existing one with `band vcp assign <vcp-id> <phoneNumber>`.
 
 ---
 
@@ -330,7 +330,7 @@ band vcp create --name "Agent VCP" --app-id <app-id> --if-not-exists --plain    
 band number list --plain                                                            # 4. check existing numbers
 # if no numbers:
 band number search --area-code 919 --quantity 1 --plain
-band number order <number> --wait                                                   # 5. order number
+band number order <number> --subaccount <subaccount-id> --wait                                                   # 5. order number
 band vcp assign <vcp-id> <number>                                                   # 6. assign number to VCP
 band number activate <number> --voice-inbound --wait                                # 7. enable inbound voice
 ```
@@ -347,7 +347,7 @@ band app create --name "Agent Voice" --type voice --callback-url <url> --if-not-
 band number list --plain                                                                # 5. check numbers
 # if no numbers:
 band number search --area-code 919 --quantity 1 --plain
-band number order <number> --wait                                                       # 6. order number
+band number order <number> --subaccount <subaccount-id> --wait                                                       # 6. order number
 ```
 
 ### Provision messaging from scratch
