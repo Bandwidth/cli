@@ -133,7 +133,7 @@ band app create --name "My App" --type voice --callback-url <url> --if-not-exist
 band vcp create --name "My VCP" --if-not-exists
 ```
 
-For `number order`, there is no `--if-not-exists` — check `band number list --plain` first.
+`number order` requires `--subaccount <id>` (the orders API needs a sub-account to order into; see `band subaccount list`). There is no `--if-not-exists` — check `band number list --plain` first.
 
 All read operations (gets, lists, deletes) are safe to retry.
 

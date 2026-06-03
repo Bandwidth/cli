@@ -404,7 +404,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | Command | What it does |
 |---------|-------------|
 | `band number search` | Search available numbers by area code |
-| `band number order <number...>` | Order numbers |
+| `band number order <number...> --subaccount <id>` | Order numbers into a sub-account (`--subaccount` required) |
 | `band number get <number>` | Get voice config details (including VCP assignment) |
 | `band number activate <number...>` | Activate voice/messaging services (e.g. enable inbound) |
 | `band number deactivate <number...>` | Deactivate voice/messaging services |
@@ -467,7 +467,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 
 | Command | What it does |
 |---------|-------------|
-| `band quickstart` | One-command setup: creates app, orders number, wires everything up (use `--legacy` for sub-account path) |
+| `band quickstart` | One-command setup: provisions an app + VCP + sub-account/location, orders a number, and assigns it (`--legacy` uses the pre-VCP provisioning path) |
 | `band bxml <verb>` | Generate BXML locally (no auth needed) |
 | `band version` | Print CLI version |
 
