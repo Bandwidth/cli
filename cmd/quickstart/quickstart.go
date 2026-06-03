@@ -105,38 +105,14 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 	result := quickstartResult{CallbackURL: qsCallbackURL, Path: "vcp"}
 
 	// Step 1: Create voice application (idempotent: reuse if already exists)
-	appName := qsName + " App"
-	existingApp, err := findExistingID(dashClient, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
+	appID, err := ensureVoiceApp(dashClient, acctID, qsName+" App", qsCallbackURL)
 	if err != nil {
+		// App provisioning failing often means this is a legacy account.
+		fmt.Fprintf(os.Stderr, "\nVoice application setup failed. If this is a legacy account, try:\n")
+		fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
 		return failWithPartial(result, err)
 	}
-	result.AppID = existingApp
-	if result.AppID != "" {
-		ui.Successf("Application (existing): %s", ui.ID(result.AppID))
-	} else {
-		appSpin := ui.NewSpinner("Creating voice application...")
-		appSpin.Start()
-		var appResp interface{}
-		appBody := api.XMLBody{
-			RootElement: "Application",
-			Data: map[string]interface{}{
-				"ServiceType":              "Voice-V2",
-				"AppName":                  appName,
-				"CallInitiatedCallbackUrl": qsCallbackURL,
-			},
-		}
-		appErr := dashClient.Post(fmt.Sprintf("/accounts/%s/applications", acctID), appBody, &appResp)
-		appSpin.Stop()
-		if appErr != nil {
-			// If voice app creation fails with 409, suggest --legacy
-			fmt.Fprintf(os.Stderr, "\nVoice application creation failed. If this is a legacy account, try:\n")
-			fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
-			return failWithPartial(result, fmt.Errorf("creating voice application: %w", appErr))
-		}
-		result.AppID = extractIDFromResponse(appResp, "ApplicationId", "applicationId")
-		ui.Successf("Application: %s", ui.ID(result.AppID))
-	}
-	appID := result.AppID
+	result.AppID = appID
 
 	// Step 2: Create VCP linked to the app (idempotent: reuse if already exists)
 	vcpName := qsName + " VCP"
@@ -309,35 +285,11 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 	}
 
 	// Step 3: Create voice application (idempotent: reuse if already exists)
-	appName := qsName + " App"
-	existingApp, err := findExistingID(client, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
+	appID, err := ensureVoiceApp(client, acctID, qsName+" App", qsCallbackURL)
 	if err != nil {
 		return failWithPartial(result, err)
 	}
-	result.AppID = existingApp
-	if result.AppID != "" {
-		ui.Successf("Application (existing): %s", ui.ID(result.AppID))
-	} else {
-		appSpin := ui.NewSpinner("Creating voice application...")
-		appSpin.Start()
-		var appResp interface{}
-		appBody := api.XMLBody{
-			RootElement: "Application",
-			Data: map[string]interface{}{
-				"ServiceType":              "Voice-V2",
-				"AppName":                  appName,
-				"CallInitiatedCallbackUrl": qsCallbackURL,
-			},
-		}
-		appErr := client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), appBody, &appResp)
-		appSpin.Stop()
-		if appErr != nil {
-			return failWithPartial(result, fmt.Errorf("creating application: %w", appErr))
-		}
-		result.AppID = extractIDFromResponse(appResp, "ApplicationId", "applicationId")
-		ui.Successf("Application: %s", ui.ID(result.AppID))
-	}
-	appID := result.AppID
+	result.AppID = appID
 
 	// Step 4: Search and order a number.
 	// TODO: Legacy number ordering cannot be made idempotent here because there is no
@@ -468,6 +420,40 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 		ui.Successf("Location: %s", ui.ID(extractIDFromResponse(resp, "PeerId", "Id", "id")))
 	}
 	return siteID, nil
+}
+
+// ensureVoiceApp find-or-creates a Voice-V2 application named appName with the
+// given callback URL and returns its application ID. Idempotent: re-running
+// reuses an existing app with the same name. Shared by both quickstart paths so
+// the app payload can't drift between them.
+func ensureVoiceApp(client *api.Client, acctID, appName, callbackURL string) (string, error) {
+	existing, err := findExistingID(client, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
+	if err != nil {
+		return "", err
+	}
+	if existing != "" {
+		ui.Successf("Application (existing): %s", ui.ID(existing))
+		return existing, nil
+	}
+	spin := ui.NewSpinner("Creating voice application...")
+	spin.Start()
+	var resp interface{}
+	body := api.XMLBody{
+		RootElement: "Application",
+		Data: map[string]interface{}{
+			"ServiceType":              "Voice-V2",
+			"AppName":                  appName,
+			"CallInitiatedCallbackUrl": callbackURL,
+		},
+	}
+	err = client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), body, &resp)
+	spin.Stop()
+	if err != nil {
+		return "", fmt.Errorf("creating voice application: %w", err)
+	}
+	id := extractIDFromResponse(resp, "ApplicationId", "applicationId")
+	ui.Successf("Application: %s", ui.ID(id))
+	return id, nil
 }
 
 func searchAndOrderNumber(client *api.Client, acctID, siteID string) (string, error) {
