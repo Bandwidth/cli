@@ -7,6 +7,8 @@ on:
     branches: [main]
 
 jobs:
+  # Doc/flag correctness is enforced as a hard gate by cmd/doccontract_test.go,
+  # which runs as part of `go test ./...` below.
   test:
     strategy:
       matrix:
@@ -57,35 +59,3 @@ jobs:
 
       - name: Run govulncheck
         run: govulncheck ./...
-
-  docs-check:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check for doc updates
-        run: |
-          BASE=${{ github.event.pull_request.base.sha }}
-          HEAD=${{ github.event.pull_request.head.sha }}
-          CHANGED=$(git diff --name-only "$BASE" "$HEAD")
-
-          CODE_CHANGED=false
-          DOCS_CHANGED=false
-
-          # Check if command surface or flags changed
-          if echo "$CHANGED" | grep -qE '^cmd/|^internal/cmdutil/'; then
-            CODE_CHANGED=true
-          fi
-
-          # Check if any docs were touched
-          if echo "$CHANGED" | grep -qE '^README\.md$|^AGENTS\.md$'; then
-            DOCS_CHANGED=true
-          fi
-
-          if [ "$CODE_CHANGED" = true ] && [ "$DOCS_CHANGED" = false ]; then
-            echo "::warning::Command code changed without documentation updates. If this PR adds, removes, or changes commands/flags, please update README.md and/or AGENTS.md."
-          fi

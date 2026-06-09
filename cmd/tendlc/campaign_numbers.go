@@ -22,12 +22,12 @@ func init() {
 }
 
 var campaignNumbersCmd = &cobra.Command{
-	Use:   "numbers <campaign-id>",
-	Short: "List phone numbers assigned to a campaign",
-	Long:  "Shows all phone numbers associated with a specific 10DLC campaign, including numbers with provisioning errors.",
+	Use:     "numbers <campaign-id>",
+	Short:   "List phone numbers assigned to a campaign",
+	Long:    "Shows all phone numbers associated with a specific 10DLC campaign, including numbers with provisioning errors.",
 	Example: `  band tendlc campaigns numbers CR8HFN0`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runCampaignNumbers,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runCampaignNumbers,
 }
 
 func runCampaignNumbers(cmd *cobra.Command, args []string) error {

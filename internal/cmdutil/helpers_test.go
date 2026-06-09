@@ -41,6 +41,76 @@ func TestVoiceHostForEnvironment_BW_VOICE_URL_TrailingSlash(t *testing.T) {
 	}
 }
 
+func TestMessagingHost(t *testing.T) {
+	// Messaging is production-only — there is no test/sandbox host, so the host
+	// never varies by --environment. Only BW_MESSAGING_URL can override it.
+	t.Run("prod default", func(t *testing.T) {
+		if got := messagingHost(); got != "https://messaging.bandwidth.com" {
+			t.Errorf("messagingHost() = %q, want https://messaging.bandwidth.com", got)
+		}
+	})
+}
+
+func TestMessagingHost_BW_MESSAGING_URL(t *testing.T) {
+	t.Setenv("BW_MESSAGING_URL", "https://custom.messaging.example.com")
+	if got := messagingHost(); got != "https://custom.messaging.example.com" {
+		t.Errorf("messagingHost() with BW_MESSAGING_URL = %q, want override", got)
+	}
+}
+
+func TestMessagingHost_BW_MESSAGING_URL_TrailingSlash(t *testing.T) {
+	t.Setenv("BW_MESSAGING_URL", "http://localhost:8080/")
+	if got := messagingHost(); got != "http://localhost:8080" {
+		t.Errorf("messagingHost() with trailing slash = %q, want without slash", got)
+	}
+}
+
+func TestResolveEnvironment(t *testing.T) {
+	t.Run("no override returns profile env", func(t *testing.T) {
+		EnvironmentOverride = ""
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "prod" {
+			t.Errorf("got %q, err %v; want prod, nil", got, err)
+		}
+	})
+	t.Run("override wins over profile env", func(t *testing.T) {
+		EnvironmentOverride = "test"
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "test" {
+			t.Errorf("got %q, err %v; want test, nil", got, err)
+		}
+	})
+	t.Run("normalizes case and whitespace", func(t *testing.T) {
+		EnvironmentOverride = "  TEST "
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "test" {
+			t.Errorf("got %q, err %v; want test, nil", got, err)
+		}
+	})
+	t.Run("unknown env is an error (no silent prod fall-through)", func(t *testing.T) {
+		EnvironmentOverride = "staging"
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		if _, err := resolveEnvironment("prod"); err == nil {
+			t.Error("expected error for unknown env, got nil")
+		}
+	})
+}
+
+func TestMessagingProdOnlyWarning(t *testing.T) {
+	for _, env := range []string{"test", "uat"} {
+		if messagingProdOnlyWarning(env) == "" {
+			t.Errorf("expected a warning for env %q", env)
+		}
+	}
+	for _, env := range []string{"", "prod", "staging"} {
+		if messagingProdOnlyWarning(env) != "" {
+			t.Errorf("expected NO warning for env %q, got one", env)
+		}
+	}
+}
+
 func TestAPIHostForEnvironment(t *testing.T) {
 	tests := []struct {
 		name string

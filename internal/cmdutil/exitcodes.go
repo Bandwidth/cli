@@ -28,6 +28,9 @@ func ExitCodeForError(err error) int {
 	if err == nil {
 		return ExitOK
 	}
+	if errors.Is(err, ErrPollTimeout) {
+		return ExitTimeout
+	}
 	var fle *FeatureLimitError
 	if errors.As(err, &fle) {
 		return ExitConflict

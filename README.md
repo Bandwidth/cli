@@ -138,7 +138,7 @@ Search for available numbers, then order one:
 
 ```sh
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --wait
+band number order +19195551234 --subaccount <subaccount-id> --wait
 ```
 
 The `--wait` flag blocks until the number is active, so you don't have to poll.
@@ -294,7 +294,7 @@ A fresh UP account typically has one sub-account and one location already create
 ```sh
 band number list                                              # list your numbers
 band number search --area-code 919 --quantity 5               # search available numbers
-band number order +19195551234 --wait                         # order (blocks until active)
+band number order +19195551234 --subaccount <subaccount-id> --wait                         # order (blocks until active)
 band number activate +19195551234 --voice-inbound --wait      # turn on inbound voice
 band number release +19195551234                              # release a number
 ```
@@ -347,7 +347,7 @@ band subaccount create --name "My Subaccount"
 band location create --subaccount <subaccount-id> --name "My Location"
 band app create --name "My Voice App" --type voice --callback-url https://your-server.example.com/callbacks
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --wait
+band number order +19195551234 --subaccount <subaccount-id> --wait
 ```
 
 Sub-accounts (formerly known as sites) are the top-level container. Locations (formerly known as SIP peers) sit inside sub-accounts and define where numbers get routed. The flow is: sub-account → location → application → number.
@@ -404,7 +404,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | Command | What it does |
 |---------|-------------|
 | `band number search` | Search available numbers by area code |
-| `band number order <number...>` | Order numbers |
+| `band number order <number...> --subaccount <id>` | Order numbers into a sub-account (`--subaccount` required) |
 | `band number get <number>` | Get voice config details (including VCP assignment) |
 | `band number activate <number...>` | Activate voice/messaging services (e.g. enable inbound) |
 | `band number deactivate <number...>` | Deactivate voice/messaging services |
@@ -467,7 +467,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 
 | Command | What it does |
 |---------|-------------|
-| `band quickstart` | One-command setup: creates app, orders number, wires everything up (use `--legacy` for sub-account path) |
+| `band quickstart` | One-command setup: provisions an app + VCP + sub-account/location, orders a number, and assigns it (`--legacy` uses the pre-VCP provisioning path) |
 | `band bxml <verb>` | Generate BXML locally (no auth needed) |
 | `band version` | Print CLI version |
 
@@ -498,6 +498,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `BW_FORMAT` | Default output format |
 | `BW_API_URL` | Override the API base URL |
 | `BW_VOICE_URL` | Override the Voice API base URL |
+| `BW_MESSAGING_URL` | Override the Messaging API base URL. Messaging is production-only (no test host), so `--environment`/`BW_ENVIRONMENT` does not change it; use this for local proxies or the internal lab. |
 
 ---
 

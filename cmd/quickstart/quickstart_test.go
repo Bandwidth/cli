@@ -1,8 +1,37 @@
 package quickstart
 
 import (
+	"errors"
+	"strings"
 	"testing"
+
+	"github.com/Bandwidth/cli/internal/api"
 )
+
+func TestAssignErrIsRetryable(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"VCS-0044 (number provisioning)", &api.APIError{StatusCode: 400, Body: `{"errors":[{"code":"VCS-0044"}]}`}, true},
+		{"plain 400", &api.APIError{StatusCode: 400, Body: "bad request"}, false},
+		{"401 auth", &api.APIError{StatusCode: 401, Body: ""}, false},
+		{"403 forbidden", &api.APIError{StatusCode: 403, Body: ""}, false},
+		{"404 not found", &api.APIError{StatusCode: 404, Body: ""}, false},
+		{"422 unprocessable (not ready)", &api.APIError{StatusCode: 422, Body: ""}, true},
+		{"429 rate limited", &api.APIError{StatusCode: 429, Body: ""}, true},
+		{"500 server error", &api.APIError{StatusCode: 500, Body: ""}, true},
+		{"transport error", errors.New("connection reset"), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := assignErrIsRetryable(c.err); got != c.want {
+				t.Errorf("assignErrIsRetryable(%v) = %v, want %v", c.err, got, c.want)
+			}
+		})
+	}
+}
 
 func TestExtractIDFromResponse(t *testing.T) {
 	tests := []struct {
@@ -81,6 +110,28 @@ func TestExtractIDFromResponse(t *testing.T) {
 	}
 }
 
+func TestRequireID(t *testing.T) {
+	t.Run("returns extracted ID", func(t *testing.T) {
+		got, err := requireID(map[string]interface{}{"Id": "site-1"}, "sub-account", "Id")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "site-1" {
+			t.Errorf("got %q, want %q", got, "site-1")
+		}
+	})
+
+	t.Run("errors when no ID key matches", func(t *testing.T) {
+		_, err := requireID(map[string]interface{}{"unrelated": "x"}, "sub-account", "Id", "id")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "sub-account") {
+			t.Errorf("error %q should name the resource", err)
+		}
+	})
+}
+
 func TestExtractPhoneNumber(t *testing.T) {
 	tests := []struct {
 		name string
@@ -127,6 +178,10 @@ func TestExtractPhoneNumber(t *testing.T) {
 		})
 	}
 }
+
+// Order-body construction now lives in number.BuildOrderBody (SiteId +
+// ExistingTelephoneNumberOrderType wrapper, live-verified) and is covered by
+// cmd/number/number_test.go's TestBuildOrderBody.
 
 func TestFindInMap(t *testing.T) {
 	tests := []struct {

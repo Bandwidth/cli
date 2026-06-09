@@ -9,9 +9,18 @@ import (
 )
 
 func TestBuildOrderBody(t *testing.T) {
-	body := BuildOrderBody([]string{"+19195551234", "+19195551235"})
+	body := BuildOrderBody("152681", []string{"+19195551234", "+19195551235"})
 
-	tnList, ok := body["TelephoneNumberList"].(map[string]interface{})
+	// The orders API requires a SiteId and the ExistingTelephoneNumberOrderType
+	// wrapper (a bare top-level TelephoneNumberList returns HTTP 500).
+	if body["SiteId"] != "152681" {
+		t.Errorf("SiteId = %v, want 152681", body["SiteId"])
+	}
+	wrapper, ok := body["ExistingTelephoneNumberOrderType"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing ExistingTelephoneNumberOrderType wrapper")
+	}
+	tnList, ok := wrapper["TelephoneNumberList"].(map[string]interface{})
 	if !ok {
 		t.Fatal("TelephoneNumberList is not a map")
 	}
@@ -31,8 +40,9 @@ func TestBuildOrderBody(t *testing.T) {
 }
 
 func TestBuildOrderBody_SingleNumber(t *testing.T) {
-	body := BuildOrderBody([]string{"+19195551234"})
-	tnList := body["TelephoneNumberList"].(map[string]interface{})
+	body := BuildOrderBody("152681", []string{"+19195551234"})
+	wrapper := body["ExistingTelephoneNumberOrderType"].(map[string]interface{})
+	tnList := wrapper["TelephoneNumberList"].(map[string]interface{})
 	numbers := tnList["TelephoneNumber"].([]string)
 	if len(numbers) != 1 {
 		t.Errorf("expected 1 number, got %d", len(numbers))

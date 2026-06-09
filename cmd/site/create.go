@@ -62,4 +62,3 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	return output.StdoutAuto(format, plain, result)
 }
-

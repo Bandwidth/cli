@@ -49,7 +49,7 @@ After registration, complete account setup in your browser:
   4. Go to Account > API Credentials to generate OAuth2 credentials
   5. Run "band auth login" with those credentials`,
 	Example: `  band account register --phone +19195551234 --email user@example.com --first-name John --last-name Doe`,
-	RunE: runRegister,
+	RunE:    runRegister,
 }
 
 func runRegister(cmd *cobra.Command, args []string) error {

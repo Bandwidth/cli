@@ -107,9 +107,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	var result interface{}
 	if err := client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), api.XMLBody{RootElement: "Application", Data: bodyData}, &result); err != nil {
 		if strings.Contains(err.Error(), "HTTP voice feature is required") {
-			return fmt.Errorf("creating voice application: this account requires the HTTP Voice feature to be enabled.\n"+
-				"Contact Bandwidth support to enable it, or check if your account is on the Universal Platform.\n"+
-				"If you already have VCPs configured, you may need to link a voice app to them via:\n"+
+			return fmt.Errorf("creating voice application: this account requires the HTTP Voice feature to be enabled.\n" +
+				"Contact Bandwidth support to enable it, or check if your account is on the Universal Platform.\n" +
+				"If you already have VCPs configured, you may need to link a voice app to them via:\n" +
 				"  band vcp create --name <name> --app-id <voice-app-id>")
 		}
 		return fmt.Errorf("creating application: %w", err)
@@ -117,4 +117,3 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	return output.StdoutAuto(format, plain, result)
 }
-

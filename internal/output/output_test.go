@@ -387,7 +387,7 @@ func TestFlattenResponse_NumberList(t *testing.T) {
 	input := map[string]interface{}{
 		"TNs": map[string]interface{}{
 			"TelephoneNumbers": map[string]interface{}{
-				"Count": "3",
+				"Count":           "3",
 				"TelephoneNumber": []interface{}{"+19191234567", "+19197654321", "+19190001111"},
 			},
 			"TotalCount": "3",

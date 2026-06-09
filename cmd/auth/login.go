@@ -5,9 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/cobra"
 	"os"
 	"strings"
-	"github.com/spf13/cobra"
 
 	intauth "github.com/Bandwidth/cli/internal/auth"
 	"github.com/Bandwidth/cli/internal/cmdutil"

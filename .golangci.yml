@@ -4,3 +4,7 @@ linters:
   default: standard
   disable:
     - errcheck
+
+formatters:
+  enable:
+    - gofmt

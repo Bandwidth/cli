@@ -12,22 +12,22 @@ import (
 )
 
 var (
-	submitBusinessName    string
-	submitBusinessAddr    string
-	submitBusinessCity    string
-	submitBusinessState   string
-	submitBusinessZip     string
-	submitContactFirst    string
-	submitContactLast     string
-	submitContactEmail    string
-	submitContactPhone    string
-	submitMessageVolume   int
-	submitUseCase         string
-	submitUseCaseSummary  string
-	submitSampleMessage   string
-	submitPrivacyURL      string
-	submitTermsURL        string
-	submitEntityType      string
+	submitBusinessName   string
+	submitBusinessAddr   string
+	submitBusinessCity   string
+	submitBusinessState  string
+	submitBusinessZip    string
+	submitContactFirst   string
+	submitContactLast    string
+	submitContactEmail   string
+	submitContactPhone   string
+	submitMessageVolume  int
+	submitUseCase        string
+	submitUseCaseSummary string
+	submitSampleMessage  string
+	submitPrivacyURL     string
+	submitTermsURL       string
+	submitEntityType     string
 )
 
 func init() {

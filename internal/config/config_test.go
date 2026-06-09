@@ -302,7 +302,7 @@ func TestHasMultipleEnvironments(t *testing.T) {
 		{
 			name: "prod and custom",
 			profiles: map[string]*Profile{
-				"default": {ClientID: "id1", Environment: ""},
+				"default":   {ClientID: "id1", Environment: ""},
 				"secondary": {ClientID: "id2", Environment: "custom"},
 			},
 			want: true,
@@ -310,7 +310,7 @@ func TestHasMultipleEnvironments(t *testing.T) {
 		{
 			name: "test and custom",
 			profiles: map[string]*Profile{
-				"test":  {ClientID: "id1", Environment: "test"},
+				"test":   {ClientID: "id1", Environment: "test"},
 				"custom": {ClientID: "id2", Environment: "custom"},
 			},
 			want: true,
