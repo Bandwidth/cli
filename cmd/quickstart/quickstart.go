@@ -138,7 +138,10 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 			fmt.Fprintf(os.Stderr, "  band quickstart --callback-url %s --legacy\n\n", qsCallbackURL)
 			return failWithPartial(result, fmt.Errorf("creating VCP: %w", vcpErr))
 		}
-		result.VCPID = extractIDFromResponse(vcpResp, "voiceConfigurationPackageId")
+		result.VCPID, err = requireID(vcpResp, "VCP", "voiceConfigurationPackageId")
+		if err != nil {
+			return failWithPartial(result, err)
+		}
 		ui.Successf("VCP: %s", ui.ID(result.VCPID))
 	}
 	vcpID := result.VCPID
@@ -250,7 +253,10 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 		if siteErr != nil {
 			return failWithPartial(result, fmt.Errorf("creating sub-account: %w", siteErr))
 		}
-		siteID = extractIDFromResponse(siteResp, "Id", "id", "siteId")
+		siteID, err = requireID(siteResp, "sub-account", "Id", "id", "siteId")
+		if err != nil {
+			return failWithPartial(result, err)
+		}
 		result.SiteID = siteID
 		ui.Successf("Sub-account: %s", ui.ID(siteID))
 	}
@@ -280,7 +286,10 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 		if sipErr != nil {
 			return failWithPartial(result, fmt.Errorf("creating location: %w", sipErr))
 		}
-		result.SIPPeerID = extractIDFromResponse(sipResp, "PeerId", "Id", "id")
+		result.SIPPeerID, err = requireID(sipResp, "location", "PeerId", "Id", "id")
+		if err != nil {
+			return failWithPartial(result, err)
+		}
 		ui.Successf("Location: %s", ui.ID(result.SIPPeerID))
 	}
 
@@ -395,7 +404,10 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("creating sub-account: %w", err)
 		}
-		siteID = extractIDFromResponse(resp, "Id", "id", "siteId")
+		siteID, err = requireID(resp, "sub-account", "Id", "id", "siteId")
+		if err != nil {
+			return "", err
+		}
 		ui.Successf("Sub-account: %s", ui.ID(siteID))
 	}
 
@@ -417,7 +429,11 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("creating default location: %w", err)
 		}
-		ui.Successf("Location: %s", ui.ID(extractIDFromResponse(resp, "PeerId", "Id", "id")))
+		peerID, err := requireID(resp, "location", "PeerId", "Id", "id")
+		if err != nil {
+			return "", err
+		}
+		ui.Successf("Location: %s", ui.ID(peerID))
 	}
 	return siteID, nil
 }
@@ -451,7 +467,10 @@ func ensureVoiceApp(client *api.Client, acctID, appName, callbackURL string) (st
 	if err != nil {
 		return "", fmt.Errorf("creating voice application: %w", err)
 	}
-	id := extractIDFromResponse(resp, "ApplicationId", "applicationId")
+	id, err := requireID(resp, "voice application", "ApplicationId", "applicationId")
+	if err != nil {
+		return "", err
+	}
 	ui.Successf("Application: %s", ui.ID(id))
 	return id, nil
 }
@@ -489,6 +508,17 @@ func printResult(r quickstartResult) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)
+}
+
+// requireID extracts an ID from a create response and errors if none is found,
+// so a response-shape drift fails here with a clear message instead of as a
+// confusing API error when the empty ID is used in a later request.
+func requireID(resp interface{}, resource string, keys ...string) (string, error) {
+	id := extractIDFromResponse(resp, keys...)
+	if id == "" {
+		return "", fmt.Errorf("%s was created but no ID was found in the API response (tried %s)", resource, strings.Join(keys, ", "))
+	}
+	return id, nil
 }
 
 // extractIDFromResponse walks a response (possibly nested from XML) to find an ID field.

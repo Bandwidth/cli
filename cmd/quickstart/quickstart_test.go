@@ -2,6 +2,7 @@ package quickstart
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/api"
@@ -107,6 +108,28 @@ func TestExtractIDFromResponse(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRequireID(t *testing.T) {
+	t.Run("returns extracted ID", func(t *testing.T) {
+		got, err := requireID(map[string]interface{}{"Id": "site-1"}, "sub-account", "Id")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "site-1" {
+			t.Errorf("got %q, want %q", got, "site-1")
+		}
+	})
+
+	t.Run("errors when no ID key matches", func(t *testing.T) {
+		_, err := requireID(map[string]interface{}{"unrelated": "x"}, "sub-account", "Id", "id")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "sub-account") {
+			t.Errorf("error %q should name the resource", err)
+		}
+	})
 }
 
 func TestExtractPhoneNumber(t *testing.T) {
