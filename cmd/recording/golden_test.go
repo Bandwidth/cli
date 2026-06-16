@@ -44,3 +44,49 @@ func TestRecordingListPlainOutput(t *testing.T) {
 		t.Fatalf("golden mismatch:\n got: %q\nwant: %q", out, want)
 	}
 }
+
+func TestRecordingPauseOutput(t *testing.T) {
+	// No t.Parallel(): these tests mutate the global cmdutil.VoiceClient.
+	orig := cmdutil.VoiceClient
+	t.Cleanup(func() { cmdutil.VoiceClient = orig })
+	cmdutil.VoiceClient = func(string) (api.Requester, string, error) {
+		return &testutil.FakeClient{}, "acct-123", nil
+	}
+
+	root := testutil.NewTestRoot(pauseCmd)
+	root.SetArgs([]string{"pause", "c-abc123"})
+
+	out := testutil.CaptureStdout(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+	})
+
+	want := "Recording paused on call c-abc123.\n"
+	if out != want {
+		t.Fatalf("golden mismatch:\n got: %q\nwant: %q", out, want)
+	}
+}
+
+func TestRecordingResumeOutput(t *testing.T) {
+	// No t.Parallel(): these tests mutate the global cmdutil.VoiceClient.
+	orig := cmdutil.VoiceClient
+	t.Cleanup(func() { cmdutil.VoiceClient = orig })
+	cmdutil.VoiceClient = func(string) (api.Requester, string, error) {
+		return &testutil.FakeClient{}, "acct-123", nil
+	}
+
+	root := testutil.NewTestRoot(resumeCmd)
+	root.SetArgs([]string{"resume", "c-abc123"})
+
+	out := testutil.CaptureStdout(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+	})
+
+	want := "Recording resumed on call c-abc123.\n"
+	if out != want {
+		t.Fatalf("golden mismatch:\n got: %q\nwant: %q", out, want)
+	}
+}
