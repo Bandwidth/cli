@@ -118,6 +118,10 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+func Root() *cobra.Command {
+	return rootCmd
+}
+
 func Execute() error {
 	api.Version = version
 	return rootCmd.Execute()
