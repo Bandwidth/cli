@@ -61,6 +61,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  dispatch-docsite:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint app token for api-specs
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: Bandwidth
+          repositories: api-specs
+
+      - name: Trigger docsite CLI reference update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/Bandwidth/api-specs/dispatches \
+            -f event_type=cli-docs-update \
+            -F client_payload[version]="${{ github.ref_name }}"
+
   bump-formula:
     needs: [release]
     runs-on: ubuntu-latest
