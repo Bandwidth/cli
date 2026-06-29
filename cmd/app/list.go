@@ -16,7 +16,10 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all applications",
-	RunE:  runList,
+	Long:  "Lists all applications on the account, both voice and messaging.",
+	Example: `  band app list
+  band app list --plain`,
+	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {

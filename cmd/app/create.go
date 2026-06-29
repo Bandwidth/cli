@@ -32,6 +32,7 @@ func init() {
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new application",
+	Long:  "Creates a new voice or messaging application. The callback URL receives webhook events for traffic routed through the application. Use --if-not-exists to make the command idempotent, returning the existing application instead of erroring when one with the same name already exists.",
 	Example: `  # Create a voice application
   band app create --name "My Voice App" --type voice --callback-url https://example.com/voice
 

@@ -16,8 +16,10 @@ func init() {
 var deleteCmd = &cobra.Command{
 	Use:   "delete [id]",
 	Short: "Delete an application by ID",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDelete,
+	Long:  "Permanently deletes an application by its ID. This cannot be undone.",
+	Example: `  band app delete abc-123`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runDelete,
 }
 
 func runDelete(cmd *cobra.Command, args []string) error {
