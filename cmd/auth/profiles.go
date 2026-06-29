@@ -17,7 +17,9 @@ func init() {
 var profilesCmd = &cobra.Command{
 	Use:   "profiles",
 	Short: "List all credential profiles",
-	RunE:  runProfiles,
+	Long:  "Lists all configured credential profiles, marking the active one. Each profile holds its own client credentials, account, and environment.",
+	Example: `  band auth profiles`,
+	RunE:    runProfiles,
 }
 
 func runProfiles(cmd *cobra.Command, args []string) error {
@@ -72,8 +74,10 @@ func runProfiles(cmd *cobra.Command, args []string) error {
 var useCmd = &cobra.Command{
 	Use:   "use <profile>",
 	Short: "Switch to a different credential profile",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runUse,
+	Long:  "Switches the active credential profile. Subsequent commands use the selected profile's credentials, account, and environment.",
+	Example: `  band auth use admin`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runUse,
 }
 
 func runUse(cmd *cobra.Command, args []string) error {
