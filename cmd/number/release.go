@@ -17,8 +17,10 @@ func init() {
 var releaseCmd = &cobra.Command{
 	Use:   "release [number]",
 	Short: "Release a phone number",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runRelease,
+	Long:  "Releases (disconnects) a phone number from the account. The number enters an aging period before it becomes available again. This cannot be undone.",
+	Example: `  band number release +19195551234`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runRelease,
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
