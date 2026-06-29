@@ -85,7 +85,17 @@ jobs:
   bump-formula:
     needs: [release]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Get Homebrew tap token from Vault
+        uses: Bandwidth/vault-provider-action@v1
+        with:
+          export-github-pat: true
+          identity-source: repo
+          durable-team-name: BAND SWI
+
       - name: Bump Homebrew formula
         uses: mislav/bump-homebrew-formula-action@v3
         with:
@@ -97,4 +107,4 @@ jobs:
           commit-message: |
             {{formulaName}} {{version}}
         env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          COMMITTER_TOKEN: ${{ env.GITHUB_TEAM_ACCESS_TOKEN }}
