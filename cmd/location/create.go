@@ -28,7 +28,12 @@ func init() {
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new location (SIP peer) under a sub-account",
-	RunE:  runCreate,
+	Long:  "Creates a new location (SIP peer) within the given sub-account. Use --if-not-exists to make the command idempotent, returning the existing location instead of erroring when one with the same name already exists.",
+	Example: `  band location create --site 12345 --name "Primary SIP"
+
+  # Idempotent — safe to re-run
+  band location create --site 12345 --name "Primary SIP" --if-not-exists`,
+	RunE: runCreate,
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {

@@ -21,8 +21,11 @@ func init() {
 var recordCmd = &cobra.Command{
 	Use:   "record",
 	Short: "Generate a Record BXML verb",
-	Args:  cobra.NoArgs,
-	RunE:  runRecord,
+	Long:  "Generates a Response containing a Record verb. Use --url to receive the recording-complete event and --max-duration to limit the recording length in seconds.",
+	Example: `  band bxml record
+  band bxml record --url https://example.com/voice/recorded --max-duration 30`,
+	Args: cobra.NoArgs,
+	RunE: runRecord,
 }
 
 func runRecord(cmd *cobra.Command, args []string) error {

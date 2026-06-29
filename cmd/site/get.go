@@ -17,8 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get [id]",
 	Short: "Get a sub-account by ID",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGet,
+	Long:  "Returns the details of a single sub-account by its numeric ID.",
+	Example: `  band subaccount get 12345
+  band subaccount get 12345 --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

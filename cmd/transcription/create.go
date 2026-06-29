@@ -25,8 +25,14 @@ func init() {
 var createCmd = &cobra.Command{
 	Use:   "create <callId> <recordingId>",
 	Short: "Request a transcription for a recording",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runCreate,
+	Long:  "Requests a transcription for a recording. Transcription runs asynchronously; use --wait to poll until the transcript has content, or fetch it later with 'transcription get'.",
+	Example: `  band transcription create c-123-abc r-456-def
+
+  # Block until the transcript is ready
+  band transcription create c-123-abc r-456-def --wait
+  band transcription create c-123-abc r-456-def --wait --timeout 120s`,
+	Args: cobra.ExactArgs(2),
+	RunE: runCreate,
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {

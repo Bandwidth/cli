@@ -18,8 +18,10 @@ var getCmd = &cobra.Command{
 	Use:   "get [messageId]",
 	Short: "Get message metadata by ID",
 	Long:  "Retrieves metadata for a specific message. Note: Bandwidth does not store message content — only metadata (timestamps, direction, segment count) is returned.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGet,
+	Example: `  band message get 1234567890abcdefghij
+  band message get 1234567890abcdefghij --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

@@ -17,8 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get <callId> <recordingId>",
 	Short: "Get metadata for a specific recording",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runGet,
+	Long:  "Returns metadata for a single recording, including its duration, channels, status, and media URL. Use 'recording download' to fetch the audio itself.",
+	Example: `  band recording get c-123-abc r-456-def
+  band recording get c-123-abc r-456-def --plain`,
+	Args: cobra.ExactArgs(2),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

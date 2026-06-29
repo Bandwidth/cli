@@ -18,6 +18,7 @@ func init() {
 var speakCmd = &cobra.Command{
 	Use:   "speak <text>",
 	Short: "Generate a SpeakSentence BXML verb",
+	Long:  "Generates a Response containing a SpeakSentence verb for the given text. Use --voice to select a specific Bandwidth voice.",
 	Example: `  band bxml speak "Hello, welcome to Bandwidth."
   band bxml speak --voice julie "Press 1 for sales."
   band bxml speak "Goodbye." > hangup.xml`,

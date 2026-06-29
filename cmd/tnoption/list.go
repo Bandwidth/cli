@@ -24,6 +24,7 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List TN Option Orders",
+	Long:  "Lists TN Option Orders for the account. Filter by order status with --status or by phone number with --tn.",
 	Example: `  band tnoption list
   band tnoption list --status COMPLETE
   band tnoption list --tn +19195551234`,

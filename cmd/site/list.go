@@ -16,7 +16,10 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all sub-accounts",
-	RunE:  runList,
+	Long:  "Lists all sub-accounts under the active account.",
+	Example: `  band subaccount list
+  band subaccount list --plain`,
+	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {

@@ -18,10 +18,12 @@ func init() {
 }
 
 var getCmd = &cobra.Command{
-	Use:   "get <mediaId>",
-	Short: "Download a media file",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGet,
+	Use:     "get <mediaId>",
+	Short:   "Download a media file",
+	Long:    "Downloads a media file by its ID and writes it to the given file path.",
+	Example: `  band message media get my-campaign-image.jpg --output image.jpg`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

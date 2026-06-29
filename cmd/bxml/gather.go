@@ -24,8 +24,11 @@ func init() {
 var gatherCmd = &cobra.Command{
 	Use:   "gather",
 	Short: "Generate a Gather BXML verb",
-	Args:  cobra.NoArgs,
-	RunE:  runGather,
+	Long:  "Generates a Response containing a Gather verb that collects DTMF digits and posts them to --url. Use --prompt to speak a message before gathering and --max-digits to cap input length.",
+	Example: `  band bxml gather --url https://example.com/voice/gather
+  band bxml gather --url https://example.com/voice/gather --prompt "Press 1 for sales." --max-digits 1`,
+	Args: cobra.NoArgs,
+	RunE: runGather,
 }
 
 func runGather(cmd *cobra.Command, args []string) error {

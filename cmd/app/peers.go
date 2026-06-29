@@ -17,8 +17,11 @@ func init() {
 var peersCmd = &cobra.Command{
 	Use:   "peers [app-id]",
 	Short: "List SIP peers (locations) associated with an application",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runPeers,
+	Long:  "Lists the SIP peers (locations) associated with an application. Returns an empty list when no peers are associated.",
+	Example: `  band app peers abc-123
+  band app peers abc-123 --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runPeers,
 }
 
 func runPeers(cmd *cobra.Command, args []string) error {

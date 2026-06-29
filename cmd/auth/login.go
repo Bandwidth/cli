@@ -19,6 +19,7 @@ import (
 var Cmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Manage authentication credentials",
+	Long:  "Log in with Bandwidth OAuth2 client credentials, inspect your authentication status, and manage credential profiles and the active account.",
 }
 
 func init() {

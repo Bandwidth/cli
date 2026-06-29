@@ -21,7 +21,10 @@ func init() {
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show current authentication status",
-	RunE:  runStatus,
+	Long:  "Shows the active profile's authentication status, including client ID, active account, environment, and (for Bandwidth Build accounts) capabilities. Use --plain for machine-readable JSON.",
+	Example: `  band auth status
+  band auth status --plain`,
+	RunE: runStatus,
 }
 
 // statusJSON is the structured output shape returned when --plain is set.
