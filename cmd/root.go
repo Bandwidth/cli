@@ -1,3 +1,5 @@
+// Package cmd defines the band CLI's cobra command tree: the root command and
+// every subcommand for voice, messaging, numbers, sub-accounts, and more.
 package cmd
 
 import (
