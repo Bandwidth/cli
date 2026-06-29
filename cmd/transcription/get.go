@@ -17,8 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get <callId> <recordingId>",
 	Short: "Get the transcription for a recording",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runGet,
+	Long:  "Returns the transcription for a recording. The transcript must already have been requested with 'transcription create' and finished processing.",
+	Example: `  band transcription get c-123-abc r-456-def
+  band transcription get c-123-abc r-456-def --plain`,
+	Args: cobra.ExactArgs(2),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

@@ -16,9 +16,11 @@ func init() {
 }
 
 var logoutCmd = &cobra.Command{
-	Use:   "logout",
-	Short: "Log out and remove stored credentials",
-	RunE:  runLogout,
+	Use:     "logout",
+	Short:   "Log out and remove stored credentials",
+	Long:    "Logs out by deleting stored secrets from the system keychain and removing the CLI config file. This affects all profiles, not just the active one.",
+	Example: `  band auth logout`,
+	RunE:    runLogout,
 }
 
 func runLogout(cmd *cobra.Command, args []string) error {

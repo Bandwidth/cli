@@ -17,8 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get [id]",
 	Short: "Get an application by ID",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGet,
+	Long:  "Returns the details of a single application by its ID, including its type and callback configuration.",
+	Example: `  band app get abc-123
+  band app get abc-123 --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

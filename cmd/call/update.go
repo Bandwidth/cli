@@ -19,10 +19,12 @@ func init() {
 }
 
 var updateCmd = &cobra.Command{
-	Use:   "update [callId]",
-	Short: "Redirect an active call to a new URL",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runUpdate,
+	Use:     "update [callId]",
+	Short:   "Redirect an active call to a new URL",
+	Long:    "Redirects an active call to fetch new BXML from the given URL. Bandwidth POSTs to the redirect URL and replaces the call's current instructions with the response.",
+	Example: `  band call update c-123-abc --redirect-url https://example.com/voice/next`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runUpdate,
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {

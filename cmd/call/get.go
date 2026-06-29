@@ -17,8 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get [callId]",
 	Short: "Get the state of a call",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGet,
+	Long:  "Returns the current state and details of a single call, including its direction, endpoints, and timing. Use the callId returned when the call was created.",
+	Example: `  band call get c-123-abc
+  band call get c-123-abc --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

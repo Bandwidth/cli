@@ -17,8 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get <vcp-id>",
 	Short: "Get a Voice Configuration Package",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGet,
+	Long:  "Returns the details of a single Voice Configuration Package by its ID.",
+	Example: `  band vcp get abc-123-def
+  band vcp get abc-123-def --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGet,
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

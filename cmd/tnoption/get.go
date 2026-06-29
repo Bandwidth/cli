@@ -16,6 +16,7 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:     "get <orderId>",
 	Short:   "Get the status of a TN Option Order",
+	Long:    "Returns the status and details of a single TN Option Order by its order ID.",
 	Example: `  band tnoption get ddbdc72e-dc27-490c-904e-d0c11291b095`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runGet,
