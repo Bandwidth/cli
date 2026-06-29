@@ -16,8 +16,10 @@ func init() {
 var deleteCmd = &cobra.Command{
 	Use:   "delete <vcp-id>",
 	Short: "Delete a Voice Configuration Package",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDelete,
+	Long:  "Permanently deletes a Voice Configuration Package by its ID. This cannot be undone.",
+	Example: `  band vcp delete abc-123-def`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runDelete,
 }
 
 func runDelete(cmd *cobra.Command, args []string) error {
