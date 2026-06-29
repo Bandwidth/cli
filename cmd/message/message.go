@@ -10,6 +10,7 @@ import (
 var Cmd = &cobra.Command{
 	Use:   "message",
 	Short: "Send and manage SMS/MMS messages",
+	Long:  "Send SMS and MMS messages, look up message metadata, and manage the media files used in MMS. Delivery is asynchronous — status arrives via webhook callbacks on your messaging application.",
 }
 
 func init() {

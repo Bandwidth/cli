@@ -16,7 +16,10 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List uploaded media files",
-	RunE:  runList,
+	Long:  "Lists the media files uploaded to the account's media store.",
+	Example: `  band message media list
+  band message media list --plain`,
+	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {
