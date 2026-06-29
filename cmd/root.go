@@ -1,3 +1,5 @@
+// Package cmd defines the band CLI's cobra command tree: the root command and
+// every subcommand for voice, messaging, numbers, sub-accounts, and more.
 package cmd
 
 import (
@@ -116,6 +118,10 @@ var versionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("band version %s\n", version)
 	},
+}
+
+func Root() *cobra.Command {
+	return rootCmd
 }
 
 func Execute() error {
