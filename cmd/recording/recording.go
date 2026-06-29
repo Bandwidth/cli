@@ -6,4 +6,5 @@ import "github.com/spf13/cobra"
 var Cmd = &cobra.Command{
 	Use:   "recording",
 	Short: "Manage call recordings",
+	Long:  "List, inspect, download, and delete recordings produced by voice calls. Recordings are tied to the call that created them, so most commands take a callId.",
 }

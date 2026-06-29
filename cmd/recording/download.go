@@ -21,8 +21,10 @@ func init() {
 var downloadCmd = &cobra.Command{
 	Use:   "download <callId> <recordingId>",
 	Short: "Download a recording to a file",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runDownload,
+	Long:  "Downloads a recording's audio media and writes it to the given file path. The file is written owner-only (0600) since recordings may contain sensitive call audio.",
+	Example: `  band recording download c-123-abc r-456-def --output recording.wav`,
+	Args:    cobra.ExactArgs(2),
+	RunE:    runDownload,
 }
 
 func runDownload(cmd *cobra.Command, args []string) error {
