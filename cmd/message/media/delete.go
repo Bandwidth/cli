@@ -14,9 +14,9 @@ func init() {
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete <mediaId>",
-	Short: "Delete a media file",
-	Long:  "Permanently deletes a media file by its ID. Any MMS that still references its URL will no longer be able to fetch it.",
+	Use:     "delete <mediaId>",
+	Short:   "Delete a media file",
+	Long:    "Permanently deletes a media file by its ID. Any MMS that still references its URL will no longer be able to fetch it.",
 	Example: `  band message media delete my-campaign-image.jpg`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runDelete,

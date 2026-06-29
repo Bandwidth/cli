@@ -14,9 +14,9 @@ func init() {
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete <callId> <recordingId>",
-	Short: "Delete a recording",
-	Long:  "Permanently deletes a recording's metadata and media. This cannot be undone.",
+	Use:     "delete <callId> <recordingId>",
+	Short:   "Delete a recording",
+	Long:    "Permanently deletes a recording's metadata and media. This cannot be undone.",
 	Example: `  band recording delete c-123-abc r-456-def`,
 	Args:    cobra.ExactArgs(2),
 	RunE:    runDelete,

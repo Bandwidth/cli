@@ -14,9 +14,9 @@ func init() {
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete [id]",
-	Short: "Delete a sub-account by ID",
-	Long:  "Permanently deletes a sub-account by its numeric ID. This cannot be undone.",
+	Use:     "delete [id]",
+	Short:   "Delete a sub-account by ID",
+	Long:    "Permanently deletes a sub-account by its numeric ID. This cannot be undone.",
 	Example: `  band subaccount delete 12345`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runDelete,

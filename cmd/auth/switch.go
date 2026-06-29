@@ -19,7 +19,7 @@ func init() {
 var switchCmd = &cobra.Command{
 	Use:   "switch [account-id]",
 	Short: "Switch the active account",
-	Long: `Switch between accounts accessible to your credentials.`,
+	Long:  `Switch between accounts accessible to your credentials.`,
 	Example: `  band auth switch           # interactive selection
   band auth switch 9901303   # switch directly`,
 	Args: cobra.MaximumNArgs(1),

@@ -13,9 +13,9 @@ func init() {
 }
 
 var rawCmd = &cobra.Command{
-	Use:   "raw <xml-string>",
-	Short: "Validate and pretty-print a BXML string",
-	Long:  "Validates a BXML string by round-tripping it through an XML parser and prints it back indented. Exits with an error if the input is not well-formed XML.",
+	Use:     "raw <xml-string>",
+	Short:   "Validate and pretty-print a BXML string",
+	Long:    "Validates a BXML string by round-tripping it through an XML parser and prints it back indented. Exits with an error if the input is not well-formed XML.",
 	Example: `  band bxml raw "<Response><Hangup/></Response>"`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runRaw,
