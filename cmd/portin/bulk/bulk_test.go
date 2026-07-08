@@ -84,3 +84,23 @@ func TestStripE164(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadNumbersProducesE164 locks the tnList payload contract: the
+// PUT /bulkPortins/{id}/tnList endpoint rejects bare 10-digit values with
+// error 1022 and requires E.164 — verified live against prod 2026-07-07;
+// the spec's 400 example claims the opposite and is wrong.
+func TestLoadNumbersProducesE164(t *testing.T) {
+	got, err := loadNumbers([]string{"+18005551234", "18885551234", "9195551234"}, "")
+	if err != nil {
+		t.Fatalf("loadNumbers: %v", err)
+	}
+	want := []string{"+18005551234", "+18885551234", "+19195551234"}
+	if len(got) != len(want) {
+		t.Fatalf("loadNumbers = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("loadNumbers[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

@@ -65,7 +65,7 @@ func runOrder(cmd *cobra.Command, args []string) error {
 	// otherwise --wait would return too early.
 	ordered := make(map[string]bool, len(args))
 	for _, n := range args {
-		ordered[normalizeE164(n)] = true
+		ordered[cmdutil.NormalizeE164(n)] = true
 	}
 
 	final, err := cmdutil.Poll(cmdutil.PollConfig{

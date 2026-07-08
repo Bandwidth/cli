@@ -1,9 +1,16 @@
 package cmdutil
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrPollTimeout is returned (wrapped) by Poll when the timeout expires
+// before the checked condition is met. Callers can errors.Is against it to
+// distinguish "gave up waiting" from a hard failure; ExitCodeForError maps
+// it to ExitTimeout (5).
+var ErrPollTimeout = errors.New("timed out")
 
 // PollConfig configures a polling loop.
 type PollConfig struct {
@@ -29,7 +36,7 @@ func Poll(cfg PollConfig) (interface{}, error) {
 			return result, nil
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out after %s waiting for operation to complete", cfg.Timeout)
+			return nil, fmt.Errorf("%w after %s waiting for operation to complete", ErrPollTimeout, cfg.Timeout)
 		}
 		time.Sleep(cfg.Interval)
 	}

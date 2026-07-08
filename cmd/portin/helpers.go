@@ -4,10 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 )
+
+// validateFOCDateTime enforces the FOC format the supp endpoint requires: a
+// full ISO 8601 timestamp (YYYY-MM-DDTHH:MM:SSZ). Date-only values are
+// accepted by POST /portins but rejected on a supp PUT, so we catch them
+// client-side with a message that names the expected format instead of
+// letting the API return an opaque 400.
+func validateFOCDateTime(s string) error {
+	if _, err := time.Parse(time.RFC3339, s); err != nil {
+		return fmt.Errorf("--foc must be a full ISO 8601 timestamp in the format YYYY-MM-DDTHH:MM:SSZ (e.g. 2026-06-01T15:30:00Z), got %q", s)
+	}
+	return nil
+}
 
 // stripE164 converts "+19195551234" to "9195551234" for the Dashboard API,
 // which expects bare 10-digit numbers in request bodies.

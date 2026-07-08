@@ -32,6 +32,9 @@ func ExitCodeForError(err error) int {
 	if errors.As(err, &fle) {
 		return ExitConflict
 	}
+	if errors.Is(err, ErrPollTimeout) {
+		return ExitTimeout
+	}
 	var apiErr *api.APIError
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {

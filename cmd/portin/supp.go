@@ -19,7 +19,7 @@ var (
 )
 
 func init() {
-	suppCmd.Flags().StringVar(&suppFOCDate, "foc", "", "Requested FOC date (ISO 8601)")
+	suppCmd.Flags().StringVar(&suppFOCDate, "foc", "", "Requested FOC date-time (YYYY-MM-DDTHH:MM:SSZ, e.g. 2026-06-01T15:30:00Z)")
 	suppCmd.Flags().StringVar(&suppSiteID, "site", "", "Site (sub-account) ID to switch the order to")
 	suppCmd.Flags().StringVar(&suppPeerID, "peer", "", "SIP peer (location) ID to switch the order to")
 	suppCmd.Flags().DurationVar(&suppTimeout, "timeout", 30*time.Second, "Maximum time to wait for propagation (default 30s)")
@@ -36,7 +36,7 @@ sets error code 7300 on the next GET — meaning Neustar never received the
 change. This command always polls until either the order's last-modified
 timestamp advances past the pre-PUT value, or 7300 surfaces, or the
 timeout expires. Exit 1 on 7300 with a clear message; exit 5 on timeout.`,
-	Example: `  band portin supp b9ef682b-2b42-4287-bfe4-ba03ec57cb07 --foc 2026-06-01Z
+	Example: `  band portin supp b9ef682b-2b42-4287-bfe4-ba03ec57cb07 --foc 2026-06-01T15:30:00Z
   band portin supp b9ef682b --site 1234 --peer 5678 --timeout 60s`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSupp,
@@ -47,6 +47,9 @@ func runSupp(cmd *cobra.Command, args []string) error {
 
 	body := map[string]interface{}{}
 	if suppFOCDate != "" {
+		if err := validateFOCDateTime(suppFOCDate); err != nil {
+			return err
+		}
 		body["RequestedFocDate"] = suppFOCDate
 	}
 	if suppSiteID != "" {

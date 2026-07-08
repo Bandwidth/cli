@@ -489,7 +489,7 @@ band portin validate-tf +18005551234 --wait --plain
 band portin create \
   --numbers +19195551234,+19195551235 \
   --site <site-id> --peer <peer-id> \
-  --foc 2026-06-01Z \
+  --foc 2026-06-01T15:30:00Z \
   --loa-authorizing-person "Jane Doe" \
   --loa ./loa.pdf \
   --customer-order-id agent-run-42 --if-not-exists --plain
@@ -497,7 +497,8 @@ band portin create \
 
 ORDER_ID=$(... extract from above ...)
 band portin submit $ORDER_ID --wait --plain
-# Blocks until status leaves VALIDATE_TFNS — usually PENDING_DOCUMENTS or FOC_GRANTED.
+# Blocks until status leaves VALIDATE_TFNS — SUBMITTED means validation passed and
+# the order is with the vendor; INVALID_TFNS means one or more TFNs are not portable.
 
 band portin get $ORDER_ID --plain
 # Re-poll later for FOC progression. Don't try to --wait for FOC; can take days.
@@ -508,7 +509,8 @@ band portin get $ORDER_ID --plain
 **4. Bulk port-in:**
 
 ```bash
-band portin bulk create --numbers-file ./tns.txt --site <id> --peer <id> --plain
+band portin bulk create --numbers-file ./tns.txt --site <id> --peer <id> \
+  --customer-order-id agent-bulk-42 --if-not-exists --plain
 # → {"bulkOrderId":"...","status":"VALIDATE_DRAFT_TNS","childOrderIds":[], ...}
 
 band portin bulk get-tns <bulk-order-id> --wait --plain
@@ -516,10 +518,19 @@ band portin bulk get-tns <bulk-order-id> --wait --plain
 # one ID per validated group — drive each through `band portin get`/`submit`.
 ```
 
+`bulk create` is two API calls under the hood: a template POST (`/bulkPortins`)
+followed by a TN list PUT (`/bulkPortins/{id}/tnList`). If the second call
+fails, the template order still exists as a TN-less `DRAFT` — unsubmitted
+drafts expire after 2 days. Re-run the same command with
+`--customer-order-id <id> --if-not-exists` to resume: the CLI finds the
+stranded `DRAFT` and attaches the TN list to it instead of creating a new
+template.
+
 **5. Modify an existing order (supp):**
 
 ```bash
-band portin supp <order-id> --foc 2026-07-01Z
+band portin supp <order-id> --foc 2026-07-01T15:30:00Z
+# supp requires a full FOC timestamp (YYYY-MM-DDTHH:MM:SSZ); date-only values are rejected.
 # `supp` always polls for propagation by default — it captures the order's
 # pre-PUT lastModifiedDate, then waits until either that timestamp advances
 # (real propagation) or error code 7300 appears (silent failure on the
@@ -538,7 +549,7 @@ band portin history <order-id> --plain            # state change audit
 band portin cancel <order-id>                      # typically irreversible
 ```
 
-**Idempotency.** `create` and `bulk create` accept `--customer-order-id <id> --if-not-exists`. On retry, an existing order with the same ID is returned with the same `--plain` shape — safe inside an agent reconciliation loop.
+**Idempotency.** `create` and `bulk create` accept `--customer-order-id <id> --if-not-exists`. On retry, an existing order with the same ID is returned with the same `--plain` shape — safe inside an agent reconciliation loop. For `bulk create`, if the retried order is a TN-less `DRAFT` (a stranded template from a prior step-2 failure), the CLI attaches the TN list instead of just returning it.
 
 **Out of scope (will not work via API):**
 
@@ -575,14 +586,16 @@ DRAFT
       → VALID_DRAFT_TFNS    (ready for submit)
       → INVALID_DRAFT_TFNS  (terminal — fix TNs, recreate)
   → (after `submit`)
-      → SUBMITTED → VALIDATE_TFNS → PENDING_DOCUMENTS
-          → FOC / FOC_GRANTED → COMPLETE   (success path; FOC takes days)
-          → REJECTED                        (terminal — read errorCode)
-          → FAILED                          (terminal — system error)
-  → CANCELLED  (terminal — from explicit `cancel`)
+      → SUBMITTED → VALIDATE_TFNS
+          → SUBMITTED       (TFN validation passed)
+          → INVALID_TFNS    (terminal — fix TNs)
+      → PENDING_DOCUMENTS / PENDING_CARRIER_APPROVAL → FOC → COMPLETE
+                                                (success path; FOC takes days)
+      → EXCEPTION                              (terminal — read errorCode)
+  → CANCELLED / REQUESTED_CANCEL  (terminal — from explicit `cancel`)
 ```
 
-`band portin submit --wait` blocks at the next stable state (`PENDING_DOCUMENTS` / `FOC` / terminal). It does **not** wait for `COMPLETE` — that requires the FOC date to arrive, which is days to weeks out.
+`band portin submit --wait` blocks until the order leaves `VALIDATE_TFNS`: `SUBMITTED`, `INVALID_TFNS`, or a later state. It does **not** wait for `COMPLETE` — that requires the FOC date to arrive, which is days to weeks out.
 
 **Reconciliation idiom.** Tag every create with a unique customer-order-id; retries are then idempotent:
 

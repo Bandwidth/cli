@@ -43,6 +43,29 @@ func TestClassifyNumber(t *testing.T) {
 	}
 }
 
+func TestNormalizeE164(t *testing.T) {
+	tests := []struct {
+		number string
+		want   string
+	}{
+		{"+18005551234", "+18005551234"},
+		{"18885551234", "+18885551234"},
+		{"9195551234", "+19195551234"},
+		{"919-555-1234", "+19195551234"},
+		{"(919) 555-1234", "+19195551234"},
+		{"919.555.1234", "+19195551234"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.number, func(t *testing.T) {
+			got := NormalizeE164(tc.number)
+			if got != tc.want {
+				t.Errorf("NormalizeE164(%q) = %q, want %q", tc.number, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNumberType_String(t *testing.T) {
 	tests := []struct {
 		nt   NumberType

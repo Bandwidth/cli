@@ -226,3 +226,86 @@ func TestDetectContentType(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateFOCDateTime locks the supp FOC format requirement: the API
+// rejects date-only values on a supp, so the CLI must catch them client-side
+// with a message that names the expected YYYY-MM-DDTHH:MM:SSZ format.
+func TestValidateFOCDateTime(t *testing.T) {
+	valid := []string{
+		"2026-06-01T15:30:00Z",
+		"2026-12-04T11:30:00-04:00",
+	}
+	for _, in := range valid {
+		if err := validateFOCDateTime(in); err != nil {
+			t.Errorf("validateFOCDateTime(%q) = %v, want nil", in, err)
+		}
+	}
+	invalid := []string{
+		"2026-06-01",
+		"2026-06-01Z",
+		"june 1st",
+		"2026-06-01T15:30Z",
+	}
+	for _, in := range invalid {
+		if err := validateFOCDateTime(in); err == nil {
+			t.Errorf("validateFOCDateTime(%q) = nil, want error", in)
+		}
+	}
+}
+
+// TestSubmitTerminalStates locks the post-submit wait contract. SUBMITTED is
+// the happy terminal state for a toll-free order (TFN validation passed and
+// the order is with the vendor); INVALID_TFNS is the post-submit validation
+// failure. Both were previously missing, which made --wait time out even on
+// success. VALIDATE_TFNS is the transient state --wait exists to sit through.
+func TestSubmitTerminalStates(t *testing.T) {
+	terminal := []string{
+		"SUBMITTED",
+		"INVALID_TFNS",
+		"EXCEPTION",
+		"PENDING_DOCUMENTS",
+		"PENDING_CARRIER_APPROVAL",
+		"REQUESTED_SUPP",
+		"FOC",
+		"COMPLETE",
+		"CANCELLED",
+		"REJECTED",
+		"FAILED",
+		"FOC_GRANTED",
+	}
+	for _, s := range terminal {
+		if !submitTerminal[s] {
+			t.Errorf("state %q must be terminal for submit --wait", s)
+		}
+	}
+	if submitTerminal["VALIDATE_TFNS"] {
+		t.Error("VALIDATE_TFNS is the transient state submit --wait sits through; it must not be terminal")
+	}
+	if submitTerminal["DRAFT"] || submitTerminal["VALID_DRAFT_TFNS"] {
+		t.Error("draft-side states must not be terminal or --wait would return before the transition")
+	}
+}
+
+// TestSubmitWaitDone locks the consecutive-SUBMITTED contract: a single
+// SUBMITTED sighting right after the submit PUT is not proof validation
+// passed, since the order can transiently report SUBMITTED before entering
+// VALIDATE_TFNS.
+func TestSubmitWaitDone(t *testing.T) {
+	tests := []struct {
+		status     string
+		prevStatus string
+		want       bool
+	}{
+		{"SUBMITTED", "", false},
+		{"SUBMITTED", "SUBMITTED", true},
+		{"SUBMITTED", "VALIDATE_TFNS", true},
+		{"SUBMITTED", "VALIDATE_DRAFT_TFNS", false},
+		{"VALIDATE_TFNS", "SUBMITTED", false},
+		{"INVALID_TFNS", "VALIDATE_TFNS", true},
+	}
+	for _, tc := range tests {
+		if got := submitWaitDone(tc.status, tc.prevStatus); got != tc.want {
+			t.Errorf("submitWaitDone(%q, %q) = %v, want %v", tc.status, tc.prevStatus, got, tc.want)
+		}
+	}
+}

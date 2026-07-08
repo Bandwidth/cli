@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -127,7 +126,7 @@ func collectFullNumbers(v interface{}, out *[]string) {
 	switch x := v.(type) {
 	case map[string]interface{}:
 		if fn, ok := x["FullNumber"].(string); ok && fn != "" {
-			*out = append(*out, normalizeE164(fn))
+			*out = append(*out, cmdutil.NormalizeE164(fn))
 			return
 		}
 		for _, child := range x {
@@ -138,17 +137,4 @@ func collectFullNumbers(v interface{}, out *[]string) {
 			collectFullNumbers(item, out)
 		}
 	}
-}
-
-// normalizeE164 returns n in E.164 form. /tns may return either a 10-digit
-// US number ("9195551234") or an already-prefixed value depending on whether
-// the account is on the v2 E.164 response format.
-func normalizeE164(n string) string {
-	if strings.HasPrefix(n, "+") {
-		return n
-	}
-	if len(n) == 10 {
-		return "+1" + n
-	}
-	return "+" + n
 }

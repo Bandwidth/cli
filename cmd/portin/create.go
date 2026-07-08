@@ -30,7 +30,7 @@ func init() {
 	createCmd.Flags().StringVar(&createLoaPath, "loa", "", "Path to an LOA or supporting document to upload alongside the order")
 	createCmd.Flags().StringVar(&createSiteID, "site", "", "Site (sub-account) ID for the destination")
 	createCmd.Flags().StringVar(&createPeerID, "peer", "", "SIP peer (location) ID for the destination")
-	createCmd.Flags().StringVar(&createFOCDate, "foc", "", "Requested FOC date (ISO 8601 — e.g. 2026-06-01Z)")
+	createCmd.Flags().StringVar(&createFOCDate, "foc", "", "Requested FOC date (YYYY-MM-DD, or YYYY-MM-DDTHH:MM:SSZ to set an activation time)")
 	createCmd.Flags().StringVar(&createLoaAuthorizingPerson, "loa-authorizing-person", "", "Name of the person authorizing the LOA")
 	createCmd.Flags().StringVar(&createCustomerOrderID, "customer-order-id", "", "Customer-supplied order identifier (used as the idempotency key with --if-not-exists)")
 	createCmd.Flags().BoolVar(&createIfNotExists, "if-not-exists", false, "If a port-in with the given --customer-order-id already exists, return it instead of creating a new one")
@@ -49,7 +49,7 @@ For idempotency in agent retry loops, pass --customer-order-id <id> with
 --if-not-exists. On retry, an existing order with the same customer ID is
 returned instead of creating a duplicate.`,
 	Example: `  band portin create --numbers +19195551234 --site 1234 --peer 5678 \
-    --foc 2026-06-01Z --loa-authorizing-person "Jane Doe" --loa ./loa.pdf
+    --foc 2026-06-01T15:30:00Z --loa-authorizing-person "Jane Doe" --loa ./loa.pdf
   band portin create --numbers +19195551234 --customer-order-id agent-run-42 --if-not-exists`,
 	RunE: runCreate,
 }

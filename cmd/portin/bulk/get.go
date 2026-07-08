@@ -34,7 +34,14 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	format, plain := cmdutil.OutputFlags(cmd)
 	if plain {
-		return output.StdoutAuto(format, plain, flattenBulkResult(result))
+		// The GET response body does not carry the order's own OrderId (it's
+		// part of the URL), so fall back to the argument to keep the plain
+		// shape's bulkOrderId populated.
+		flat := flattenBulkResult(result)
+		if flat["bulkOrderId"] == "" {
+			flat["bulkOrderId"] = args[0]
+		}
+		return output.StdoutAuto(format, plain, flat)
 	}
 	return output.StdoutAuto(format, plain, result)
 }
