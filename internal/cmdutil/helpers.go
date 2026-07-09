@@ -34,6 +34,13 @@ func resolveEnvironment(profileEnv string) (string, error) {
 	case "", "prod", "test", "uat":
 		return env, nil
 	default:
+		// A non-built-in environment is allowed only with an explicit custom
+		// route via BW_API_URL. Requiring the override preserves the original
+		// guarantee — an unrecognized value never silently resolves to prod —
+		// while still supporting hosts the binary does not hardcode.
+		if os.Getenv("BW_API_URL") != "" {
+			return env, nil
+		}
 		return "", fmt.Errorf("unknown environment %q (expected one of: prod, test, uat)", env)
 	}
 }
@@ -227,7 +234,10 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 // no test host). Worded to be accurate for any messaging command (not just
 // sends). Returns "" when no warning is needed.
 func messagingProdOnlyWarning(env string) string {
-	if env == "test" || env == "uat" {
+	// Warn for any non-production environment, not just test/uat: a custom
+	// environment (routed via BW_API_URL) still hits the prod messaging host,
+	// so the user must know sends are real and billable.
+	if env != "" && env != "prod" {
 		return "Bandwidth Messaging has no test environment — this request hits PRODUCTION regardless of --environment (any sends are real and billable)."
 	}
 	return ""

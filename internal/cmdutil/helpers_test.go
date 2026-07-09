@@ -92,19 +92,31 @@ func TestResolveEnvironment(t *testing.T) {
 	t.Run("unknown env is an error (no silent prod fall-through)", func(t *testing.T) {
 		EnvironmentOverride = "staging"
 		t.Cleanup(func() { EnvironmentOverride = "" })
+		t.Setenv("BW_API_URL", "")
 		if _, err := resolveEnvironment("prod"); err == nil {
 			t.Error("expected error for unknown env, got nil")
+		}
+	})
+	t.Run("unknown env is allowed with an explicit BW_API_URL route", func(t *testing.T) {
+		EnvironmentOverride = "staging"
+		t.Cleanup(func() { EnvironmentOverride = "" })
+		t.Setenv("BW_API_URL", "https://custom.example.com")
+		got, err := resolveEnvironment("prod")
+		if err != nil || got != "staging" {
+			t.Errorf("got %q, err %v; want staging, nil (explicit route opts in)", got, err)
 		}
 	})
 }
 
 func TestMessagingProdOnlyWarning(t *testing.T) {
-	for _, env := range []string{"test", "uat"} {
+	// Any non-prod environment must warn — including a custom env reached via
+	// BW_API_URL, which still hits the prod messaging host.
+	for _, env := range []string{"test", "uat", "staging"} {
 		if messagingProdOnlyWarning(env) == "" {
 			t.Errorf("expected a warning for env %q", env)
 		}
 	}
-	for _, env := range []string{"", "prod", "staging"} {
+	for _, env := range []string{"", "prod"} {
 		if messagingProdOnlyWarning(env) != "" {
 			t.Errorf("expected NO warning for env %q, got one", env)
 		}

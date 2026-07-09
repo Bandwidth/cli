@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -80,6 +81,14 @@ func (tm *TokenManager) fetchToken() (string, error) {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("token exchange failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	// A 2xx whose body isn't a JSON object means we reached something other than
+	// the identity service — typically a proxy interstitial or a misrouted host
+	// (e.g. an environment pointed at the wrong place). Surface that plainly
+	// rather than a cryptic JSON parse error on the leading '<'.
+	if trimmed := bytes.TrimSpace(body); len(trimmed) == 0 || trimmed[0] != '{' {
+		return "", fmt.Errorf("token endpoint returned a non-JSON response (HTTP %d) — you may be behind a proxy or pointed at the wrong host; check your environment and BW_API_URL", resp.StatusCode)
 	}
 
 	var tr tokenResponse
