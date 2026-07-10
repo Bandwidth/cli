@@ -108,6 +108,31 @@ func TestResolveEnvironment(t *testing.T) {
 	})
 }
 
+func TestValidateAPIOverride(t *testing.T) {
+	t.Run("unset is valid", func(t *testing.T) {
+		t.Setenv("BW_API_URL", "")
+		if err := ValidateAPIOverride(); err != nil {
+			t.Errorf("unset BW_API_URL should be valid, got %v", err)
+		}
+	})
+	for _, ok := range []string{"https://stage.api.bandwidth.com", "http://localhost:8080", "https://host.example.com/"} {
+		t.Run("valid "+ok, func(t *testing.T) {
+			t.Setenv("BW_API_URL", ok)
+			if err := ValidateAPIOverride(); err != nil {
+				t.Errorf("BW_API_URL=%q should be valid, got %v", ok, err)
+			}
+		})
+	}
+	for _, bad := range []string{"stage.api.bandwidth.com", "api.bandwidth.com/api/v1", "  "} {
+		t.Run("invalid "+bad, func(t *testing.T) {
+			t.Setenv("BW_API_URL", bad)
+			if err := ValidateAPIOverride(); err == nil {
+				t.Errorf("BW_API_URL=%q should be rejected (missing scheme), got nil", bad)
+			}
+		})
+	}
+}
+
 func TestMessagingProdOnlyWarning(t *testing.T) {
 	// Any non-prod environment must warn — including a custom env reached via
 	// BW_API_URL, which still hits the prod messaging host.

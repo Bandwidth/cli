@@ -3,6 +3,7 @@ package cmdutil
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -43,6 +44,22 @@ func resolveEnvironment(profileEnv string) (string, error) {
 		}
 		return "", fmt.Errorf("unknown environment %q (expected one of: prod, test, uat)", env)
 	}
+}
+
+// ValidateAPIOverride rejects a BW_API_URL that is set but missing a scheme
+// (e.g. "stage.api.bandwidth.com" instead of "https://stage.api.bandwidth.com").
+// A schemeless value reaches net/http as the opaque error "unsupported protocol
+// scheme \"\"", which gives no hint at the cause; catch it up front with an
+// actionable message. An unset BW_API_URL is valid.
+func ValidateAPIOverride() error {
+	raw := os.Getenv("BW_API_URL")
+	if raw == "" {
+		return nil
+	}
+	if u, err := url.Parse(raw); err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("BW_API_URL must be a full URL including scheme, e.g. https://host.example.com (got %q)", raw)
+	}
+	return nil
 }
 
 // apiHostForEnvironment maps an environment name to its API host.
@@ -160,6 +177,9 @@ func authenticate(accountIDOverride string) (*auth.TokenManager, string, string,
 		return nil, "", "", err
 	}
 
+	if err := ValidateAPIOverride(); err != nil {
+		return nil, "", "", err
+	}
 	env, err := resolveEnvironment(p.Environment)
 	if err != nil {
 		return nil, "", "", err
