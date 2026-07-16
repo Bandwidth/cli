@@ -185,3 +185,27 @@ func TestTokenManager_ThreadSafe(t *testing.T) {
 		t.Errorf("concurrent GetToken() error: %v", err)
 	}
 }
+
+// TestTokenManager_NonJSON2xx covers a proxy/misroute returning HTTP 200 with
+// an HTML/XML body: fetchToken must fail with a legible message, not a raw
+// JSON parse error on the leading '<'.
+func TestTokenManager_NonJSON2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><body>Proxy login</body></html>"))
+	}))
+	defer srv.Close()
+
+	tm := NewTokenManager("client-id", "client-secret", srv.URL)
+	_, err := tm.GetToken()
+	if err == nil {
+		t.Fatal("expected an error for a non-JSON 2xx body, got nil")
+	}
+	if strings.Contains(err.Error(), "parsing token response") {
+		t.Errorf("got raw parse error, want the friendly non-JSON message: %v", err)
+	}
+	if !strings.Contains(err.Error(), "non-JSON response") {
+		t.Errorf("error should explain the non-JSON response, got: %v", err)
+	}
+}
