@@ -28,10 +28,8 @@ var listCmd = &cobra.Command{
 	Long: `Lists phone numbers on the active account.
 
 By default, returns only numbers in service (ready to route calls or send
-messages). Pass --status to include numbers in other states.
-
-Examples:
-  band number list                                # default: only in-service
+messages). Pass --status to include numbers in other states.`,
+	Example: `  band number list                                # default: only in-service
   band number list --status Inservice,InAccount   # include numbers just ordered
   band number list --status Aging                 # numbers being released`,
 	RunE: runList,

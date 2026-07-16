@@ -27,7 +27,13 @@ func init() {
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new sub-account",
-	RunE:  runCreate,
+	Long:  "Creates a new sub-account under the active account. Use --if-not-exists to make the command idempotent, returning the existing sub-account instead of erroring when one with the same name already exists.",
+	Example: `  band subaccount create --name "Production"
+  band subaccount create --name "Production" --description "Prod traffic"
+
+  # Idempotent — safe to re-run
+  band subaccount create --name "Production" --if-not-exists`,
+	RunE: runCreate,
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -62,4 +68,3 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	return output.StdoutAuto(format, plain, result)
 }
-

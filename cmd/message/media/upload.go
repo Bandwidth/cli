@@ -72,7 +72,7 @@ func runUpload(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print the media URL that can be used with `message send --media`
-	mediaURL := fmt.Sprintf("https://messaging.bandwidth.com/api/v2/users/%s/media/%s", acctID, mediaID)
+	mediaURL := fmt.Sprintf("%s/users/%s/media/%s", client.BaseURL, acctID, mediaID)
 	fmt.Fprintln(cmd.OutOrStdout(), mediaURL)
 	ui.Successf("Use with: band message send --media %s", mediaURL)
 	return nil

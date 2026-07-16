@@ -17,8 +17,11 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list <callId>",
 	Short: "List recordings for a call",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runList,
+	Long:  "Lists all recordings produced during a single call, identified by its callId. Returns an empty list if the call has no recordings.",
+	Example: `  band recording list c-123-abc
+  band recording list c-123-abc --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {

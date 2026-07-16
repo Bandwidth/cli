@@ -13,14 +13,14 @@ import (
 
 // Flags shared by `number activate` and `number deactivate`.
 var (
-	saVoiceInbound      bool
-	saVoiceOutNational  bool
-	saVoiceOutInternat  bool
-	saMessaging         bool
-	saDryRun            bool
-	saWait              bool
-	saTimeout           time.Duration
-	saCustomerOrderID   string
+	saVoiceInbound     bool
+	saVoiceOutNational bool
+	saVoiceOutInternat bool
+	saMessaging        bool
+	saDryRun           bool
+	saWait             bool
+	saTimeout          time.Duration
+	saCustomerOrderID  string
 )
 
 // registerServiceActivationFlags wires the shared flag set onto a command.

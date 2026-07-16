@@ -17,8 +17,11 @@ func init() {
 var transferCmd = &cobra.Command{
 	Use:   "transfer <phone-number>",
 	Short: "Generate a Transfer BXML verb",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTransfer,
+	Long:  "Generates a Response containing a Transfer verb to the given phone number. Use --caller-id to set the caller ID presented on the transferred leg.",
+	Example: `  band bxml transfer +19195551234
+  band bxml transfer +19195551234 --caller-id +19198675309`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTransfer,
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {

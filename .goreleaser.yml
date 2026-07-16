@@ -1,5 +1,10 @@
 version: 2
 
+before:
+  hooks:
+    - go run ./internal/tools/docgen -out ./dist-docs
+    - tar -czf cli-docs.tar.gz -C ./dist-docs .
+
 builds:
   - main: ./cmd/band
     binary: band
@@ -24,6 +29,11 @@ archives:
 
 checksum:
   name_template: "checksums.txt"
+
+release:
+  # Attach docs to the GitHub release
+  extra_files:
+    - glob: ./cli-docs.tar.gz
 
 dockers:
   - image_templates:

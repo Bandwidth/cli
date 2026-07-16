@@ -43,7 +43,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		if apiErr, ok := err.(*api.APIError); ok {
 			switch apiErr.StatusCode {
 			case 403:
-				return fmt.Errorf("access denied — your credentials may not have short code access.\n"+
+				return fmt.Errorf("access denied — your credentials may not have short code access.\n" +
 					"Contact your Bandwidth account manager to verify")
 			case 404:
 				return fmt.Errorf("short code %s not found for country %s on this account", args[0], getCountry)

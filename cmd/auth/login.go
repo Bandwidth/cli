@@ -5,9 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/cobra"
 	"os"
 	"strings"
-	"github.com/spf13/cobra"
 
 	intauth "github.com/Bandwidth/cli/internal/auth"
 	"github.com/Bandwidth/cli/internal/cmdutil"
@@ -19,6 +19,7 @@ import (
 var Cmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Manage authentication credentials",
+	Long:  "Log in with Bandwidth OAuth2 client credentials, inspect your authentication status, and manage credential profiles and the active account.",
 }
 
 func init() {
@@ -113,6 +114,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			}
 			clientSecret = string(secretBytes)
 		}
+	}
+
+	if err := cmdutil.ValidateAPIOverride(); err != nil {
+		return err
 	}
 
 	tokenURL := tokenURLForEnvironment(environment)

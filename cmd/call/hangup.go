@@ -15,10 +15,12 @@ func init() {
 }
 
 var hangupCmd = &cobra.Command{
-	Use:   "hangup [callId]",
-	Short: "Hang up an active call",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runHangup,
+	Use:     "hangup [callId]",
+	Short:   "Hang up an active call",
+	Long:    "Ends an active call by transitioning it to the completed state. Has no effect on calls that have already disconnected.",
+	Example: `  band call hangup c-123-abc`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runHangup,
 }
 
 func runHangup(cmd *cobra.Command, args []string) error {

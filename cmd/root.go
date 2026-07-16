@@ -1,3 +1,5 @@
+// Package cmd defines the band CLI's cobra command tree: the root command and
+// every subcommand for voice, messaging, numbers, sub-accounts, and more.
 package cmd
 
 import (
@@ -9,6 +11,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/config"
 	"github.com/Bandwidth/cli/internal/ui"
 	versionpkg "github.com/Bandwidth/cli/internal/version"
@@ -51,6 +54,11 @@ var rootCmd = &cobra.Command{
 	Short: "Bandwidth CLI — manage voice, messaging, numbers, and more from the command line",
 	Long:  "The official Bandwidth CLI. Build and debug voice applications, send messages, manage phone numbers, and control calls.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Wire the --environment flag into host/environment resolution. Set
+		// unconditionally (empty when the flag is absent) so a value never
+		// leaks across invocations in a long-lived/multi-command process.
+		cmdutil.EnvironmentOverride = environment
+
 		// Kick off version check in background so it doesn't slow down the command.
 		updateResult = make(chan *versionpkg.CheckResult, 1)
 		go func() {
@@ -112,6 +120,10 @@ var versionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("band version %s\n", version)
 	},
+}
+
+func Root() *cobra.Command {
+	return rootCmd
 }
 
 func Execute() error {
@@ -200,7 +212,11 @@ func showAccountHint(cmd *cobra.Command) {
 
 	// Show environment when the user operates across multiple environments
 	// or is on a non-default one. Customers with only prod don't need the noise.
+	// Honor the --environment flag override so the hint matches actual routing.
 	env := p.Environment
+	if cmdutil.EnvironmentOverride != "" {
+		env = cmdutil.EnvironmentOverride
+	}
 	if env == "" {
 		env = "prod"
 	}

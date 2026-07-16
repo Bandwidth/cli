@@ -6,10 +6,10 @@ import "strings"
 type NumberType int
 
 const (
-	NumberTypeUnknown  NumberType = iota
-	NumberType10DLC               // Local 10-digit US/CA number
-	NumberTypeTollFree            // US/CA toll-free (800, 888, 877, 866, 855, 844, 833)
-	NumberTypeShortCode           // 5-6 digit short code
+	NumberTypeUnknown   NumberType = iota
+	NumberType10DLC                // Local 10-digit US/CA number
+	NumberTypeTollFree             // US/CA toll-free (800, 888, 877, 866, 855, 844, 833)
+	NumberTypeShortCode            // 5-6 digit short code
 )
 
 func (t NumberType) String() string {

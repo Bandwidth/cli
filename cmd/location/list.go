@@ -20,7 +20,10 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all locations (SIP peers) under a sub-account",
-	RunE:  runList,
+	Long:  "Lists all locations (SIP peers) within the given sub-account.",
+	Example: `  band location list --site 12345
+  band location list --site 12345 --plain`,
+	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {

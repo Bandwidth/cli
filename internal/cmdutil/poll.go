@@ -6,11 +6,10 @@ import (
 	"time"
 )
 
-// ErrPollTimeout is returned (wrapped) by Poll when the timeout expires
-// before the checked condition is met. Callers can errors.Is against it to
-// distinguish "gave up waiting" from a hard failure; ExitCodeForError maps
-// it to ExitTimeout (5).
-var ErrPollTimeout = errors.New("timed out")
+// ErrPollTimeout is returned (wrapped) by Poll when cfg.Timeout elapses before
+// Check reports done. ExitCodeForError maps it to ExitTimeout (5) so agents can
+// distinguish "still running, re-poll" from a hard failure.
+var ErrPollTimeout = errors.New("operation did not complete in time")
 
 // PollConfig configures a polling loop.
 type PollConfig struct {
@@ -36,7 +35,7 @@ func Poll(cfg PollConfig) (interface{}, error) {
 			return result, nil
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("%w after %s waiting for operation to complete", ErrPollTimeout, cfg.Timeout)
+			return nil, fmt.Errorf("timed out after %s: %w", cfg.Timeout, ErrPollTimeout)
 		}
 		time.Sleep(cfg.Interval)
 	}

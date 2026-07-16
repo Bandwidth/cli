@@ -16,7 +16,10 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List active and recent calls",
-	RunE:  runList,
+	Long:  "Lists calls for the account, including active calls and recently completed ones. Bandwidth retains call records for a limited window, so older calls may not appear.",
+	Example: `  band call list
+  band call list --plain`,
+	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {

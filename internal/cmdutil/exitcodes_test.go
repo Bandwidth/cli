@@ -28,6 +28,7 @@ func TestExitCodeForError(t *testing.T) {
 		{"wrapped 429 keeps rate limit", fmt.Errorf("wrap: %w", &api.APIError{StatusCode: 429}), ExitRateLimit},
 		{"poll timeout", fmt.Errorf("%w after 2m0s waiting for operation to complete", ErrPollTimeout), ExitTimeout},
 		{"wrapped poll timeout keeps exit 5", fmt.Errorf("order still validating: %w", ErrPollTimeout), ExitTimeout},
+		{"wrapped ErrPollTimeout", fmt.Errorf("timed out: %w", ErrPollTimeout), ExitTimeout},
 	}
 
 	for _, tt := range tests {

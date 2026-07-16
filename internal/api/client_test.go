@@ -10,7 +10,6 @@ import (
 	"github.com/Bandwidth/cli/internal/auth"
 )
 
-
 func TestClient_Get(t *testing.T) {
 	type response struct {
 		Name string `json:"name"`

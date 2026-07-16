@@ -3,9 +3,9 @@ package auth
 import (
 	"bufio"
 	"fmt"
+	"github.com/spf13/cobra"
 	"os"
 	"strings"
-	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/config"
@@ -19,9 +19,8 @@ func init() {
 var switchCmd = &cobra.Command{
 	Use:   "switch [account-id]",
 	Short: "Switch the active account",
-	Long: `Switch between accounts accessible to your credentials.
-
-  band auth switch           # interactive selection
+	Long:  `Switch between accounts accessible to your credentials.`,
+	Example: `  band auth switch           # interactive selection
   band auth switch 9901303   # switch directly`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSwitch,

@@ -15,10 +15,12 @@ func init() {
 }
 
 var releaseCmd = &cobra.Command{
-	Use:   "release [number]",
-	Short: "Release a phone number",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runRelease,
+	Use:     "release [number]",
+	Short:   "Release a phone number",
+	Long:    "Releases (disconnects) a phone number from the account. The number enters an aging period before it becomes available again. This cannot be undone.",
+	Example: `  band number release +19195551234`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runRelease,
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
@@ -27,9 +29,14 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// The disconnects API requires the DisconnectTelephoneNumberOrderType
+	// wrapper around the TelephoneNumberList; omitting it fails with 5001
+	// ("Invalid input telephone number list").
 	bodyData := map[string]interface{}{
-		"TelephoneNumberList": map[string]interface{}{
-			"TelephoneNumber": []string{args[0]},
+		"DisconnectTelephoneNumberOrderType": map[string]interface{}{
+			"TelephoneNumberList": map[string]interface{}{
+				"TelephoneNumber": []string{args[0]},
+			},
 		},
 	}
 

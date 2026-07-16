@@ -13,7 +13,7 @@ func TestCmdStructure(t *testing.T) {
 	for _, c := range Cmd.Commands() {
 		subs[c.Use] = true
 	}
-	for _, name := range []string{"get <callId> <recordingId>", "list <callId>", "delete <callId> <recordingId>", "download <callId> <recordingId>"} {
+	for _, name := range []string{"get <callId> <recordingId>", "list <callId>", "delete <callId> <recordingId>", "download <callId> <recordingId>", "pause <callId>", "resume <callId>"} {
 		if !subs[name] {
 			t.Errorf("missing subcommand %q", name)
 		}
@@ -36,5 +36,17 @@ func TestDownloadRequiredFlags(t *testing.T) {
 	f := downloadCmd.Flags().Lookup("output")
 	if f == nil {
 		t.Error("missing flag \"output\"")
+	}
+}
+
+func TestPauseArgs(t *testing.T) {
+	if pauseCmd.Args == nil {
+		t.Fatal("pause command should have arg validation")
+	}
+}
+
+func TestResumeArgs(t *testing.T) {
+	if resumeCmd.Args == nil {
+		t.Fatal("resume command should have arg validation")
 	}
 }

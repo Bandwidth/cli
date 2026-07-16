@@ -61,19 +61,66 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  dispatch-docsite:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint app token for api-specs
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: Bandwidth
+          repositories: api-specs
+
+      - name: Trigger docsite CLI reference update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/Bandwidth/api-specs/dispatches \
+            -f event_type=cli-docs-update \
+            -F client_payload[version]="${{ github.ref_name }}"
+
   bump-formula:
     needs: [release]
     runs-on: ubuntu-latest
     steps:
       - name: Bump Homebrew formula
-        uses: mislav/bump-homebrew-formula-action@v3
-        with:
-          formula-name: band
-          formula-path: Formula/band.rb
-          homebrew-tap: Bandwidth/homebrew-tap
-          base-branch: main
-          download-url: https://github.com/Bandwidth/cli/archive/refs/tags/${{ github.ref_name }}.tar.gz
-          commit-message: |
-            {{formulaName}} {{version}}
         env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          TAP="Bandwidth/homebrew-tap"
+          FORMULA="Formula/band.rb"
+          URL="https://github.com/Bandwidth/cli/archive/refs/tags/${VERSION}.tar.gz"
+
+          # Checksum the exact archive brew downloads: curl follows GitHub's redirect
+          # to codeload, so this sha256 always matches the formula url's payload.
+          SHA="$(curl -fsSL "$URL" | sha256sum | cut -d' ' -f1)"
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP}.git" tap
+          cd tap
+          sed -i -E "s|^(\s*url ).*|\1\"${URL}\"|" "$FORMULA"
+          sed -i -E "s|^(\s*sha256 ).*|\1\"${SHA}\"|" "$FORMULA"
+
+          if git diff --quiet; then
+            echo "Formula already at ${VERSION}; nothing to bump."
+            exit 0
+          fi
+
+          BRANCH="bump-band-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -am "band ${VERSION}"
+          git push -f origin "$BRANCH"
+
+          # Re-run safe: only open a PR if one isn't already open for this branch.
+          if [ -z "$(gh pr list --repo "$TAP" --head "$BRANCH" --state open --json number --jq '.[0].number')" ]; then
+            gh pr create --repo "$TAP" --base main --head "$BRANCH" \
+              --title "band ${VERSION}" \
+              --body "Automated formula bump to ${VERSION}."
+          fi

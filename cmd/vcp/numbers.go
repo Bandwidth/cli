@@ -17,8 +17,11 @@ func init() {
 var numbersCmd = &cobra.Command{
 	Use:   "numbers <vcp-id>",
 	Short: "List phone numbers assigned to a VCP",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runNumbers,
+	Long:  "Lists all phone numbers currently assigned to a Voice Configuration Package.",
+	Example: `  band vcp numbers abc-123-def
+  band vcp numbers abc-123-def --plain`,
+	Args: cobra.ExactArgs(1),
+	RunE: runNumbers,
 }
 
 func runNumbers(cmd *cobra.Command, args []string) error {
