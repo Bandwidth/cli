@@ -228,6 +228,18 @@ func DashboardClient(accountIDOverride string) (*api.Client, string, error) {
 	return api.NewXMLClient(apiHostForEnvironment(env)+"/api/v2", tm), acctID, nil
 }
 
+// NumbersClient returns an XML-mode client for the Bandwidth Numbers API
+// (the legacy /v1.0 path). Port-in, bulk port-in, and toll-free porting
+// validation endpoints live here, separate from the /api/v2 endpoints used
+// by tnoptions, sites, and sippeers.
+func NumbersClient(accountIDOverride string) (*api.Client, string, error) {
+	tm, acctID, env, err := authenticate(accountIDOverride)
+	if err != nil {
+		return nil, "", err
+	}
+	return api.NewXMLClient(apiHostForEnvironment(env)+"/v1.0", tm), acctID, nil
+}
+
 func voiceClient(accountIDOverride string) (api.Requester, string, error) {
 	tm, acctID, env, err := authenticate(accountIDOverride)
 	if err != nil {

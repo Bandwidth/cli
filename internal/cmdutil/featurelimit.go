@@ -74,6 +74,19 @@ func ActiveBuild() bool {
 	return p != nil && p.Build
 }
 
+// ActiveUserID returns the client ID associated with the active profile.
+// The Numbers API stamps notes, supps, and other writes with a UserId
+// field; some endpoints (e.g. POST notes) reject the request with
+// errorCode 5217 when UserId is empty. Returns "" if the config cannot
+// be loaded — callers should treat that as a hard error.
+func ActiveUserID() string {
+	p := loadActiveProfile()
+	if p == nil {
+		return ""
+	}
+	return p.ClientID
+}
+
 func loadActiveProfile() *config.Profile {
 	path, err := config.DefaultPath()
 	if err != nil {
