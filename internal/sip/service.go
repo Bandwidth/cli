@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/output"
@@ -323,4 +324,59 @@ func (s *Service) GetCredential(realmID, credentialID string) (*Credential, erro
 func (s *Service) DeleteCredential(realmID, credentialID string) error {
 	_, err := s.do("DELETE", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
 	return err
+}
+
+// FindCredentialByUsername returns the single credential with this username in
+// a realm. Bounded retry absorbs read-after-write lag following a duplicate error.
+func (s *Service) FindCredentialByUsername(realmID, username string) (*Credential, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Second)
+		}
+		creds, err := s.ListCredentials(realmID)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var matches []Credential
+		for i := range creds {
+			if creds[i].Username == username {
+				matches = append(matches, creds[i])
+			}
+		}
+		switch len(matches) {
+		case 1:
+			return &matches[0], nil
+		case 0:
+			lastErr = fmt.Errorf("credential %q not found in realm %s", username, realmID)
+		default:
+			return nil, fmt.Errorf("found %d credentials named %q in realm %s; delete the duplicates", len(matches), username, realmID)
+		}
+	}
+	return nil, lastErr
+}
+
+// credentialHashWire exists only for equality checks. The public credentialWire
+// deliberately carries no hash fields so digest material cannot reach output;
+// this private type keeps the comparison inside the service.
+type credentialHashWire struct {
+	Credential struct {
+		Hash1  string `xml:"Hash1"`
+		Hash1b string `xml:"Hash1b"`
+	} `xml:"SipCredential"`
+}
+
+// CredentialHashesMatch reports whether the stored digest hashes equal the
+// supplied ones. The hashes never leave this function.
+func (s *Service) CredentialHashesMatch(realmID, credentialID, hash1, hash1b string) (bool, error) {
+	body, err := s.do("GET", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
+	if err != nil {
+		return false, err
+	}
+	var w credentialHashWire
+	if err := xml.Unmarshal(body, &w); err != nil {
+		return false, fmt.Errorf("decoding credential response: %w", err)
+	}
+	return w.Credential.Hash1 == hash1 && w.Credential.Hash1b == hash1b, nil
 }
