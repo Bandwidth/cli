@@ -707,6 +707,54 @@ band tendlc number +19195551234 --plain
 band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
 
+## SIP Trunk Authentication
+
+SIP realms provide the FQDN a SIP peer uses as its outbound address for SIP trunk digest authentication. This is separate from inbound call routing, which is configured with `band vcp`.
+
+### Create a realm
+
+```bash
+band sip realm create --name vapi --default=false --wait --plain
+# → { "id": "...", "name": "vapi", "hostname": "vapi-3efeaa.auth.bandwidth.com", "status": "ACTIVE", ... }
+```
+
+`--default` is **required** — the API rejects creates without it (error 1003). Creation is asynchronous (`CREATE_PENDING` → `ACTIVE`); use `--wait` to block until the realm is `ACTIVE`, or `--if-not-exists` for a safe retry.
+
+### List and inspect realms
+
+```bash
+band sip realm list --plain
+band sip realm get vapi --plain
+```
+
+`get` accepts a realm ID, name, or FQDN.
+
+### Promote a different realm to default
+
+The API refuses to delete the default realm, and a realm's `default` flag can only be set to `true` (never back to `false`). To retire a default realm, promote another one first:
+
+```bash
+band sip realm update backup-realm --default=true
+band sip realm delete old-default-realm --wait
+```
+
+### Delete a realm
+
+```bash
+band sip realm delete vapi --wait
+```
+
+Deletion is asynchronous (the API returns 202). A realm cannot be deleted while it still has SIP credentials (error 12666) or while it is the account default (error 33006).
+
+### Common errors
+
+| Error code | Message | Cause | Fix |
+|---|---|---|---|
+| **33006** | Cannot delete the default realm | Realm is the account default | Promote another realm first: `band sip realm update <other-realm> --default=true` |
+| **12666** | Realm still has SIP credentials | Realm has credentials attached | Delete the credentials first |
+| **33002** | Realm already exists | Name collision | Use `--if-not-exists`, or pick a different `--name` |
+| **23022** | Realm is not active yet | Realm hasn't finished provisioning | Retry with `--wait` |
+
 ## Limitations
 
 - **Bandwidth Build accounts are voice-only.** Detect via `band auth status --plain` (`build: true`). On a Build account, only voice and app-management commands work — `message send`, `number search`/`order`, `vcp *`, `subaccount *`, `tendlc *`, `tfv *` all exit 4 with a Build-aware message and an upgrade link. Pre-provisioned voice app and number ship with the account; `band number list` doesn't work yet (the number is reachable via the account portal). Build also has runtime limits not surfaced in `auth status` — verified-number-only outbound on Free Trial, a 30-min cap per call, a 5-concurrent-call ceiling. See [dev.bandwidth.com](https://dev.bandwidth.com/docs/voice/programmable-voice/build-free-trial) for current pricing and limits; treat any 402 (exit 4) as "out of credits, escalate" and any 429 (exit 7) as "back off and retry."

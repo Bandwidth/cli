@@ -203,6 +203,30 @@ func (s *Service) DeleteRealm(ref string) error {
 	return err
 }
 
+// SetRealmDefault promotes a realm to the account default. The API only
+// supports setting Default to true.
+func (s *Service) SetRealmDefault(ref string) (*Realm, error) {
+	current, err := s.GetRealm(ref)
+	if err != nil {
+		return nil, err
+	}
+	// Read-modify-write: Description is resent so a full-replace PUT cannot drop it.
+	body, err := s.do("PUT", s.base()+"/realms/"+url.PathEscape(ref), realmRequest{
+		Realm: current.Name, Description: current.Description, Default: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp realmResponse
+	if err := xml.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decoding realm response: %w", err)
+	}
+	if resp.Realm == nil {
+		return s.GetRealm(ref)
+	}
+	return toRealm(resp.Realm), nil
+}
+
 func (s *Service) credentialsPath(realmID string) string {
 	return s.base() + "/realms/" + url.PathEscape(realmID) + "/sipcredentials"
 }

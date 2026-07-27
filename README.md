@@ -463,6 +463,16 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
 
+### SIP trunk authentication
+
+| Command | What it does |
+|---------|-------------|
+| `band sip realm create --name <name> --default=<bool>` | Create a SIP realm (async; add `--wait`) |
+| `band sip realm list` | List realms |
+| `band sip realm get <realm-id-or-name>` | Get one realm, including its FQDN |
+| `band sip realm update <realm-id-or-name> --default=true` | Promote a realm to account default |
+| `band sip realm delete <realm-id-or-name>` | Delete a realm |
+
 ### Other
 
 | Command | What it does |
