@@ -98,3 +98,26 @@ func TestScrubHashes_XMLErrorBody(t *testing.T) {
 		t.Errorf("username was lost: %s", got)
 	}
 }
+
+func TestScrubHashes_AttributedHashElement(t *testing.T) {
+	// Hash elements may carry attributes (xmlns, namespace declarations, etc.).
+	// The regex must handle these to ensure secrets don't leak.
+	body := `<Errors><Error><ErrorCode>23026</ErrorCode>` +
+		`<SipCredential>` +
+		`<Hash1 xmlns:i="http://example.com">1be6abcaa8e9956021d30f33a3925b99</Hash1>` +
+		`<Hash1b xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">e028e6577a0bb1b90a33d30a110dbdfe</Hash1b>` +
+		`<UserName>testuser</UserName>` +
+		`</SipCredential></Error></Errors>`
+
+	got := ScrubHashes(body)
+	if strings.Contains(got, "1be6abcaa8e9956021d30f33a3925b99") ||
+		strings.Contains(got, "e028e6577a0bb1b90a33d30a110dbdfe") {
+		t.Errorf("hash value survived scrubbing (attributed element): %s", got)
+	}
+	if !strings.Contains(got, "23026") {
+		t.Errorf("error code was lost: %s", got)
+	}
+	if !strings.Contains(got, "testuser") {
+		t.Errorf("username was lost: %s", got)
+	}
+}
