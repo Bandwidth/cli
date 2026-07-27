@@ -3,6 +3,7 @@ package sip
 import (
 	"testing"
 
+	"github.com/Bandwidth/cli/internal/cmdutil"
 	sipsvc "github.com/Bandwidth/cli/internal/sip"
 )
 
@@ -40,5 +41,44 @@ func TestRealmStateMatches(t *testing.T) {
 	}
 	if realmStateMatches(existing, false, "other", true) {
 		t.Error("differing description must be reported as a mismatch")
+	}
+}
+
+// TestFaultExit_PreservesExitCode guards against a regression where a
+// documented error code's branch in faultExit wraps the original *APIFault in
+// a plain fmt.Errorf (no %w), silently detaching it from errors.As. Because
+// cmdutil.ExitCodeForError determines the process exit code purely by
+// unwrapping to *FeatureLimitError / *api.APIError / ErrPollTimeout, a
+// dropped wrap makes a documented conflict (should exit 4) fall through to
+// exit 1 — indistinguishable from an unexpected failure to an agent branching
+// on exit codes.
+func TestFaultExit_PreservesExitCode(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+	}{
+		{"default realm delete conflict", "33006"},
+		{"realm has credentials conflict", "12666"},
+		{"realm not active yet conflict", "23022"},
+		{"realm already exists conflict", "33002"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fault := &sipsvc.APIFault{Code: c.code, Description: "boom", StatusCode: 409}
+			result := faultExit(fault)
+			if got := cmdutil.ExitCodeForError(result); got != cmdutil.ExitConflict {
+				t.Errorf("faultExit(%s) -> ExitCodeForError = %d, want ExitConflict (%d): err = %v",
+					c.code, got, cmdutil.ExitConflict, result)
+			}
+		})
+	}
+
+	// 33004 must still map to ExitConflict via FeatureLimitError (regression
+	// guard for the one branch that was already correct).
+	fault := &sipsvc.APIFault{Code: "33004", Description: "not enabled", StatusCode: 403}
+	result := faultExit(fault)
+	if got := cmdutil.ExitCodeForError(result); got != cmdutil.ExitConflict {
+		t.Errorf("faultExit(33004) -> ExitCodeForError = %d, want ExitConflict (%d): err = %v",
+			got, cmdutil.ExitConflict, result)
 	}
 }

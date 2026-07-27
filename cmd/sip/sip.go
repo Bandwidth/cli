@@ -62,13 +62,13 @@ func faultExit(err error) error {
 	case "33004":
 		return cmdutil.NewFeatureLimit("this account isn't enabled for SIP credentials — contact Bandwidth support to enable SipCredentialSettings", err)
 	case "33006":
-		return fmt.Errorf("cannot delete the default realm — make another realm default first: band sip realm update <other-realm> --default=true")
+		return fmt.Errorf("cannot delete the default realm — make another realm default first: band sip realm update <other-realm> --default=true: %w", err)
 	case "12666":
-		return fmt.Errorf("cannot delete this realm while it has SIP credentials — delete them first: band sip credential list --realm <realm>")
+		return fmt.Errorf("cannot delete this realm while it has SIP credentials — delete them first: band sip credential list --realm <realm>: %w", err)
 	case "23022":
-		return fmt.Errorf("realm is not active yet — retry with --wait: %s", fault.Description)
+		return fmt.Errorf("realm is not active yet — retry with --wait: %s: %w", fault.Description, err)
 	case "33002":
-		return fmt.Errorf("realm already exists: %s", fault.Description)
+		return fmt.Errorf("realm already exists: %s: %w", fault.Description, err)
 	}
 	return err
 }
