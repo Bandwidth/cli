@@ -16,7 +16,16 @@ const (
 	ExitTimeout   = 5
 	ExitFlagError = 6
 	ExitRateLimit = 7
+	// ExitSecretUnavailable signals that a resource exists but its secret cannot
+	// be recovered — an agent must not proceed as though provisioning succeeded.
+	ExitSecretUnavailable = 8
 )
+
+// SecretUnavailableError reports that a credential exists but its password is
+// unrecoverable, so the caller cannot use it.
+type SecretUnavailableError struct{ Message string }
+
+func (e *SecretUnavailableError) Error() string { return e.Message }
 
 // ExitCodeForError maps an error to the appropriate exit code.
 // FeatureLimitError takes precedence over the raw API status code so a
@@ -34,6 +43,10 @@ func ExitCodeForError(err error) int {
 	var fle *FeatureLimitError
 	if errors.As(err, &fle) {
 		return ExitConflict
+	}
+	var sue *SecretUnavailableError
+	if errors.As(err, &sue) {
+		return ExitSecretUnavailable
 	}
 	var apiErr *api.APIError
 	if errors.As(err, &apiErr) {

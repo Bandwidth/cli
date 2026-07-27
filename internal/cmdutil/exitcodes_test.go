@@ -44,3 +44,13 @@ func TestExitCodeForError(t *testing.T) {
 		})
 	}
 }
+
+func TestExitCodeForError_SecretUnavailable(t *testing.T) {
+	err := &SecretUnavailableError{Message: "credential exists but its password cannot be recovered"}
+	if got := ExitCodeForError(err); got != ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want %d", got, ExitSecretUnavailable)
+	}
+	if ExitSecretUnavailable != 8 {
+		t.Errorf("ExitSecretUnavailable = %d, want 8", ExitSecretUnavailable)
+	}
+}
