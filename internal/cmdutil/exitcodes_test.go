@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/sip"
 )
 
 func TestExitCodeForError(t *testing.T) {
@@ -27,6 +28,11 @@ func TestExitCodeForError(t *testing.T) {
 		{"feature limit precedence beats raw 401", NewFeatureLimit("nope", &api.APIError{StatusCode: 401}), ExitConflict},
 		{"wrapped 429 keeps rate limit", fmt.Errorf("wrap: %w", &api.APIError{StatusCode: 429}), ExitRateLimit},
 		{"wrapped ErrPollTimeout", fmt.Errorf("timed out: %w", ErrPollTimeout), ExitTimeout},
+		// *sip.APIFault must unwrap to *api.APIError so a documented SIP
+		// failure (one that carries an ErrorCode) maps onto the CLI's
+		// exit-code taxonomy instead of falling back to ExitGeneral.
+		{"sip APIFault 404", &sip.APIFault{Code: "33010", Description: "not found", StatusCode: 404}, ExitNotFound},
+		{"sip APIFault 409", &sip.APIFault{Code: "23026", Description: "does already exist", StatusCode: 409}, ExitConflict},
 	}
 
 	for _, tt := range tests {

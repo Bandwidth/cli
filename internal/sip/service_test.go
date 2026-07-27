@@ -2,6 +2,7 @@ package sip
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,8 +21,7 @@ func newTestService(t *testing.T, h http.HandlerFunc) (*Service, func()) {
 func TestCreateRealm_ParsesFQDNAndStatus(t *testing.T) {
 	var gotBody string
 	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-		b := make([]byte, r.ContentLength)
-		r.Body.Read(b)
+		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.WriteHeader(201)
 		w.Write([]byte(`<?xml version='1.0'?><RealmResponse><Realm>` +
@@ -105,8 +105,7 @@ func TestRotateCredential_SendsRealmIDAndOmitsUserName(t *testing.T) {
 	// the value is unchanged.
 	var gotBody string
 	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-		b := make([]byte, r.ContentLength)
-		r.Body.Read(b)
+		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.Write([]byte(`<SipCredentialResponse><SipCredential>` +
 			`<Id>870880</Id><RealmId>1105</RealmId><UserName>rotuser</UserName>` +
@@ -134,10 +133,12 @@ func TestRotateCredential_SendsRealmIDAndOmitsUserName(t *testing.T) {
 }
 
 func TestCreateCredential_PartialSuccessIsFailure(t *testing.T) {
-	// A 201 can still carry an Errors array; the requested credential must be
-	// present in ValidSipCredentials or the command fails.
+	// Live-verified: a 201 can still carry an Errors array; the requested
+	// credential must be present in ValidSipCredentials or the command fails.
+	// The status is 201 (not 400) so this actually exercises the 2xx+Errors
+	// branch instead of the ordinary non-2xx fault path.
 	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(400)
+		w.WriteHeader(201)
 		w.Write([]byte(`<SipCredentialsResponse><Errors><Error>` +
 			`<ErrorCode>23026</ErrorCode><Description>does already exist</Description>` +
 			`</Error></Errors></SipCredentialsResponse>`))
@@ -148,6 +149,162 @@ func TestCreateCredential_PartialSuccessIsFailure(t *testing.T) {
 	var fault *APIFault
 	if !errorsAs(err, &fault) || fault.Code != "23026" {
 		t.Fatalf("error = %v, want APIFault 23026", err)
+	}
+}
+
+func TestCreateCredential_NotInValidListIsFailure(t *testing.T) {
+	// A 201 with ValidSipCredentials present, but missing the requested
+	// username entirely, must fail rather than report success for a
+	// credential that does not exist as requested.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(201)
+		w.Write([]byte(`<SipCredentialsResponse><ValidSipCredentials><SipCredential>` +
+			`<Id>1</Id><UserName>someoneelse</UserName>` +
+			`</SipCredential></ValidSipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	_, err := svc.CreateCredential("1103", "clitest", "h1", "h1b", "")
+	if err == nil {
+		t.Fatal("CreateCredential() error = nil, want error")
+	}
+	var fault *APIFault
+	if errorsAs(err, &fault) {
+		t.Fatalf("error = %v, want plain error (no matching or case-folded username), not *APIFault", err)
+	}
+}
+
+func TestCreateCredential_CaseMismatchReportsUnusableCredential(t *testing.T) {
+	// The API echoed a different case than what was submitted. ComputeHashes
+	// used the submitted case to build the digest, so the credential that
+	// exists server-side can never authenticate — the error must say so
+	// distinctly from "not returned at all".
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(201)
+		w.Write([]byte(`<SipCredentialsResponse><ValidSipCredentials><SipCredential>` +
+			`<Id>1</Id><UserName>CliTest</UserName>` +
+			`</SipCredential></ValidSipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	_, err := svc.CreateCredential("1103", "clitest", "h1", "h1b", "")
+	if err == nil {
+		t.Fatal("CreateCredential() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "digest hashes are invalid") {
+		t.Errorf("error = %q, want mention of invalid digest hashes", err.Error())
+	}
+}
+
+func TestDo_2xxEmptyBodyIsSuccess(t *testing.T) {
+	// Live-verified: DELETE /realms/{id} returns 202 with a completely empty
+	// body. That must not be misread as an unparseable/faulted response.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(202)
+	})
+	defer done()
+
+	if err := svc.DeleteRealm("1103"); err != nil {
+		t.Fatalf("DeleteRealm() error = %v, want nil for empty 202 body", err)
+	}
+}
+
+func TestDo_2xxErrorEnvelopeIsFailure(t *testing.T) {
+	// A 200 carrying a ResponseStatus/ErrorCode is not success, even though the
+	// status code says so. This guards ListRealms and friends from reporting
+	// "no realms" when the true state is "not authorized".
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte(`<RealmsResponse><ResponseStatus><ErrorCode>12666</ErrorCode>` +
+			`<Description>not authorized</Description></ResponseStatus></RealmsResponse>`))
+	})
+	defer done()
+
+	_, err := svc.ListRealms()
+	var fault *APIFault
+	if !errorsAs(err, &fault) || fault.Code != "12666" {
+		t.Fatalf("error = %v, want APIFault 12666", err)
+	}
+}
+
+func TestAPIFault_UnwrapsToAPIErrorForExitCodeMapping(t *testing.T) {
+	// cmdutil.ExitCodeForError maps exit codes via errors.As(err, &apiErr) on
+	// *api.APIError. Without Unwrap, every documented SIP failure (any fault
+	// that carries an ErrorCode) would exit 1 regardless of HTTP status.
+	fault := &APIFault{Code: "33004", Description: "conflict", StatusCode: 409}
+	var apiErr *api.APIError
+	if !errorsAs(fault, &apiErr) {
+		t.Fatalf("errors.As(%v, &apiErr) = false, want true", fault)
+	}
+	if apiErr.StatusCode != 409 {
+		t.Errorf("StatusCode = %d, want 409", apiErr.StatusCode)
+	}
+}
+
+func TestParseFault_UnparseableBodyFallsThroughToAPIError(t *testing.T) {
+	// A non-2xx body that isn't well-formed XML (or is empty) must not become
+	// an APIFault with an empty Code — that renders as the useless
+	// "(error )" and never carries a body for api.APIError to work with.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("not xml at all"))
+	})
+	defer done()
+
+	_, err := svc.GetRealm("1103")
+	var fault *APIFault
+	if errorsAs(err, &fault) {
+		t.Fatalf("error = %v, want *api.APIError, not *APIFault", err)
+	}
+	var apiErr *api.APIError
+	if !errorsAs(err, &apiErr) {
+		t.Fatalf("error = %v (%T), want *api.APIError", err, err)
+	}
+	if apiErr.StatusCode != 500 {
+		t.Errorf("StatusCode = %d, want 500", apiErr.StatusCode)
+	}
+}
+
+func TestDo_ScrubsHashesFromUnfaultedErrorBody(t *testing.T) {
+	// The single most security-relevant line in this file: output.ScrubHashes
+	// must run before a raw error body (which can echo Hash1/Hash1b) is ever
+	// placed on an error that gets printed to stderr.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte(`<SomeResponse><Hash1>deadbeef</Hash1></SomeResponse>`))
+	})
+	defer done()
+
+	_, err := svc.CreateRealm("x", "", false)
+	if err == nil {
+		t.Fatal("CreateRealm() error = nil, want error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "[REDACTED]") {
+		t.Errorf("error message missing [REDACTED]: %s", msg)
+	}
+	if strings.Contains(msg, "deadbeef") {
+		t.Errorf("error message leaked hash value: %s", msg)
+	}
+}
+
+func TestShortName(t *testing.T) {
+	tests := []struct {
+		name string
+		fqdn string
+		want string
+	}{
+		{"hyphenated label strips account suffix", "vapi-test-3efeaa.auth.bandwidth.com", "vapi-test"},
+		{"no hyphen in label", "vapi3efeaa.auth.bandwidth.com", "vapi3efeaa"},
+		{"empty string", "", ""},
+		{"bare label with no dot", "vapi-test", "vapi-test"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shortName(tt.fqdn); got != tt.want {
+				t.Errorf("shortName(%q) = %q, want %q", tt.fqdn, got, tt.want)
+			}
+		})
 	}
 }
 

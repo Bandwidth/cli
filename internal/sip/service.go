@@ -22,6 +22,13 @@ func (e *APIFault) Error() string {
 	return fmt.Sprintf("%s (error %s)", e.Description, e.Code)
 }
 
+// Unwrap lets errors.As match *api.APIError, so cmdutil.ExitCodeForError maps
+// SIP faults onto the CLI's exit-code taxonomy by StatusCode (401/403->2,
+// 404->3, 409->4, 429->7) instead of every documented failure exiting 1.
+func (e *APIFault) Unwrap() error {
+	return &api.APIError{StatusCode: e.StatusCode, Body: e.Description}
+}
+
 // Service wraps the Dashboard SIP endpoints for one account.
 type Service struct {
 	client    *api.Client
@@ -56,6 +63,16 @@ func (s *Service) do(method, path string, reqBody interface{}) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// An empty body (e.g. a 202 delete) is unambiguous success: there is
+		// nothing to unmarshal and nothing to fault.
+		if len(resp.Body) == 0 {
+			return resp.Body, nil
+		}
+		// A 2xx can still carry an error envelope (e.g. a partially successful
+		// bulk credential create), so probe it the same as a non-2xx body.
+		if fault := parseFault(resp.Body, resp.StatusCode); fault != nil {
+			return nil, fault
+		}
 		return resp.Body, nil
 	}
 	if fault := parseFault(resp.Body, resp.StatusCode); fault != nil {
@@ -65,15 +82,16 @@ func (s *Service) do(method, path string, reqBody interface{}) ([]byte, error) {
 }
 
 // parseFault extracts ResponseStatus or the first Errors entry. Returns nil if
-// the body carries neither.
+// the body carries neither, including when the body is not parseable XML — the
+// caller falls through to the api.APIError path, which already scrubs hashes
+// and substitutes a status-text placeholder when the body is empty.
 func parseFault(body []byte, status int) *APIFault {
 	var probe struct {
 		ResponseStatus *responseStatus `xml:"ResponseStatus"`
 		Errors         []wireError     `xml:"Errors>Error"`
 	}
 	if err := xml.Unmarshal(body, &probe); err != nil {
-		// Unparseable body: discard it entirely rather than risk leaking hashes.
-		return &APIFault{Code: "", Description: "unreadable error response", StatusCode: status}
+		return nil
 	}
 	if probe.ResponseStatus != nil && probe.ResponseStatus.ErrorCode != "" {
 		return &APIFault{
@@ -209,6 +227,16 @@ func (s *Service) CreateCredential(realmID, username, hash1, hash1b, appID strin
 	for i := range resp.Valid {
 		if resp.Valid[i].UserName == username {
 			return toCredential(&resp.Valid[i]), nil
+		}
+	}
+	// A case-insensitive match means the API echoed a different case than what
+	// ComputeHashes used to build the digest: the credential exists server-side
+	// but its hashes are for the wrong username and it can never authenticate.
+	for i := range resp.Valid {
+		if strings.EqualFold(resp.Valid[i].UserName, username) {
+			return nil, fmt.Errorf(
+				"API returned username %q, expected %q; the credential exists but its digest hashes are invalid — delete it and retry",
+				resp.Valid[i].UserName, username)
 		}
 	}
 	return nil, fmt.Errorf("credential %q was not returned in ValidSipCredentials", username)
