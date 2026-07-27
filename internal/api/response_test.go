@@ -90,3 +90,48 @@ func TestSameOriginRedirect_HopLimit(t *testing.T) {
 		t.Errorf("err = %v, want too many redirects", err)
 	}
 }
+
+// TestConstructors_RefuseCrossOriginRedirect drives a real cross-origin redirect
+// through httpClient.Do() for a client built by each of the four constructors.
+// It exists to catch the exact regression a pure-function test can't: if a
+// future edit to client.go silently dropped `CheckRedirect: sameOriginRedirect`
+// from one constructor's http.Client literal, this test would fail for that
+// constructor even though TestSameOriginRedirect_RefusesOffHost (which never
+// touches httpClient.Do) would keep passing.
+func TestConstructors_RefuseCrossOriginRedirect(t *testing.T) {
+	// A second server on a different port is a different origin even though
+	// the hostname is the same ("localhost"), matching how Go's http.Client
+	// treats it: scheme+host(with port) differ, so this is a genuine
+	// cross-origin hop, not a same-host same-port coincidence.
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<should-not-be-reached/>"))
+	}))
+	defer target.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/elsewhere", http.StatusFound)
+	}))
+	defer origin.Close()
+
+	tests := []struct {
+		name   string
+		client *Client
+	}{
+		{"NewClient", NewClient(origin.URL, nil)},
+		{"NewXMLClient", NewXMLClient(origin.URL, nil)},
+		{"NewBasicAuthClient", NewBasicAuthClient(origin.URL, "user", "pass")},
+		{"NewClientNoAuth", NewClientNoAuth(origin.URL)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.client.DoRawResponse("GET", "/redirect", nil)
+			if err == nil {
+				t.Fatalf("DoRawResponse() error = nil, want refusal of cross-origin redirect")
+			}
+			if !strings.Contains(err.Error(), "refusing cross-origin redirect") {
+				t.Errorf("err = %v, want message containing %q", err, "refusing cross-origin redirect")
+			}
+		})
+	}
+}
