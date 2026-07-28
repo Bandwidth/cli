@@ -2,6 +2,7 @@ package sip
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,6 +97,84 @@ func TestCredentialCreate_IfNotExistsAppMismatch_ReportsNotBound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not bound to an application") {
 		t.Errorf("error = %q, want mention of the credential not being bound", err.Error())
+	}
+}
+
+// credentialCreatePostWriteFailureStubServer simulates a failure on the
+// CreateCredential call itself that is NOT the documented 23026 duplicate —
+// e.g. a 500 on the response leg of a POST that may already have committed
+// server-side. This is the scenario code review flagged: the write may have
+// landed, the generated password was never printed, and the CLI must not
+// report a generic, retryable-looking failure.
+func credentialCreatePostWriteFailureStubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi"):
+			w.Write([]byte(`<RealmResponse><Realm><Id>1103</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>ACTIVE</Status>` +
+				`</Realm></RealmResponse>`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/sipcredentials"):
+			w.WriteHeader(500)
+			w.Write([]byte("boom"))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+// TestCredentialCreate_GeneratedPasswordLostToPostWriteFailure_ExitsSecretUnavailable
+// exercises the branch code review found untested: CreateCredential returning
+// an error while generated == true (credential_create.go, inside
+// runCredentialCreate's post-CreateCredential error handling, after the
+// --if-not-exists/23026 branch is ruled out). The generated password was
+// never printed, so this must surface as *cmdutil.SecretUnavailableError
+// (exit 8), not a generic failure an agent might blindly retry.
+func TestCredentialCreate_GeneratedPasswordLostToPostWriteFailure_ExitsSecretUnavailable(t *testing.T) {
+	srv := credentialCreatePostWriteFailureStubServer(t)
+	defer srv.Close()
+	withStubService(t, srv)
+
+	root := testutil.NewTestRoot(credentialCreateCmd)
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--generate-password"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want *cmdutil.SecretUnavailableError")
+	}
+	var sue *cmdutil.SecretUnavailableError
+	if !errors.As(err, &sue) {
+		t.Fatalf("error = %v (%T), want *cmdutil.SecretUnavailableError", err, err)
+	}
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want %d (ExitSecretUnavailable)", got, cmdutil.ExitSecretUnavailable)
+	}
+}
+
+// TestCredentialCreate_CallerSuppliedPasswordLostToPostWriteFailure_FallsThroughToFaultExit
+// is the negative pairing: the identical failure with a caller-supplied
+// password (--password-stdin) must NOT produce SecretUnavailableError — the
+// caller already knows the password, so there is nothing unrecoverable. This
+// proves the branch keys on `generated`, not on the failure alone.
+func TestCredentialCreate_CallerSuppliedPasswordLostToPostWriteFailure_FallsThroughToFaultExit(t *testing.T) {
+	srv := credentialCreatePostWriteFailureStubServer(t)
+	defer srv.Close()
+	withStubService(t, srv)
+
+	root := testutil.NewTestRoot(credentialCreateCmd)
+	root.SetIn(strings.NewReader("hunter2\n"))
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--password-stdin"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want an error for the failed write")
+	}
+	var sue *cmdutil.SecretUnavailableError
+	if errors.As(err, &sue) {
+		t.Fatalf("error = %v, want a plain faultExit error, NOT *cmdutil.SecretUnavailableError, for a caller-supplied password", err)
+	}
+	if got := cmdutil.ExitCodeForError(err); got == cmdutil.ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want anything but ExitSecretUnavailable for a caller-supplied password", got)
 	}
 }
 
