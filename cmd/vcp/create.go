@@ -95,14 +95,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			}
 			if len(matches) == 1 {
 				existing := matches[0]
-				if cmd.Flags().Changed("description") && normalizedField(existing["description"]) != createDescription {
-					return fmt.Errorf("VCP %q exists with a different description — update it explicitly: band vcp update %v --description <value>", createName, existing["voiceConfigurationPackageId"])
-				}
-				if cmd.Flags().Changed("app-id") && normalizedField(existing["httpVoiceV2ApplicationId"]) != createAppID {
-					return fmt.Errorf("VCP %q exists but is linked to a different application — update it explicitly: band vcp update %v --app-id <value>", createName, existing["voiceConfigurationPackageId"])
-				}
-				if plan != nil && !RoutePlansEqual(existing["originationRoutePlan"], plan) {
-					return fmt.Errorf("VCP %q exists with a different origination route plan — update it explicitly: band vcp update %v --route-endpoint ... --route-endpoint-type ... --replace-routes", createName, existing["voiceConfigurationPackageId"])
+				if err := vcpConflict(existing, createName,
+					cmd.Flags().Changed("description"), createDescription,
+					cmd.Flags().Changed("app-id"), createAppID,
+					plan); err != nil {
+					return err
 				}
 				return output.StdoutAuto(format, plain, existing)
 			}
@@ -158,4 +155,26 @@ func normalizedField(v interface{}) string {
 	}
 	s, _ := v.(string)
 	return s
+}
+
+// vcpConflict decides whether a single --if-not-exists name match is
+// compatible with the requested create, comparing only the fields the caller
+// actually specified (checkDescription/checkAppID reflect whether --description
+// and --app-id were set; plan is nil unless route flags/--route-plan-json were
+// given). Returns nil when the match is compatible (safe to return as-is), or
+// an error naming the exact `band vcp update` remediation otherwise. This is
+// pulled out of runCreate so the decision can be unit tested without a live
+// (or faked) HTTP client.
+func vcpConflict(existing map[string]interface{}, name string, checkDescription bool, description string, checkAppID bool, appID string, plan map[string]interface{}) error {
+	id := existing["voiceConfigurationPackageId"]
+	if checkDescription && normalizedField(existing["description"]) != description {
+		return fmt.Errorf("VCP %q exists with a different description — update it explicitly: band vcp update %v --description <value>", name, id)
+	}
+	if checkAppID && normalizedField(existing["httpVoiceV2ApplicationId"]) != appID {
+		return fmt.Errorf("VCP %q exists but is linked to a different application — update it explicitly: band vcp update %v --app-id <value>", name, id)
+	}
+	if plan != nil && !RoutePlansEqual(existing["originationRoutePlan"], plan) {
+		return fmt.Errorf("VCP %q exists with a different origination route plan — update it explicitly: band vcp update %v --route-endpoint ... --route-endpoint-type ... --replace-routes", name, id)
+	}
+	return nil
 }

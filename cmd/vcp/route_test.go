@@ -93,3 +93,205 @@ func TestParseRoutePlanJSON(t *testing.T) {
 		t.Error("unknown field accepted, want error")
 	}
 }
+
+// --- Canonicalization gap: route type, priority, and endpoint weight are all
+// user-controllable via --route-plan-json (BuildRoutePlan hardcodes them, so
+// only the JSON path can vary them). RoutePlansEqual/canonicalPlanJSON must
+// treat a difference in any of the three as a real difference, or the
+// --replace-routes guard never fires for it. ---
+
+func mustParsePlan(t *testing.T, s string) map[string]interface{} {
+	t.Helper()
+	plan, err := ParseRoutePlanJSON(s)
+	if err != nil {
+		t.Fatalf("ParseRoutePlanJSON(%q) error = %v", s, err)
+	}
+	return plan
+}
+
+func TestRoutePlansEqual_DetectsRouteTypeDifference(t *testing.T) {
+	weighted := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	ani := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"ANI","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	if RoutePlansEqual(weighted, ani) {
+		t.Error("plans differing only in route type (WEIGHTED vs ANI) reported as equal — a real failover-semantics change was missed")
+	}
+}
+
+func TestRoutePlansEqual_DetectsPriorityDifference(t *testing.T) {
+	p1 := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	p2 := mustParsePlan(t, `{"routes":[{"priority":2,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	if RoutePlansEqual(p1, p2) {
+		t.Error("plans differing only in route priority reported as equal")
+	}
+}
+
+func TestRoutePlansEqual_DetectsWeightDifference(t *testing.T) {
+	p1 := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	p2 := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":50}]}]}`)
+	if RoutePlansEqual(p1, p2) {
+		t.Error("plans differing only in endpoint weight reported as equal")
+	}
+}
+
+func TestRoutePlansEqual_NumericComparisonNotStringComparison(t *testing.T) {
+	// BuildRoutePlan hand-builds int(1)/int(100); ParseRoutePlanJSON decodes
+	// float64(1)/float64(100) via encoding/json. These represent the same
+	// plan and must compare equal despite the differing Go types.
+	built, err := BuildRoutePlan("h.example.com", "FQDN", "")
+	if err != nil {
+		t.Fatalf("BuildRoutePlan() error = %v", err)
+	}
+	parsed := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	if !RoutePlansEqual(built, parsed) {
+		t.Error("int vs float64 priority/weight representations of the same plan reported as unequal")
+	}
+}
+
+// --- resolveRoutePlan: --route-name must not be a silent no-op ---
+
+func TestResolveRoutePlan_RouteNameAloneErrors(t *testing.T) {
+	// Setting --route-name without --route-endpoint/--route-endpoint-type must
+	// error, not silently return (nil, nil) as if no route flags were set.
+	plan, err := resolveRoutePlan("", "", "custom name", "")
+	if err == nil {
+		t.Errorf("expected error for --route-name alone, got plan=%v", plan)
+	}
+}
+
+func TestResolveRoutePlan_RouteNameWithPlanJSONErrors(t *testing.T) {
+	_, err := resolveRoutePlan("", "", "custom name", `{"routes":[]}`)
+	if err == nil {
+		t.Error("expected mutual-exclusivity error for --route-name with --route-plan-json")
+	}
+}
+
+func TestResolveRoutePlan_MutualExclusivity(t *testing.T) {
+	_, err := resolveRoutePlan("h.example.com", "FQDN", "", `{"routes":[]}`)
+	if err == nil {
+		t.Error("expected mutual-exclusivity error combining individual flags with --route-plan-json")
+	}
+}
+
+func TestResolveRoutePlan_PartialFlagsError(t *testing.T) {
+	if _, err := resolveRoutePlan("h.example.com", "", "", ""); err == nil {
+		t.Error("expected error when --route-endpoint is given without --route-endpoint-type")
+	}
+}
+
+func TestResolveRoutePlan_NoFlagsReturnsNil(t *testing.T) {
+	plan, err := resolveRoutePlan("", "", "", "")
+	if err != nil || plan != nil {
+		t.Errorf("resolveRoutePlan() = (%v, %v), want (nil, nil)", plan, err)
+	}
+}
+
+func TestResolveRoutePlan_MissingFile(t *testing.T) {
+	_, err := resolveRoutePlan("", "", "", "@/no/such/file-for-testing.json")
+	if err == nil {
+		t.Error("expected error reading a nonexistent --route-plan-json file")
+	}
+}
+
+// --- requiresRouteReplaceConfirmation: the four --replace-routes guard
+// transitions the update command relies on. ---
+
+func TestRequiresRouteReplaceConfirmation_EmptyExistingAllowed(t *testing.T) {
+	plan, _ := BuildRoutePlan("h.example.com", "FQDN", "")
+	if requiresRouteReplaceConfirmation(nil, plan) {
+		t.Error("empty existing plan should not require confirmation")
+	}
+}
+
+func TestRequiresRouteReplaceConfirmation_IdenticalAllowed(t *testing.T) {
+	existing, _ := BuildRoutePlan("h.example.com", "FQDN", "")
+	plan, _ := BuildRoutePlan("h.example.com", "FQDN", "")
+	if requiresRouteReplaceConfirmation(existing, plan) {
+		t.Error("identical existing plan should not require confirmation")
+	}
+}
+
+func TestRequiresRouteReplaceConfirmation_DifferentBlocked(t *testing.T) {
+	existing, _ := BuildRoutePlan("old.example.com", "FQDN", "")
+	plan, _ := BuildRoutePlan("new.example.com", "FQDN", "")
+	if !requiresRouteReplaceConfirmation(existing, plan) {
+		t.Error("different non-empty existing plan should require confirmation")
+	}
+}
+
+// --- findAllByName: duplicate detection never guesses ---
+
+func TestFindAllByName_ZeroOneAndMultipleMatches(t *testing.T) {
+	list := []interface{}{
+		map[string]interface{}{"name": "Prod VCP", "voiceConfigurationPackageId": "vcp-1"},
+		map[string]interface{}{"name": "Prod VCP", "voiceConfigurationPackageId": "vcp-2"},
+		map[string]interface{}{"name": "Other VCP", "voiceConfigurationPackageId": "vcp-3"},
+	}
+	if got := findAllByName(list, "name", "Prod VCP"); len(got) != 2 {
+		t.Errorf("findAllByName() = %d matches, want 2", len(got))
+	}
+	if got := findAllByName(list, "name", "Other VCP"); len(got) != 1 {
+		t.Errorf("findAllByName() = %d matches, want 1", len(got))
+	}
+	if got := findAllByName(list, "name", "No Such VCP"); len(got) != 0 {
+		t.Errorf("findAllByName() = %d matches, want 0", len(got))
+	}
+}
+
+// --- vcpConflict: --if-not-exists must compare, not guess ---
+
+func TestVCPConflict_NoFlagsSpecifiedAlwaysCompatible(t *testing.T) {
+	existing := map[string]interface{}{
+		"voiceConfigurationPackageId": "vcp-1",
+		"description":                 "something else entirely",
+		"httpVoiceV2ApplicationId":    "other-app",
+	}
+	// Neither --description nor --app-id was passed, and no route plan was
+	// requested: nothing the caller specified conflicts.
+	if err := vcpConflict(existing, "Prod VCP", false, "", false, "", nil); err != nil {
+		t.Errorf("vcpConflict() = %v, want nil when caller specified no comparable fields", err)
+	}
+}
+
+func TestVCPConflict_DescriptionMismatch(t *testing.T) {
+	existing := map[string]interface{}{
+		"voiceConfigurationPackageId": "vcp-1",
+		"description":                 "existing description",
+	}
+	if err := vcpConflict(existing, "Prod VCP", true, "requested description", false, "", nil); err == nil {
+		t.Error("expected conflict error for mismatched description")
+	}
+	if err := vcpConflict(existing, "Prod VCP", true, "existing description", false, "", nil); err != nil {
+		t.Errorf("matching description should not conflict, got %v", err)
+	}
+}
+
+func TestVCPConflict_AppIDMismatch(t *testing.T) {
+	existing := map[string]interface{}{
+		"voiceConfigurationPackageId": "vcp-1",
+		"httpVoiceV2ApplicationId":    "app-existing",
+	}
+	if err := vcpConflict(existing, "Prod VCP", false, "", true, "app-requested", nil); err == nil {
+		t.Error("expected conflict error for mismatched app ID")
+	}
+	if err := vcpConflict(existing, "Prod VCP", false, "", true, "app-existing", nil); err != nil {
+		t.Errorf("matching app ID should not conflict, got %v", err)
+	}
+}
+
+func TestVCPConflict_AbsentNullEmptyAreEquivalent(t *testing.T) {
+	existing := map[string]interface{}{"voiceConfigurationPackageId": "vcp-1"} // description absent
+	if err := vcpConflict(existing, "Prod VCP", true, "", false, "", nil); err != nil {
+		t.Errorf("absent existing description vs requested \"\" should not conflict, got %v", err)
+	}
+}
+
+func TestVCPConflict_RoutePlanMismatch(t *testing.T) {
+	existing := map[string]interface{}{
+		"voiceConfigurationPackageId": "vcp-1",
+		"originationRoutePlan":        nil,
+	}
+	plan, _ := BuildRoutePlan("h.example.com", "FQDN", "")
+	if err := vcpConflict(existing, "Prod VCP", false, "", false, "", plan); err == nil {
+		t.Error("expected conflict error when existing plan is empty but caller requested a route")
+	}
+}

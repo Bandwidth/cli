@@ -77,8 +77,6 @@ func BuildRoutePlan(endpoint, endpointType, routeName string) (map[string]interf
 // originationRoutePlan object itself (i.e. {"routes":[...]}).
 func ParseRoutePlanJSON(s string) (map[string]interface{}, error) {
 	var plan map[string]interface{}
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.DisallowUnknownFields()
 	if err := json.Unmarshal([]byte(s), &plan); err != nil {
 		return nil, fmt.Errorf("parsing --route-plan-json: %w", err)
 	}
@@ -139,8 +137,13 @@ func RoutePlansEqual(a, b interface{}) bool {
 	return canonicalPlanJSON(na) == canonicalPlanJSON(nb)
 }
 
-// canonicalPlanJSON renders only the user-controllable fields, lowercasing FQDN
-// endpoints so case differences do not read as changes.
+// canonicalPlanJSON renders the user-controllable fields — including route
+// priority/type and endpoint weight, which a caller can set via
+// --route-plan-json even though the individual flags never vary them — so
+// the guard and --if-not-exists detect every field a caller can actually
+// change. FQDN endpoint values are lowercased so case differences do not
+// read as changes; priority and weight are normalized to float64 so a
+// JSON-decoded 1.0 and a hand-built int 1 compare equal.
 func canonicalPlanJSON(m map[string]interface{}) string {
 	routes, _ := m["routes"].([]interface{})
 	var out []map[string]interface{}
@@ -155,21 +158,65 @@ func canonicalPlanJSON(m map[string]interface{}) string {
 			if typ == "FQDN" {
 				ep = strings.ToLower(ep)
 			}
-			eps = append(eps, map[string]interface{}{"endpoint": ep, "type": typ})
+			eps = append(eps, map[string]interface{}{
+				"endpoint": ep,
+				"type":     typ,
+				"weight":   toFloat(em["weight"]),
+			})
 		}
 		name, _ := rm["name"].(string)
-		out = append(out, map[string]interface{}{"name": name, "endpoints": eps})
+		routeType, _ := rm["type"].(string)
+		out = append(out, map[string]interface{}{
+			"name":      name,
+			"type":      routeType,
+			"priority":  toFloat(rm["priority"]),
+			"endpoints": eps,
+		})
 	}
 	b, _ := json.Marshal(out)
 	return string(b)
 }
 
+// toFloat normalizes a route/endpoint numeric field (priority, weight) to
+// float64 so values coming from JSON decoding (always float64) and values
+// from a hand-built map (often int, e.g. BuildRoutePlan's literals) compare
+// equal. A missing or non-numeric value normalizes to 0.
+func toFloat(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	default:
+		return 0
+	}
+}
+
+// requiresRouteReplaceConfirmation reports whether writing plan over
+// existingPlan would silently destroy a route plan the caller didn't
+// explicitly ask to replace: true only when existingPlan is non-empty AND
+// structurally different from plan. An empty existing plan (nothing to
+// destroy) or an identical one (no-op write) never requires --replace-routes.
+// Pulled out of runUpdate so the four guard transitions are unit testable
+// without a live (or faked) HTTP client.
+func requiresRouteReplaceConfirmation(existingPlan, plan interface{}) bool {
+	return !isEmptyPlan(existingPlan) && !RoutePlansEqual(existingPlan, plan)
+}
+
 // resolveRoutePlan turns the route flags into a plan, or nil when none were set.
 // The individual flags and --route-plan-json are mutually exclusive.
+// routeName counts as "using flags" too — otherwise a caller who sets only
+// --route-name gets no plan and no error, a silent no-op on a flag they
+// explicitly set.
 func resolveRoutePlan(endpoint, endpointType, routeName, planJSON string) (map[string]interface{}, error) {
-	usingFlags := endpoint != "" || endpointType != ""
+	usingFlags := endpoint != "" || endpointType != "" || routeName != ""
 	if usingFlags && planJSON != "" {
-		return nil, fmt.Errorf("--route-plan-json cannot be combined with --route-endpoint/--route-endpoint-type")
+		return nil, fmt.Errorf("--route-plan-json cannot be combined with --route-endpoint/--route-endpoint-type/--route-name")
 	}
 	if planJSON != "" {
 		s := planJSON
@@ -186,7 +233,7 @@ func resolveRoutePlan(endpoint, endpointType, routeName, planJSON string) (map[s
 		return nil, nil
 	}
 	if endpoint == "" || endpointType == "" {
-		return nil, fmt.Errorf("--route-endpoint and --route-endpoint-type must be provided together")
+		return nil, fmt.Errorf("--route-endpoint and --route-endpoint-type must be provided together (--route-name alone does not build a route)")
 	}
 	return BuildRoutePlan(endpoint, endpointType, routeName)
 }

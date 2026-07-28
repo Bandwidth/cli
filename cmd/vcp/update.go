@@ -128,7 +128,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		// whenever a non-empty plan would be overwritten with something different.
 		// This is a read-then-write check, so it is best-effort against
 		// concurrent modification of the VCP between the GET and the PATCH.
-		if !isEmptyPlan(existingPlan) && !RoutePlansEqual(existingPlan, plan) && !updateReplaceRoutes {
+		if requiresRouteReplaceConfirmation(existingPlan, plan) && !updateReplaceRoutes {
 			return fmt.Errorf("VCP %s already has an origination route plan; writing a new one replaces it — re-run with --replace-routes to confirm", vcpID)
 		}
 		body["originationRoutePlan"] = plan
