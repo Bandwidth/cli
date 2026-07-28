@@ -14,6 +14,11 @@ var (
 	createDescription string
 	createAppID       string
 	createIfNotExists bool
+
+	createRouteEndpoint     string
+	createRouteEndpointType string
+	createRouteName         string
+	createRoutePlanJSON     string
 )
 
 func init() {
@@ -22,6 +27,10 @@ func init() {
 	createCmd.Flags().StringVar(&createDescription, "description", "", "VCP description")
 	createCmd.Flags().StringVar(&createAppID, "app-id", "", "Voice application ID to link")
 	createCmd.Flags().BoolVar(&createIfNotExists, "if-not-exists", false, "Return existing VCP if one with the same name exists")
+	createCmd.Flags().StringVar(&createRouteEndpoint, "route-endpoint", "", "Origination route endpoint (host, SIP URI, IPv4, or E.164)")
+	createCmd.Flags().StringVar(&createRouteEndpointType, "route-endpoint-type", "", "Endpoint type: TN, SIP, IP_V4, or FQDN")
+	createCmd.Flags().StringVar(&createRouteName, "route-name", "", "Route name (default \"primary route\")")
+	createCmd.Flags().StringVar(&createRoutePlanJSON, "route-plan-json", "", "Full originationRoutePlan object as JSON, or @file")
 	createCmd.MarkFlagRequired("name")
 }
 
@@ -36,7 +45,10 @@ var createCmd = &cobra.Command{
   band vcp create --name "Voice VCP" --app-id abc-123-def
 
   # Idempotent create (safe for retries)
-  band vcp create --name "Voice VCP" --if-not-exists`,
+  band vcp create --name "Voice VCP" --if-not-exists
+
+  # Create with an origination route
+  band vcp create --name "Voice VCP" --route-endpoint vapi.example.sip.vapi.ai --route-endpoint-type FQDN`,
 	RunE: runCreate,
 }
 
@@ -69,10 +81,29 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	format, plain := cmdutil.OutputFlags(cmd)
 
+	plan, err := resolveRoutePlan(createRouteEndpoint, createRouteEndpointType, createRouteName, createRoutePlanJSON)
+	if err != nil {
+		return err
+	}
+
 	if createIfNotExists {
 		var listResult interface{}
 		if err := client.Get(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &listResult); err == nil {
-			if existing := output.FindByName(listResult, "name", createName); existing != nil {
+			matches := findAllByName(listResult, "name", createName)
+			if len(matches) > 1 {
+				return fmt.Errorf("found %d VCPs named %q; disambiguate by ID with band vcp update <vcp-id>", len(matches), createName)
+			}
+			if len(matches) == 1 {
+				existing := matches[0]
+				if cmd.Flags().Changed("description") && normalizedField(existing["description"]) != createDescription {
+					return fmt.Errorf("VCP %q exists with a different description — update it explicitly: band vcp update %v --description <value>", createName, existing["voiceConfigurationPackageId"])
+				}
+				if cmd.Flags().Changed("app-id") && normalizedField(existing["httpVoiceV2ApplicationId"]) != createAppID {
+					return fmt.Errorf("VCP %q exists but is linked to a different application — update it explicitly: band vcp update %v --app-id <value>", createName, existing["voiceConfigurationPackageId"])
+				}
+				if plan != nil && !RoutePlansEqual(existing["originationRoutePlan"], plan) {
+					return fmt.Errorf("VCP %q exists with a different origination route plan — update it explicitly: band vcp update %v --route-endpoint ... --route-endpoint-type ... --replace-routes", createName, existing["voiceConfigurationPackageId"])
+				}
 				return output.StdoutAuto(format, plain, existing)
 			}
 		}
@@ -83,6 +114,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Description: createDescription,
 		AppID:       createAppID,
 	})
+	if plan != nil {
+		body["originationRoutePlan"] = plan
+	}
 
 	var result interface{}
 	if err := client.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), body, &result); err != nil {
@@ -90,4 +124,38 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	return output.StdoutAuto(format, plain, result)
+}
+
+// findAllByName returns every item in a flattened list response whose field
+// matches name. Unlike output.FindByName, callers need the full match count
+// to detect ambiguous names before silently acting on the first one found.
+func findAllByName(data interface{}, field, name string) []map[string]interface{} {
+	flat := output.FlattenResponse(data)
+	var matches []map[string]interface{}
+	switch v := flat.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				if val, ok := m[field].(string); ok && val == name {
+					matches = append(matches, m)
+				}
+			}
+		}
+	case map[string]interface{}:
+		if val, ok := v[field].(string); ok && val == name {
+			matches = append(matches, v)
+		}
+	}
+	return matches
+}
+
+// normalizedField treats a JSON-decoded field value of nil (absent/null) the
+// same as an empty string, matching the API's own absent/null equivalence for
+// optional scalar fields like description and app ID.
+func normalizedField(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
 }

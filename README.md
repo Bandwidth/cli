@@ -392,9 +392,11 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | Command | What it does |
 |---------|-------------|
 | `band vcp create` | Create a VCP |
+| `band vcp create --route-endpoint <value> --route-endpoint-type <TN\|SIP\|IP_V4\|FQDN>` | Create a VCP with an origination route |
 | `band vcp list` | List all VCPs |
 | `band vcp get <id>` | Get VCP details |
 | `band vcp update <id>` | Update a VCP (name, description, linked app) |
+| `band vcp update <vcp-id> --route-endpoint <value> --route-endpoint-type FQDN --replace-routes` | Replace a VCP's origination route plan |
 | `band vcp delete <id>` | Delete a VCP |
 | `band vcp assign <id> <number...>` | Assign (or move) numbers to a VCP |
 | `band vcp numbers <id>` | List numbers on a VCP |
