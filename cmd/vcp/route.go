@@ -197,14 +197,19 @@ func toFloat(v interface{}) float64 {
 	}
 }
 
-// requiresRouteReplaceConfirmation reports whether writing plan over
-// existingPlan would silently destroy a route plan the caller didn't
-// explicitly ask to replace: true only when existingPlan is non-empty AND
-// structurally different from plan. An empty existing plan (nothing to
-// destroy) or an identical one (no-op write) never requires --replace-routes.
-// Pulled out of runUpdate so the four guard transitions are unit testable
-// without a live (or faked) HTTP client.
-func requiresRouteReplaceConfirmation(existingPlan, plan interface{}) bool {
+// requiresRouteReplaceConfirmation reports whether the write must be refused:
+// true only when a non-empty existing plan would be replaced by a different
+// one AND the caller has not passed --replace-routes. An empty existing plan
+// (nothing to destroy), an identical one (no-op write), or an explicit
+// replaceConfirmed=true (the caller's override) all return false. The
+// override is folded in here — not left as a separate "&&" at the call
+// site — so the complete guard decision, including whether --replace-routes
+// was honored, is a single unit-testable function rather than a boolean
+// expression split across this file and runUpdate.
+func requiresRouteReplaceConfirmation(existingPlan, plan interface{}, replaceConfirmed bool) bool {
+	if replaceConfirmed {
+		return false
+	}
 	return !isEmptyPlan(existingPlan) && !RoutePlansEqual(existingPlan, plan)
 }
 

@@ -193,11 +193,13 @@ func TestResolveRoutePlan_MissingFile(t *testing.T) {
 }
 
 // --- requiresRouteReplaceConfirmation: the four --replace-routes guard
-// transitions the update command relies on. ---
+// transitions the update command relies on, including the --replace-routes
+// override itself (previously a bare "&& !updateReplaceRoutes" left outside
+// the function and untested). ---
 
 func TestRequiresRouteReplaceConfirmation_EmptyExistingAllowed(t *testing.T) {
 	plan, _ := BuildRoutePlan("h.example.com", "FQDN", "")
-	if requiresRouteReplaceConfirmation(nil, plan) {
+	if requiresRouteReplaceConfirmation(nil, plan, false) {
 		t.Error("empty existing plan should not require confirmation")
 	}
 }
@@ -205,16 +207,24 @@ func TestRequiresRouteReplaceConfirmation_EmptyExistingAllowed(t *testing.T) {
 func TestRequiresRouteReplaceConfirmation_IdenticalAllowed(t *testing.T) {
 	existing, _ := BuildRoutePlan("h.example.com", "FQDN", "")
 	plan, _ := BuildRoutePlan("h.example.com", "FQDN", "")
-	if requiresRouteReplaceConfirmation(existing, plan) {
+	if requiresRouteReplaceConfirmation(existing, plan, false) {
 		t.Error("identical existing plan should not require confirmation")
 	}
 }
 
-func TestRequiresRouteReplaceConfirmation_DifferentBlocked(t *testing.T) {
+func TestRequiresRouteReplaceConfirmation_DifferentBlockedWithoutFlag(t *testing.T) {
 	existing, _ := BuildRoutePlan("old.example.com", "FQDN", "")
 	plan, _ := BuildRoutePlan("new.example.com", "FQDN", "")
-	if !requiresRouteReplaceConfirmation(existing, plan) {
-		t.Error("different non-empty existing plan should require confirmation")
+	if !requiresRouteReplaceConfirmation(existing, plan, false) {
+		t.Error("different non-empty existing plan should require confirmation when --replace-routes is not set")
+	}
+}
+
+func TestRequiresRouteReplaceConfirmation_DifferentAllowedWithFlag(t *testing.T) {
+	existing, _ := BuildRoutePlan("old.example.com", "FQDN", "")
+	plan, _ := BuildRoutePlan("new.example.com", "FQDN", "")
+	if requiresRouteReplaceConfirmation(existing, plan, true) {
+		t.Error("--replace-routes=true should allow overwriting a different non-empty existing plan")
 	}
 }
 
