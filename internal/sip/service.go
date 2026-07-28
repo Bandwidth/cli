@@ -327,7 +327,11 @@ func (s *Service) DeleteCredential(realmID, credentialID string) error {
 }
 
 // FindCredentialByUsername returns the single credential with this username in
-// a realm. Bounded retry absorbs read-after-write lag following a duplicate error.
+// a realm. Matching is case-insensitive because the API treats usernames as a
+// case-insensitive duplicate key (see CreateCredential's case-fold branch) —
+// a caller invoking this after a 23026 duplicate with a different case than
+// what is stored must still find it. Bounded retry absorbs read-after-write
+// lag following that duplicate error.
 func (s *Service) FindCredentialByUsername(realmID, username string) (*Credential, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -341,7 +345,7 @@ func (s *Service) FindCredentialByUsername(realmID, username string) (*Credentia
 		}
 		var matches []Credential
 		for i := range creds {
-			if creds[i].Username == username {
+			if strings.EqualFold(creds[i].Username, username) {
 				matches = append(matches, creds[i])
 			}
 		}
@@ -349,7 +353,7 @@ func (s *Service) FindCredentialByUsername(realmID, username string) (*Credentia
 		case 1:
 			return &matches[0], nil
 		case 0:
-			lastErr = fmt.Errorf("credential %q not found in realm %s", username, realmID)
+			lastErr = fmt.Errorf("the API reported a duplicate but no credential named %q is listed in realm %s — check for a case difference", username, realmID)
 		default:
 			return nil, fmt.Errorf("found %d credentials named %q in realm %s; delete the duplicates", len(matches), username, realmID)
 		}
@@ -360,7 +364,13 @@ func (s *Service) FindCredentialByUsername(realmID, username string) (*Credentia
 // credentialHashWire exists only for equality checks. The public credentialWire
 // deliberately carries no hash fields so digest material cannot reach output;
 // this private type keeps the comparison inside the service.
+//
+// XMLName pins the expected root element: without it, xml.Unmarshal succeeds
+// against any document shape, silently zeroing both hash fields on a
+// wrong-shaped body and making CredentialHashesMatch report "different
+// password" for a credential that may be perfectly correct.
 type credentialHashWire struct {
+	XMLName    xml.Name `xml:"SipCredentialResponse"`
 	Credential struct {
 		Hash1  string `xml:"Hash1"`
 		Hash1b string `xml:"Hash1b"`
@@ -377,6 +387,13 @@ func (s *Service) CredentialHashesMatch(realmID, credentialID, hash1, hash1b str
 	var w credentialHashWire
 	if err := xml.Unmarshal(body, &w); err != nil {
 		return false, fmt.Errorf("decoding credential response: %w", err)
+	}
+	// A response that decoded cleanly but carries no hashes at all is a
+	// distinct failure from "hashes present but different" — telling a caller
+	// to rotate a possibly-correct credential inverts the guarantee
+	// --if-not-exists exists to provide.
+	if w.Credential.Hash1 == "" && w.Credential.Hash1b == "" {
+		return false, fmt.Errorf("credential %s response carried no digest hashes; cannot verify the supplied password matches", credentialID)
 	}
 	return w.Credential.Hash1 == hash1 && w.Credential.Hash1b == hash1b, nil
 }

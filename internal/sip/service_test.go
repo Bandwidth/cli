@@ -312,3 +312,162 @@ func TestShortName(t *testing.T) {
 func errorsAs(err error, target interface{}) bool {
 	return errors.As(err, target)
 }
+
+func TestFindCredentialByUsername_ZeroMatches(t *testing.T) {
+	// The API reported a duplicate (that's the only caller of this method),
+	// but the list genuinely doesn't contain the username after all retries.
+	// The error must say so distinctly from "found it, multiple times".
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialsResponse><SipCredentials><SipCredential>` +
+			`<Id>1</Id><UserName>someoneelse</UserName></SipCredential>` +
+			`</SipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	_, err := svc.FindCredentialByUsername("1103", "missing")
+	if err == nil {
+		t.Fatal("FindCredentialByUsername() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "no credential named") {
+		t.Errorf("error = %q, want mention of the missing credential", err.Error())
+	}
+}
+
+func TestFindCredentialByUsername_OneMatchIsCaseInsensitive(t *testing.T) {
+	// The API's duplicate check (23026) is case-insensitive (see
+	// CreateCredential's EqualFold branch); this lookup must match the same
+	// way or a caller who requested "Agent" will never find the stored
+	// "agent" and will spuriously report "not found" after a real duplicate.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialsResponse><SipCredentials><SipCredential>` +
+			`<Id>42</Id><UserName>Agent</UserName></SipCredential>` +
+			`</SipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	cred, err := svc.FindCredentialByUsername("1103", "agent")
+	if err != nil {
+		t.Fatalf("FindCredentialByUsername() error = %v", err)
+	}
+	if cred.ID != "42" {
+		t.Errorf("ID = %q, want 42", cred.ID)
+	}
+}
+
+func TestFindCredentialByUsername_MultipleMatchesIsError(t *testing.T) {
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialsResponse><SipCredentials>` +
+			`<SipCredential><Id>1</Id><UserName>agent</UserName></SipCredential>` +
+			`<SipCredential><Id>2</Id><UserName>AGENT</UserName></SipCredential>` +
+			`</SipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	_, err := svc.FindCredentialByUsername("1103", "agent")
+	if err == nil {
+		t.Fatal("FindCredentialByUsername() error = nil, want error for multiple matches")
+	}
+	if !strings.Contains(err.Error(), "delete the duplicates") {
+		t.Errorf("error = %q, want mention of duplicates", err.Error())
+	}
+}
+
+func TestFindCredentialByUsername_TransportErrorThenSuccess(t *testing.T) {
+	// A transient failure on one attempt must not abort the bounded retry —
+	// only the final attempt's error (or a real 0/N+ match outcome) should
+	// surface.
+	var calls int
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(500)
+			w.Write([]byte("boom"))
+			return
+		}
+		w.Write([]byte(`<SipCredentialsResponse><SipCredentials><SipCredential>` +
+			`<Id>7</Id><UserName>agent</UserName></SipCredential>` +
+			`</SipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	cred, err := svc.FindCredentialByUsername("1103", "agent")
+	if err != nil {
+		t.Fatalf("FindCredentialByUsername() error = %v", err)
+	}
+	if cred.ID != "7" {
+		t.Errorf("ID = %q, want 7", cred.ID)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2 (one failure, then one success)", calls)
+	}
+}
+
+func TestCredentialHashesMatch_Match(t *testing.T) {
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialResponse><SipCredential>` +
+			`<Id>870880</Id><Hash1>h1</Hash1><Hash1b>h1b</Hash1b>` +
+			`</SipCredential></SipCredentialResponse>`))
+	})
+	defer done()
+
+	match, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	if err != nil {
+		t.Fatalf("CredentialHashesMatch() error = %v", err)
+	}
+	if !match {
+		t.Error("match = false, want true")
+	}
+}
+
+func TestCredentialHashesMatch_Mismatch(t *testing.T) {
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialResponse><SipCredential>` +
+			`<Id>870880</Id><Hash1>other</Hash1><Hash1b>otherb</Hash1b>` +
+			`</SipCredential></SipCredentialResponse>`))
+	})
+	defer done()
+
+	match, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	if err != nil {
+		t.Fatalf("CredentialHashesMatch() error = %v", err)
+	}
+	if match {
+		t.Error("match = true, want false")
+	}
+}
+
+func TestCredentialHashesMatch_AbsentHashesIsError(t *testing.T) {
+	// A response that decodes cleanly but carries no digest hashes at all must
+	// not silently report "false" (different password) — that would tell an
+	// --if-not-exists caller to rotate a credential that may be perfectly
+	// correct, inverting the one contract --if-not-exists exists to provide.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialResponse><SipCredential>` +
+			`<Id>870880</Id><UserName>agent</UserName>` +
+			`</SipCredential></SipCredentialResponse>`))
+	})
+	defer done()
+
+	_, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	if err == nil {
+		t.Fatal("CredentialHashesMatch() error = nil, want error for a response with no hashes")
+	}
+	if !strings.Contains(err.Error(), "no digest hashes") {
+		t.Errorf("error = %q, want mention of missing hashes", err.Error())
+	}
+}
+
+func TestCredentialHashesMatch_WrongShapedBodyIsDecodeError(t *testing.T) {
+	// credentialHashWire's XMLName pins the expected root element; a
+	// completely different document shape must fail to decode rather than
+	// silently unmarshal into a zero-valued struct.
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SomeOtherResponse><Foo>bar</Foo></SomeOtherResponse>`))
+	})
+	defer done()
+
+	_, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	if err == nil {
+		t.Fatal("CredentialHashesMatch() error = nil, want decode error for a wrong-shaped body")
+	}
+}

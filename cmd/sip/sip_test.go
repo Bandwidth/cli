@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/cmdutil"
@@ -80,5 +81,24 @@ func TestFaultExit_PreservesExitCode(t *testing.T) {
 	if got := cmdutil.ExitCodeForError(result); got != cmdutil.ExitConflict {
 		t.Errorf("faultExit(33004) -> ExitCodeForError = %d, want ExitConflict (%d): err = %v",
 			got, cmdutil.ExitConflict, result)
+	}
+}
+
+// TestFaultExit_DuplicateCredentialPreservesAPIFaultWrapping guards the same
+// %w regression as TestFaultExit_PreservesExitCode for the 23026 branch. It
+// does not assert a specific numeric exit code: CreateCredential's live
+// duplicate-credential fault has been observed at both StatusCode 201 (2xx
+// body carrying an Errors envelope) and, per code review, potentially 400 —
+// neither of which ExitCodeForError's api.APIError switch maps to
+// ExitConflict (it only maps 402/409). The 23026 branch here improves the
+// remediation message; it does not change the resulting exit code, and this
+// test only confirms the branch does not silently drop the *APIFault via a
+// bare fmt.Errorf.
+func TestFaultExit_DuplicateCredentialPreservesAPIFaultWrapping(t *testing.T) {
+	fault := &sipsvc.APIFault{Code: "23026", Description: "does already exist", StatusCode: 201}
+	result := faultExit(fault)
+	var got *sipsvc.APIFault
+	if !errors.As(result, &got) {
+		t.Fatalf("faultExit(23026) = %v, want an error that unwraps to *sipsvc.APIFault", result)
 	}
 }

@@ -1,8 +1,11 @@
 package sip
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
+	"github.com/Bandwidth/cli/internal/cmdutil"
 	sipsvc "github.com/Bandwidth/cli/internal/sip"
 )
 
@@ -43,6 +46,16 @@ var credentialRotateCmd = &cobra.Command{
 		hash1, hash1b := sipsvc.ComputeHashes(existing.Username, realm.Hostname, password)
 		cred, err := svc.RotateCredential(realm.ID, existing.ID, hash1, hash1b)
 		if err != nil {
+			if generated {
+				// The PUT may have replaced the hashes server-side even though
+				// this call reports failure (e.g. a decode error after a
+				// successful write). The generated password was never printed,
+				// so a working peer's credential may now be silently dead with
+				// an unrecoverable password — that must not exit as a generic,
+				// retryable failure.
+				return &cmdutil.SecretUnavailableError{Message: fmt.Sprintf(
+					"the write may have been applied but the generated password was not printed and cannot be recovered — rotate the credential again: %v", err)}
+			}
 			return faultExit(err)
 		}
 		return emitCredential(cmd, cred, password, generated)

@@ -71,6 +71,16 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 		if credCreateIfNotExists && errors.As(err, &fault) && fault.Code == "23026" {
 			return reuseCredential(cmd, svc, realm, hash1, hash1b, password, generated)
 		}
+		if generated {
+			// The write may have landed server-side (e.g. a decode failure after
+			// a successful POST) even though this call reports failure. Since the
+			// password was never printed, there is no way to know whether a live
+			// credential now exists with an unrecoverable password — this must
+			// not exit as a generic, retryable failure.
+			return &cmdutil.SecretUnavailableError{Message: fmt.Sprintf(
+				"the write may have been applied but the generated password was not printed and cannot be recovered — check 'band sip credential list --realm %s --plain' and rotate the credential if it exists: %v",
+				realm.Name, err)}
+		}
 		return faultExit(err)
 	}
 	return emitCredential(cmd, cred, password, generated)
@@ -79,11 +89,21 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 // reuseCredential implements --if-not-exists after a 23026 duplicate. Identity
 // is realm + username; desired state is both hashes plus the app binding.
 func reuseCredential(cmd *cobra.Command, svc *sipsvc.Service, realm *sipsvc.Realm, hash1, hash1b, password string, generated bool) error {
-	existing, err := svc.FindCredentialByUsername(realm.ID, credCreateUsername)
+	found, err := svc.FindCredentialByUsername(realm.ID, credCreateUsername)
+	if err != nil {
+		return faultExit(err)
+	}
+	// Re-read the single credential rather than trusting FindCredentialByUsername's
+	// list-derived AppID: the collection response's app-binding field has not
+	// been confirmed to round-trip the same shape as the single-item GET.
+	existing, err := svc.GetCredential(realm.ID, found.ID)
 	if err != nil {
 		return faultExit(err)
 	}
 	if existing.AppID != credCreateAppID {
+		if existing.AppID == "" {
+			return fmt.Errorf("credential %q exists but is not bound to an application (wanted %q) — delete and recreate it", credCreateUsername, credCreateAppID)
+		}
 		return fmt.Errorf("credential %q exists but is bound to a different application (%q) — delete and recreate it", credCreateUsername, existing.AppID)
 	}
 	if generated {

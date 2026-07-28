@@ -76,6 +76,8 @@ func faultExit(err error) error {
 		return fmt.Errorf("realm is not active yet — retry with --wait: %s: %w", fault.Description, err)
 	case "33002":
 		return fmt.Errorf("realm already exists: %s: %w", fault.Description, err)
+	case "23026":
+		return fmt.Errorf("credential already exists — use --if-not-exists to reuse it, or 'band sip credential rotate <credential-id> --realm <realm>' to change its password: %w", err)
 	}
 	return err
 }

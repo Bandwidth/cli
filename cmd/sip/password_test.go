@@ -71,6 +71,45 @@ func TestReadPassword_RequiresExactlyOneSource(t *testing.T) {
 	}
 }
 
+// TestReadPassword_FromStdinPipe covers the flow the create command's Example
+// documents as recommended for agents: `printf '%s' "$SIP_PASSWORD" | band ...
+// --password-stdin`. IsInteractive() reports false for the piped/redirected
+// stdin a `go test` process runs under, so this exercises the same
+// io.LimitReader(cmd.InOrStdin(), ...) branch a real pipe would take.
+func TestReadPassword_FromStdinPipe(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader("hunter2\n"))
+	pw, generated, err := readPassword(cmd, true, "", false)
+	if err != nil {
+		t.Fatalf("readPassword() error = %v", err)
+	}
+	if pw != "hunter2" {
+		t.Errorf("password = %q, want hunter2", pw)
+	}
+	if generated {
+		t.Error("generated = true, want false for a piped, caller-supplied password")
+	}
+}
+
+func TestReadPassword_MaxLengthPasswordWithTrailingNewlineIsAccepted(t *testing.T) {
+	// Regression guard: the size cap must be enforced AFTER trimming the
+	// trailing newline, not before — otherwise a legitimate maxPasswordBytes
+	// password written by `echo` (which appends \n) is rejected.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "pw")
+	pwBytes := strings.Repeat("a", maxPasswordBytes)
+	if err := os.WriteFile(p, []byte(pwBytes+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	pw, _, err := readPassword(&cobra.Command{}, false, p, false)
+	if err != nil {
+		t.Fatalf("readPassword() error = %v, want max-length password with trailing newline accepted", err)
+	}
+	if pw != pwBytes {
+		t.Errorf("password length = %d, want %d", len(pw), maxPasswordBytes)
+	}
+}
+
 func TestReadPassword_RejectsOversizedInput(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "pw")
