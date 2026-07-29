@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	sipsvc "github.com/Bandwidth/cli/internal/sip"
 )
@@ -33,6 +34,22 @@ var statusCmd = &cobra.Command{
 					"status": "unavailable",
 					"reason": "account_not_enabled",
 				})
+			}
+			// Rate limiting and server errors are probe results, not just
+			// failures to announce: the probe's job IS to report SIP
+			// availability, so a caller branching on stable JSON fields needs
+			// "unknown"/"probe_failed" on stdout even though this exits
+			// non-zero. 401/403 are deliberately excluded — those are auth
+			// failures, not a fact about SIP availability, so they fall
+			// straight through to the normal error path below.
+			var apiErr *api.APIError
+			if errors.As(err, &apiErr) && (apiErr.StatusCode == 429 || apiErr.StatusCode >= 500) {
+				if emitErr := emit(format, plain, map[string]string{
+					"status": "unknown",
+					"reason": "probe_failed",
+				}); emitErr != nil {
+					return emitErr
+				}
 			}
 			return faultExit(err)
 		}

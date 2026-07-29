@@ -170,6 +170,47 @@ func TestSIPCapability(t *testing.T) {
 	}
 }
 
+// TestHasRole guards the matcher that decides whether sipCapability reports
+// role_absent vs. role_present_not_probed. It mirrors TestCapabilities'
+// fixture style, using the exact "SIP Credentials" string as it appears in
+// the JWT roles array — a near-miss in casing or spacing here would silently
+// report role_absent for an account that genuinely holds the role.
+func TestHasRole(t *testing.T) {
+	tests := []struct {
+		name  string
+		roles []string
+		want  bool
+	}{
+		{
+			name:  "exact role string as it appears in the JWT",
+			roles: []string{"SIP Credentials"},
+			want:  true,
+		},
+		{
+			name:  "realistic full role slice with SIP present",
+			roles: []string{"HTTP Application Management", "HttpVoice", "SIP Credentials", "brtcAccessRole"},
+			want:  true,
+		},
+		{
+			name:  "realistic full role slice without SIP",
+			roles: []string{"HTTP Application Management", "HttpVoice", "brtcAccessRole"},
+			want:  false,
+		},
+		{
+			name:  "empty roles",
+			roles: nil,
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasRole(tt.roles, "sip credentials"); got != tt.want {
+				t.Errorf("hasRole(%v, %q) = %v, want %v", tt.roles, "sip credentials", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestRunSwitch_PersistsTargetIntoActiveProfile guards against the bug where
 // switch only updated the legacy top-level cfg.AccountID, leaving the active
 // profile's AccountID stale — so subsequent commands continued targeting the
