@@ -471,3 +471,206 @@ func TestCredentialHashesMatch_WrongShapedBodyIsDecodeError(t *testing.T) {
 		t.Fatal("CredentialHashesMatch() error = nil, want decode error for a wrong-shaped body")
 	}
 }
+
+// TestParseFault_ScrubsHashEchoedInDescription covers the leak the spec records
+// at line 294: the live 23026 response echoes the SUBMITTED hashes back inside
+// the error text. APIFault.Error() prints Description and faultExit prints it
+// again, and stderr is captured verbatim in agent transcripts and CI logs. The
+// hash here is bare prose — no <Hash1> element — which is exactly what the
+// element-anchored scrubber cannot see.
+func TestParseFault_ScrubsHashEchoedInDescription(t *testing.T) {
+	const hash = "d41d8cd98f00b204e9800998ecf8427e"
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		w.Write([]byte(`<SipCredentialsResponse><Errors><Error>` +
+			`<ErrorCode>23026</ErrorCode>` +
+			`<Description>SipCredential with Hash1 value ` + hash + ` does already exist</Description>` +
+			`</Error></Errors></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	_, err := svc.CreateCredential("1103", "agent", hash, hash, "")
+	if err == nil {
+		t.Fatal("CreateCredential() error = nil, want a fault")
+	}
+	if strings.Contains(err.Error(), hash) {
+		t.Errorf("error surfaced the digest hash: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "[REDACTED]") {
+		t.Errorf("error missing [REDACTED] marker: %s", err.Error())
+	}
+	// The diagnostic content around the hash must survive.
+	if !strings.Contains(err.Error(), "23026") || !strings.Contains(err.Error(), "does already exist") {
+		t.Errorf("scrubbing destroyed the diagnostic content: %s", err.Error())
+	}
+}
+
+// TestDo_TruncatedBodyIsDiscardedNotPartiallyScrubbed covers the fail-open path
+// the spec closes at line 293: "malformed or truncated XML error bodies are
+// discarded entirely rather than partially scrubbed — if it can't be parsed, it
+// can't be proven hash-free."
+//
+// A body truncated mid-hash has no closing tag, so hashElementRe cannot match
+// it; before the fix the value passed through completely unredacted.
+func TestDo_TruncatedBodyIsDiscardedNotPartiallyScrubbed(t *testing.T) {
+	const hash = "d41d8cd98f00b204e9800998ecf8427e"
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		// Connection died mid-element: no </Hash1>, no closing ancestors.
+		w.Write([]byte(`<SipCredentialsResponse><Errors><Error><ErrorCode>23026</ErrorCode>` +
+			`<SipCredential><Hash1>` + hash))
+	})
+	defer done()
+
+	_, err := svc.GetRealm("1103")
+	if err == nil {
+		t.Fatal("GetRealm() error = nil, want an error")
+	}
+	if strings.Contains(err.Error(), hash) {
+		t.Errorf("truncated body leaked the digest hash: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "discarded") {
+		t.Errorf("error = %q, want the discarded-body placeholder", err.Error())
+	}
+}
+
+// TestDo_ParsedBodyWithoutErrorCodeKeepsItsBody is the negative pairing: the
+// live 404 shape is a ResponseStatus carrying a Description and NO ErrorCode.
+// It parses fine, so its body is provably hash-free and useful — discarding it
+// would throw away the only diagnostic the caller gets.
+func TestDo_ParsedBodyWithoutErrorCodeKeepsItsBody(t *testing.T) {
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		w.Write([]byte(`<RealmResponse><ResponseStatus>` +
+			`<Description>The realm 9999 was not found</Description>` +
+			`</ResponseStatus></RealmResponse>`))
+	})
+	defer done()
+
+	_, err := svc.GetRealm("9999")
+	if err == nil {
+		t.Fatal("GetRealm() error = nil, want a 404")
+	}
+	if !strings.Contains(err.Error(), "was not found") {
+		t.Errorf("error = %q, want the parseable 404 body preserved", err.Error())
+	}
+	if strings.Contains(err.Error(), "discarded") {
+		t.Errorf("error = %q, want the body kept — it parsed, so it is provably hash-free", err.Error())
+	}
+}
+
+// TestListCredentials_FullPageWarnsAboutTruncation covers the silent cap.
+// The spec promises auto-pagination; it is not implemented. A list that returns
+// exactly the API's page size therefore reads as "complete" when it may not be.
+// Pagination stays deferred, but the silence does not.
+func TestListCredentials_FullPageWarnsAboutTruncation(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < credentialPageSize; i++ {
+		b.WriteString(`<SipCredential><Id>1</Id><UserName>u</UserName></SipCredential>`)
+	}
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialsResponse><SipCredentials>` + b.String() +
+			`</SipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	var warnings strings.Builder
+	orig := warnOut
+	warnOut = &warnings
+	defer func() { warnOut = orig }()
+
+	creds, err := svc.ListCredentials("1103")
+	if err != nil {
+		t.Fatalf("ListCredentials() error = %v", err)
+	}
+	if len(creds) != credentialPageSize {
+		t.Fatalf("len = %d, want %d", len(creds), credentialPageSize)
+	}
+	got := warnings.String()
+	if !strings.Contains(got, "may be truncated") {
+		t.Errorf("warning = %q, want it to state the list may be truncated", got)
+	}
+	if !strings.Contains(got, "Pagination is not yet implemented") {
+		t.Errorf("warning = %q, want it to name the missing capability", got)
+	}
+}
+
+// TestListCredentials_PartialPageDoesNotWarn is the negative pairing: a list
+// that is obviously complete must stay quiet, or the warning becomes noise an
+// agent learns to ignore.
+func TestListCredentials_PartialPageDoesNotWarn(t *testing.T) {
+	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<SipCredentialsResponse><SipCredentials>` +
+			`<SipCredential><Id>1</Id><UserName>u</UserName></SipCredential>` +
+			`</SipCredentials></SipCredentialsResponse>`))
+	})
+	defer done()
+
+	var warnings strings.Builder
+	orig := warnOut
+	warnOut = &warnings
+	defer func() { warnOut = orig }()
+
+	if _, err := svc.ListCredentials("1103"); err != nil {
+		t.Fatalf("ListCredentials() error = %v", err)
+	}
+	if warnings.Len() != 0 {
+		t.Errorf("unexpected warning for a partial page: %q", warnings.String())
+	}
+}
+
+// TestUpdateRealm_ReadModifyWritePreservesUnspecifiedFields pins the service
+// contract the command depends on: realm PUT is a full replace, so any field
+// the caller did not name must be echoed back from current state.
+func TestUpdateRealm_ReadModifyWritePreservesUnspecifiedFields(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentDesc    string
+		currentDefault bool
+		promote        bool
+		description    *string
+		wantDesc       string
+		wantDefault    bool
+	}{
+		{"description only keeps default", "old", true, false, strPtr("new"), "new", true},
+		{"promotion keeps description", "keep", false, true, nil, "keep", true},
+		{"neither re-sends current state", "keep", true, false, nil, "keep", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sent string
+			svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					b, _ := io.ReadAll(r.Body)
+					sent = string(b)
+				}
+				def := "false"
+				if tt.currentDefault {
+					def = "true"
+				}
+				w.Write([]byte(`<RealmResponse><Realm><Id>1103</Id>` +
+					`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm>` +
+					`<Description>` + tt.currentDesc + `</Description>` +
+					`<Default>` + def + `</Default><Status>ACTIVE</Status>` +
+					`</Realm></RealmResponse>`))
+			})
+			defer done()
+
+			if _, err := svc.UpdateRealm("vapi", tt.promote, tt.description); err != nil {
+				t.Fatalf("UpdateRealm() error = %v", err)
+			}
+			if !strings.Contains(sent, "<Description>"+tt.wantDesc+"</Description>") {
+				t.Errorf("PUT body = %q, want Description %q", sent, tt.wantDesc)
+			}
+			wantDefault := "<Default>false</Default>"
+			if tt.wantDefault {
+				wantDefault = "<Default>true</Default>"
+			}
+			if !strings.Contains(sent, wantDefault) {
+				t.Errorf("PUT body = %q, want %s", sent, wantDefault)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }

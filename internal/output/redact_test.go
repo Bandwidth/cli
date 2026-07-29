@@ -121,3 +121,52 @@ func TestScrubHashes_AttributedHashElement(t *testing.T) {
 		t.Errorf("username was lost: %s", got)
 	}
 }
+
+// TestScrubHashes_BareHashInProse covers what the element-anchored regex
+// structurally cannot: a digest echoed as prose rather than as an XML element.
+// The live 23026 response echoes the submitted hashes inside the error
+// Description, which is printed to stderr and captured in agent transcripts.
+func TestScrubHashes_BareHashInProse(t *testing.T) {
+	got := ScrubHashes("Invalid Hash1 value d41d8cd98f00b204e9800998ecf8427e for user clitest")
+	if strings.Contains(got, "d41d8cd98f00b204e9800998ecf8427e") {
+		t.Errorf("bare hash survived scrubbing: %s", got)
+	}
+	if !strings.Contains(got, "[REDACTED]") {
+		t.Errorf("missing [REDACTED] marker: %s", got)
+	}
+	if !strings.Contains(got, "clitest") {
+		t.Errorf("surrounding diagnostic content was lost: %s", got)
+	}
+}
+
+// TestScrubHashes_TruncatedHashElement is the truncated-body case: the closing
+// tag never arrived, so hashElementRe cannot match, and the value used to pass
+// through completely unredacted.
+func TestScrubHashes_TruncatedHashElement(t *testing.T) {
+	got := ScrubHashes(`<Errors><Error><SipCredential><Hash1>1be6abcaa8e9956021d30f33a3925b99`)
+	if strings.Contains(got, "1be6abcaa8e9956021d30f33a3925b99") {
+		t.Errorf("hash in a truncated element survived scrubbing: %s", got)
+	}
+}
+
+// TestScrubHashes_LeavesShorterHexAlone bounds the bare-hex sweep: it must not
+// eat ordinary identifiers. Only a full 32-hex run — the rendered length of an
+// MD5 digest — is treated as secret material.
+func TestScrubHashes_LeavesShorterHexAlone(t *testing.T) {
+	in := `<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Id>1103</Id><Trace>deadbeefcafe</Trace>`
+	if got := ScrubHashes(in); got != in {
+		t.Errorf("ScrubHashes mangled non-secret content:\n got  %s\n want %s", got, in)
+	}
+}
+
+// TestRedactSecrets_KeepsBareHexValues pins the deliberate scoping decision:
+// the bare-hex sweep belongs to ScrubHashes (raw bodies) only. A 32-hex value in
+// a structured output field is far more likely to be a legitimate identifier,
+// and RedactSecrets keys off field NAMES instead.
+func TestRedactSecrets_KeepsBareHexValues(t *testing.T) {
+	in := map[string]interface{}{"requestId": "d41d8cd98f00b204e9800998ecf8427e"}
+	out := RedactSecrets(in).(map[string]interface{})
+	if out["requestId"] != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Errorf("requestId = %v, want it preserved — RedactSecrets redacts by key, not by value shape", out["requestId"])
+	}
+}

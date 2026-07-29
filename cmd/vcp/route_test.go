@@ -1,6 +1,11 @@
 package vcp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/Bandwidth/cli/internal/cmdutil"
+)
 
 func TestBuildRoutePlan_SingleFQDNEndpoint(t *testing.T) {
 	plan, err := BuildRoutePlan("vapi.example.sip.vapi.ai", "FQDN", "")
@@ -303,5 +308,48 @@ func TestVCPConflict_RoutePlanMismatch(t *testing.T) {
 	plan, _ := BuildRoutePlan("h.example.com", "FQDN", "")
 	if err := vcpConflict(existing, "Prod VCP", false, "", false, "", plan); err == nil {
 		t.Error("expected conflict error when existing plan is empty but caller requested a route")
+	}
+}
+
+// --- exit codes: every vcp state conflict must be exit 4, not exit 1 ---
+
+// TestVCPConflict_ExitsConflictNotGeneral covers the agent contract. These
+// errors all say "the VCP exists but differs — update it explicitly," which is
+// exactly the conflict signal (4). They were bare fmt.Errorf, so they exited 1,
+// indistinguishable from an unexpected failure. An agent branching on 1 vs 4
+// cannot tell "go reconcile" from "something broke."
+func TestVCPConflict_ExitsConflictNotGeneral(t *testing.T) {
+	plan, err := BuildRoutePlan("h.example.com", "FQDN", "")
+	if err != nil {
+		t.Fatalf("BuildRoutePlan() error = %v", err)
+	}
+	existing := map[string]interface{}{
+		"voiceConfigurationPackageId": "vcp-1",
+		"description":                 "existing description",
+		"httpVoiceV2ApplicationId":    "app-existing",
+		"originationRoutePlan":        nil,
+	}
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"description mismatch", vcpConflict(existing, "Prod VCP", true, "requested", false, "", nil)},
+		{"app id mismatch", vcpConflict(existing, "Prod VCP", false, "", true, "app-requested", nil)},
+		{"route plan mismatch", vcpConflict(existing, "Prod VCP", false, "", false, "", plan)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.err == nil {
+				t.Fatal("vcpConflict() = nil, want a conflict")
+			}
+			if got := cmdutil.ExitCodeForError(c.err); got != cmdutil.ExitConflict {
+				t.Errorf("ExitCodeForError() = %d, want ExitConflict (%d); err = %v", got, cmdutil.ExitConflict, c.err)
+			}
+			// The remediation text must be preserved verbatim: only the type changed.
+			if !strings.Contains(c.err.Error(), "update it explicitly") {
+				t.Errorf("error = %q, want the existing remediation text", c.err.Error())
+			}
+		})
 	}
 }

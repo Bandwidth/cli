@@ -91,7 +91,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if err := client.Get(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &listResult); err == nil {
 			matches := findAllByName(listResult, "name", createName)
 			if len(matches) > 1 {
-				return fmt.Errorf("found %d VCPs named %q; disambiguate by ID with band vcp update <vcp-id>", len(matches), createName)
+				return &cmdutil.ConflictError{Message: fmt.Sprintf(
+					"found %d VCPs named %q; disambiguate by ID with band vcp update <vcp-id>", len(matches), createName)}
 			}
 			if len(matches) == 1 {
 				existing := matches[0]
@@ -168,13 +169,16 @@ func normalizedField(v interface{}) string {
 func vcpConflict(existing map[string]interface{}, name string, checkDescription bool, description string, checkAppID bool, appID string, plan map[string]interface{}) error {
 	id := existing["voiceConfigurationPackageId"]
 	if checkDescription && normalizedField(existing["description"]) != description {
-		return fmt.Errorf("VCP %q exists with a different description — update it explicitly: band vcp update %v --description <value>", name, id)
+		return &cmdutil.ConflictError{Message: fmt.Sprintf(
+			"VCP %q exists with a different description — update it explicitly: band vcp update %v --description <value>", name, id)}
 	}
 	if checkAppID && normalizedField(existing["httpVoiceV2ApplicationId"]) != appID {
-		return fmt.Errorf("VCP %q exists but is linked to a different application — update it explicitly: band vcp update %v --app-id <value>", name, id)
+		return &cmdutil.ConflictError{Message: fmt.Sprintf(
+			"VCP %q exists but is linked to a different application — update it explicitly: band vcp update %v --app-id <value>", name, id)}
 	}
 	if plan != nil && !RoutePlansEqual(existing["originationRoutePlan"], plan) {
-		return fmt.Errorf("VCP %q exists with a different origination route plan — update it explicitly: band vcp update %v --route-endpoint ... --route-endpoint-type ... --replace-routes", name, id)
+		return &cmdutil.ConflictError{Message: fmt.Sprintf(
+			"VCP %q exists with a different origination route plan — update it explicitly: band vcp update %v --route-endpoint ... --route-endpoint-type ... --replace-routes", name, id)}
 	}
 	return nil
 }

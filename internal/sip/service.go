@@ -3,11 +3,14 @@ package sip
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/output"
 )
 
@@ -71,44 +74,67 @@ func (s *Service) do(method, path string, reqBody interface{}) ([]byte, error) {
 		}
 		// A 2xx can still carry an error envelope (e.g. a partially successful
 		// bulk credential create), so probe it the same as a non-2xx body.
-		if fault := parseFault(resp.Body, resp.StatusCode); fault != nil {
+		if fault, _ := parseFault(resp.Body, resp.StatusCode); fault != nil {
 			return nil, fault
 		}
 		return resp.Body, nil
 	}
-	if fault := parseFault(resp.Body, resp.StatusCode); fault != nil {
+	fault, parsed := parseFault(resp.Body, resp.StatusCode)
+	if fault != nil {
 		return nil, fault
 	}
-	return nil, &api.APIError{StatusCode: resp.StatusCode, Body: output.ScrubHashes(string(resp.Body))}
+	body := output.ScrubHashes(string(resp.Body))
+	if !parsed && len(resp.Body) > 0 {
+		// Fail closed: an unparseable body cannot be proven hash-free, and the
+		// element-anchored scrubber demonstrably misses a hash truncated before
+		// its closing tag. An empty body is left empty so api.APIError can
+		// substitute the HTTP status text.
+		body = unparseableBodyPlaceholder
+	}
+	return nil, &api.APIError{StatusCode: resp.StatusCode, Body: body}
 }
 
-// parseFault extracts ResponseStatus or the first Errors entry. Returns nil if
-// the body carries neither, including when the body is not parseable XML — the
-// caller falls through to the api.APIError path, which already scrubs hashes
-// and substitutes a status-text placeholder when the body is empty.
-func parseFault(body []byte, status int) *APIFault {
+// unparseableBodyPlaceholder replaces an error body that is not well-formed XML.
+const unparseableBodyPlaceholder = "(response body discarded: not well-formed XML, so it could not be proven free of digest hashes)"
+
+// parseFault extracts ResponseStatus or the first Errors entry, and reports
+// whether the body was well-formed XML at all.
+//
+// The two fault==nil cases are deliberately distinguishable:
+//
+//   - parsed=true — the body decoded but carries no ErrorCode. This is the live
+//     404 shape (a ResponseStatus with a Description and no code), whose body is
+//     useful diagnostic content, so the caller keeps the scrubbed body.
+//   - parsed=false — the body is not well-formed XML (truncated mid-element, an
+//     HTML error page from a proxy, ...). The caller discards it entirely per
+//     the spec's redaction rules.
+//
+// Descriptions are run through output.ScrubHashes because APIFault.Error()
+// prints Description and the live 23026 response echoes the submitted hashes
+// back inside the error text.
+func parseFault(body []byte, status int) (fault *APIFault, parsed bool) {
 	var probe struct {
 		ResponseStatus *responseStatus `xml:"ResponseStatus"`
 		Errors         []wireError     `xml:"Errors>Error"`
 	}
 	if err := xml.Unmarshal(body, &probe); err != nil {
-		return nil
+		return nil, false
 	}
 	if probe.ResponseStatus != nil && probe.ResponseStatus.ErrorCode != "" {
 		return &APIFault{
 			Code:        probe.ResponseStatus.ErrorCode,
-			Description: probe.ResponseStatus.Description,
+			Description: output.ScrubHashes(probe.ResponseStatus.Description),
 			StatusCode:  status,
-		}
+		}, true
 	}
 	if len(probe.Errors) > 0 {
 		return &APIFault{
 			Code:        probe.Errors[0].ErrorCode,
-			Description: probe.Errors[0].Description,
+			Description: output.ScrubHashes(probe.Errors[0].Description),
 			StatusCode:  status,
-		}
+		}, true
 	}
-	return nil
+	return nil, true
 }
 
 // shortName derives the realm's short name from its FQDN. The API returns the
@@ -204,16 +230,25 @@ func (s *Service) DeleteRealm(ref string) error {
 	return err
 }
 
-// SetRealmDefault promotes a realm to the account default. The API only
-// supports setting Default to true.
-func (s *Service) SetRealmDefault(ref string) (*Realm, error) {
+// UpdateRealm applies a partial update to a realm. Only two fields are
+// updatable: promotion to the account default (the API rejects Default=false)
+// and the description. Pass promoteDefault=false and description=nil for a no-op
+// field and it is re-sent from current state, never dropped.
+//
+// Read-modify-write is mandatory, not an optimization: realm PUT is a full
+// replace, so any field the caller did not name must be echoed back from the
+// current realm or the API will clear it.
+func (s *Service) UpdateRealm(ref string, promoteDefault bool, description *string) (*Realm, error) {
 	current, err := s.GetRealm(ref)
 	if err != nil {
 		return nil, err
 	}
-	// Read-modify-write: Description is resent so a full-replace PUT cannot drop it.
+	desc := current.Description
+	if description != nil {
+		desc = *description
+	}
 	body, err := s.do("PUT", s.base()+"/realms/"+url.PathEscape(ref), realmRequest{
-		Realm: current.Name, Description: current.Description, Default: true,
+		Realm: current.Name, Description: desc, Default: current.Default || promoteDefault,
 	})
 	if err != nil {
 		return nil, err
@@ -247,7 +282,10 @@ func (s *Service) CreateCredential(realmID, username, hash1, hash1b, appID strin
 		return nil, fmt.Errorf("decoding credential response: %w", err)
 	}
 	if len(resp.Errors) > 0 {
-		return nil, &APIFault{Code: resp.Errors[0].ErrorCode, Description: resp.Errors[0].Description, StatusCode: 201}
+		// Description is scrubbed for the same reason parseFault scrubs its own:
+		// APIFault.Error() prints it, and the live 23026 response echoes the
+		// submitted hashes inside the error text.
+		return nil, &APIFault{Code: resp.Errors[0].ErrorCode, Description: output.ScrubHashes(resp.Errors[0].Description), StatusCode: 201}
 	}
 	for i := range resp.Valid {
 		if resp.Valid[i].UserName == username {
@@ -285,9 +323,20 @@ func (s *Service) RotateCredential(realmID, credentialID, hash1, hash1b string) 
 	return toCredential(resp.Credential), nil
 }
 
+// credentialPageSize is the page size the API's own 303 redirects to. A result
+// of exactly this length means there is very likely a second page.
+const credentialPageSize = 500
+
+// warnOut is where truncation warnings go. A package var so tests can capture it.
+var warnOut io.Writer = os.Stderr
+
 // ListCredentials returns a realm's credentials, always as a non-nil slice.
 // The API answers an unpaginated request with a 303 to ?page=1&size=500, which
 // the client follows.
+//
+// Auto-pagination is NOT implemented (see the spec's deferred list). What is
+// implemented is the refusal to be silent about it: a full page warns on stderr
+// rather than reading as a complete list.
 func (s *Service) ListCredentials(realmID string) ([]Credential, error) {
 	body, err := s.do("GET", s.credentialsPath(realmID), nil)
 	if err != nil {
@@ -300,6 +349,11 @@ func (s *Service) ListCredentials(realmID string) ([]Credential, error) {
 	out := make([]Credential, 0, len(resp.Credentials))
 	for i := range resp.Credentials {
 		out = append(out, *toCredential(&resp.Credentials[i]))
+	}
+	if len(out) == credentialPageSize {
+		// stderr, not stdout: --plain output must stay machine-parseable.
+		fmt.Fprintf(warnOut, "Warning: realm %s returned exactly %d credentials, the API's page size — this list may be truncated. "+
+			"Pagination is not yet implemented, so any credential beyond the first page is not shown.\n", realmID, credentialPageSize)
 	}
 	return out, nil
 }
@@ -355,7 +409,10 @@ func (s *Service) FindCredentialByUsername(realmID, username string) (*Credentia
 		case 0:
 			lastErr = fmt.Errorf("the API reported a duplicate but no credential named %q is listed in realm %s — check for a case difference", username, realmID)
 		default:
-			return nil, fmt.Errorf("found %d credentials named %q in realm %s; delete the duplicates", len(matches), username, realmID)
+			// Multiple matches is a conflict (spec line 30), not a generic
+			// failure: the caller must delete duplicates, not retry.
+			return nil, &cmdutil.ConflictError{Message: fmt.Sprintf(
+				"found %d credentials named %q in realm %s; delete the duplicates", len(matches), username, realmID)}
 		}
 	}
 	return nil, lastErr

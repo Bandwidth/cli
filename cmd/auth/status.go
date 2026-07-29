@@ -199,8 +199,10 @@ func hasRole(roles []string, substr string) bool {
 // sipCapability reports SIP provisioning availability as a tri-state. SIP needs
 // both the "SIP Credentials" role and account-level SipCredentialSettings, and
 // only the role is knowable offline — so a boolean would be misleading.
-// Reasons are stable identifiers, not prose: role_absent,
-// role_present_not_probed, account_not_enabled, probe_failed.
+// Reasons are stable identifiers, not prose. The full set, across this offline
+// derivation and the `band sip status` probe: role_absent,
+// role_present_not_probed, probe_succeeded, account_not_enabled, probe_failed.
+// This function only ever emits the first two — it stays offline.
 func sipCapability(hasRole bool) map[string]string {
 	if !hasRole {
 		return map[string]string{"status": "unavailable", "reason": "role_absent"}

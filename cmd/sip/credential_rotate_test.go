@@ -65,6 +65,78 @@ func TestCredentialRotate_GeneratedPasswordLostToPostWriteFailure_ExitsSecretUna
 	}
 }
 
+// credentialRotateFaultStubServer is like the above but the PUT is rejected
+// with a structured Bandwidth fault at the given status — the server parsed the
+// request and refused it, so the hashes were definitively NOT replaced.
+func credentialRotateFaultStubServer(t *testing.T, status int, code string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi"):
+			w.Write([]byte(`<RealmResponse><Realm><Id>1105</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>ACTIVE</Status>` +
+				`</Realm></RealmResponse>`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/sipcredentials/"):
+			w.Write([]byte(`<SipCredentialResponse><SipCredential>` +
+				`<Id>870880</Id><UserName>rotuser</UserName>` +
+				`</SipCredential></SipCredentialResponse>`))
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/sipcredentials/"):
+			w.WriteHeader(status)
+			w.Write([]byte(`<SipCredentialResponse><ResponseStatus>` +
+				`<ErrorCode>` + code + `</ErrorCode><Description>rejected</Description>` +
+				`</ResponseStatus></SipCredentialResponse>`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+// TestCredentialRotate_DefinitiveFaultDoesNotExitSecretUnavailable is the
+// discrimination this branch was missing. Exit 8 means "a credential you cannot
+// use may now exist — rotate it." That is false for any *APIFault: the server
+// parsed and rejected the request, so no write happened. A 429 must report exit
+// 7 (back off and retry) exactly as --password-stdin would from the same
+// response; blanket exit 8 sent the agent down an unrecoverable-secret path for
+// a plainly retryable failure.
+func TestCredentialRotate_DefinitiveFaultDoesNotExitSecretUnavailable(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		code   string
+		want   int
+	}{
+		{"rate limited", 429, "1001", cmdutil.ExitRateLimit},
+		{"documented 400 conflict", 400, "23022", cmdutil.ExitConflict},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := credentialRotateFaultStubServer(t, c.status, c.code)
+			defer srv.Close()
+			withStubService(t, srv)
+
+			root := testutil.NewTestRoot(credentialRotateCmd)
+			// Every password flag is set explicitly: they are package vars on a
+			// shared command and cobra only assigns on parse, so a value left
+			// behind by an earlier test in this process would trip the
+			// "exactly one password source" guard first.
+			root.SetArgs([]string{"rotate", "870880", "--realm", "vapi",
+				"--generate-password", "--password-stdin=false", "--password-file="})
+
+			err := root.Execute()
+			if err == nil {
+				t.Fatal("Execute() error = nil, want the fault to surface")
+			}
+			var sue *cmdutil.SecretUnavailableError
+			if errors.As(err, &sue) {
+				t.Fatalf("error = %v, want NOT *cmdutil.SecretUnavailableError: a parsed rejection means nothing was written", err)
+			}
+			if got := cmdutil.ExitCodeForError(err); got != c.want {
+				t.Errorf("ExitCodeForError() = %d, want %d; err = %v", got, c.want, err)
+			}
+		})
+	}
+}
+
 // TestCredentialRotate_CallerSuppliedPasswordLostToPostWriteFailure_FallsThroughToFaultExit
 // is the negative pairing: the identical failure with a caller-supplied
 // password (--password-stdin) must NOT produce SecretUnavailableError — the

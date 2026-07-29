@@ -178,6 +178,109 @@ func TestCredentialCreate_CallerSuppliedPasswordLostToPostWriteFailure_FallsThro
 	}
 }
 
+// credentialCreateFaultStubServer rejects the POST with a structured Bandwidth
+// fault at the given status: the server parsed the request and refused it, so
+// no credential was created.
+func credentialCreateFaultStubServer(t *testing.T, status int, code string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi"):
+			w.Write([]byte(`<RealmResponse><Realm><Id>1103</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>ACTIVE</Status>` +
+				`</Realm></RealmResponse>`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/sipcredentials"):
+			w.WriteHeader(status)
+			w.Write([]byte(`<SipCredentialsResponse><Errors><Error>` +
+				`<ErrorCode>` + code + `</ErrorCode><Description>rejected</Description>` +
+				`</Error></Errors></SipCredentialsResponse>`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+// TestCredentialCreate_DefinitiveFaultDoesNotExitSecretUnavailable is the
+// discrimination the generated-password branch was missing.
+//
+// The concrete failure: `credential create --generate-password` hits a 429.
+// Nothing was created. The agent got exit 8 — "not retryable as-is, rotate the
+// credential" — listed credentials, found none, and dead-ended. Exit 8 is only
+// honest when the write MIGHT have landed; an *APIFault proves it did not,
+// because the server parsed the request before refusing it.
+func TestCredentialCreate_DefinitiveFaultDoesNotExitSecretUnavailable(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		code   string
+		want   int
+	}{
+		{"rate limited", 429, "1001", cmdutil.ExitRateLimit},
+		{"duplicate credential at live 400", 400, "23026", cmdutil.ExitConflict},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := credentialCreateFaultStubServer(t, c.status, c.code)
+			defer srv.Close()
+			withStubService(t, srv)
+
+			root := testutil.NewTestRoot(credentialCreateCmd)
+			// Flag values are package vars bound to a shared cobra command, so every
+			// flag this path reads is set explicitly — cobra only assigns on parse,
+			// and a --password-stdin left true by an earlier test in this process
+			// would trip the "exactly one password source" guard before the
+			// branch under test is ever reached.
+			root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent",
+				"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false"})
+
+			err := root.Execute()
+			if err == nil {
+				t.Fatal("Execute() error = nil, want the fault to surface")
+			}
+			var sue *cmdutil.SecretUnavailableError
+			if errors.As(err, &sue) {
+				t.Fatalf("error = %v, want NOT *cmdutil.SecretUnavailableError: a parsed rejection means nothing was created", err)
+			}
+			if got := cmdutil.ExitCodeForError(err); got != c.want {
+				t.Errorf("ExitCodeForError() = %d, want %d; err = %v", got, c.want, err)
+			}
+		})
+	}
+}
+
+// TestCredentialCreate_NonActiveRealmExitsConflict pins the client-side guard's
+// exit code. The spec (line 140) assigns 4 to "credential on a non-ACTIVE
+// realm"; it returned a bare fmt.Errorf and so exited 1, which an agent reads
+// as an unexpected failure rather than "wait for the realm, then retry."
+func TestCredentialCreate_NonActiveRealmExitsConflict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi") {
+			w.Write([]byte(`<RealmResponse><Realm><Id>1103</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>CREATE_PENDING</Status>` +
+				`</Realm></RealmResponse>`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	withStubService(t, srv)
+
+	root := testutil.NewTestRoot(credentialCreateCmd)
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent",
+		"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a conflict for a non-ACTIVE realm")
+	}
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitConflict {
+		t.Errorf("ExitCodeForError() = %d, want ExitConflict (%d); err = %v", got, cmdutil.ExitConflict, err)
+	}
+	if !strings.Contains(err.Error(), "credentials can only be created on ACTIVE realms") {
+		t.Errorf("error = %q, want the existing message preserved verbatim", err.Error())
+	}
+}
+
 // TestEmitCredential_OmitsCallerSuppliedPassword is the most security-load-bearing
 // assertion in this package: a caller-supplied password must never be echoed
 // back, and passwordShownOnce must be false whenever password is absent.

@@ -56,7 +56,7 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 		return faultExit(err)
 	}
 	if realm.Status != "ACTIVE" {
-		return fmt.Errorf("realm %s is %s — credentials can only be created on ACTIVE realms; retry after 'band sip realm get %s' reports ACTIVE", realm.Name, realm.Status, realm.Name)
+		return conflict(nil, "realm %s is %s — credentials can only be created on ACTIVE realms; retry after 'band sip realm get %s' reports ACTIVE", realm.Name, realm.Status, realm.Name)
 	}
 
 	password, generated, err := readPassword(cmd, credCreate.stdin, credCreate.file, credCreate.generate)
@@ -71,12 +71,15 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 		if credCreateIfNotExists && errors.As(err, &fault) && fault.Code == "23026" {
 			return reuseCredential(cmd, svc, realm, hash1, hash1b, password, generated)
 		}
-		if generated {
-			// The write may have landed server-side (e.g. a decode failure after
-			// a successful POST) even though this call reports failure. Since the
-			// password was never printed, there is no way to know whether a live
-			// credential now exists with an unrecoverable password — this must
-			// not exit as a generic, retryable failure.
+		// Exit 8 is reserved for GENUINE ambiguity: a decode failure or a
+		// mid-flight transport error, where the POST may have committed and the
+		// generated password is unrecoverable. An *APIFault means the server
+		// parsed the request and rejected it, so nothing was written — reporting
+		// 8 there would tell an agent "a credential you can't use may exist"
+		// when the correct signal is the fault's own code (e.g. 7, back off and
+		// retry, for a 429). That is what --password-stdin already reports for
+		// the identical response.
+		if generated && !errors.As(err, &fault) {
 			return &cmdutil.SecretUnavailableError{Message: fmt.Sprintf(
 				"the write may have been applied but the generated password was not printed and cannot be recovered — check 'band sip credential list --realm %s --plain' and rotate the credential if it exists: %v",
 				realm.Name, err)}
@@ -102,9 +105,9 @@ func reuseCredential(cmd *cobra.Command, svc *sipsvc.Service, realm *sipsvc.Real
 	}
 	if existing.AppID != credCreateAppID {
 		if existing.AppID == "" {
-			return fmt.Errorf("credential %q exists but is not bound to an application (wanted %q) — delete and recreate it", credCreateUsername, credCreateAppID)
+			return conflict(nil, "credential %q exists but is not bound to an application (wanted %q) — delete and recreate it", credCreateUsername, credCreateAppID)
 		}
-		return fmt.Errorf("credential %q exists but is bound to a different application (%q) — delete and recreate it", credCreateUsername, existing.AppID)
+		return conflict(nil, "credential %q exists but is bound to a different application (%q) — delete and recreate it", credCreateUsername, existing.AppID)
 	}
 	if generated {
 		return &cmdutil.SecretUnavailableError{
@@ -116,7 +119,7 @@ func reuseCredential(cmd *cobra.Command, svc *sipsvc.Service, realm *sipsvc.Real
 		return faultExit(err)
 	}
 	if !match {
-		return fmt.Errorf("credential %q exists with a different password — rotate it: band sip credential rotate %s --realm %s --password-stdin", credCreateUsername, existing.ID, realm.Name)
+		return conflict(nil, "credential %q exists with a different password — rotate it: band sip credential rotate %s --realm %s --password-stdin", credCreateUsername, existing.ID, realm.Name)
 	}
 	return emitCredential(cmd, existing, password, false)
 }

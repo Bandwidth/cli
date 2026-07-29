@@ -3,6 +3,7 @@
 package sip
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -29,6 +30,7 @@ var Cmd = &cobra.Command{
   band sip realm list --plain
   band sip realm get vapi --plain
   band sip realm update vapi --default=true --plain
+  band sip realm update vapi --description "Vapi production trunk" --plain
   band sip realm delete vapi --wait --plain
 
   # Credentials
@@ -42,12 +44,46 @@ var Cmd = &cobra.Command{
   band sip status --plain`,
 }
 
-// emit is the single output path for every `band sip` command. Routing all
-// output through one helper means the hash-redaction net cannot be bypassed by
-// a future subcommand that prints a raw map — typed domain structs already omit
-// hashes, and this catches everything else.
+// emit is the single output path for every `band sip` command.
+//
+// Payloads are normalized to generic JSON values (maps/slices/scalars) before
+// printing, which does three things:
+//
+//  1. `--format table` renders. output.printTable has no case for typed structs
+//     and falls through to `fmt.Fprintf("%v")`, printing a Go struct dump like
+//     `&{1103 vapi vapi-3efeaa.auth.bandwidth.com  false ACTIVE 0}`.
+//  2. output.RedactSecrets becomes effective. It only walks
+//     map[string]interface{} / []interface{}, so it is structurally inert on
+//     typed structs — the redaction net was documentation, not a runtime check.
+//     Hash safety still rests primarily on the domain structs carrying no hash
+//     fields (see TestDomainStructsCarryNoHashFields); this makes the net real.
+//  3. `--plain` is unchanged modulo key order: the same json tags drive both
+//     paths.
+//
+// Precondition: output.FlattenResponse unwraps single-key maps, so a domain
+// struct with exactly one field would be flattened down to its bare value. Both
+// current domain structs have ≥2 fields; keep it that way.
 func emit(format string, plain bool, data interface{}) error {
-	return output.RedactAndPrint(format, plain, data)
+	normalized, err := normalizeForOutput(data)
+	if err != nil {
+		return err
+	}
+	return output.RedactAndPrint(format, plain, normalized)
+}
+
+// normalizeForOutput JSON round-trips data into generic values. Every payload
+// emit is given is JSON-marshalable by construction (domain structs and plain
+// maps), so a failure here means a programming error, not bad user input.
+func normalizeForOutput(data interface{}) (interface{}, error) {
+	b, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("encoding output: %w", err)
+	}
+	var generic interface{}
+	if err := json.Unmarshal(b, &generic); err != nil {
+		return nil, fmt.Errorf("normalizing output: %w", err)
+	}
+	return generic, nil
 }
 
 // service builds a SIP service for the active account. It is a package var,
@@ -62,7 +98,13 @@ var service = func(cmd *cobra.Command) (*sipsvc.Service, error) {
 }
 
 // faultExit converts documented Bandwidth error codes into actionable messages.
-// Exit codes follow from the error type via cmdutil.ExitCodeForError.
+// Exit codes follow from the error TYPE, never from the HTTP status: the same
+// logical conflict arrives as 409 (33002/33006/12666), 400 (23022/23026), or a
+// 201 body carrying an Errors envelope (23026 on bulk create). Relying on
+// APIFault.Unwrap's synthesized *api.APIError would therefore exit 4 for some
+// documented conflicts and 1 for others. Every conflict branch below returns
+// *cmdutil.ConflictError (exit 4) and keeps the original fault as its cause;
+// 33004 stays on FeatureLimitError, which already maps to 4.
 func faultExit(err error) error {
 	var fault *sipsvc.APIFault
 	if !errors.As(err, &fault) {
@@ -72,15 +114,22 @@ func faultExit(err error) error {
 	case "33004":
 		return cmdutil.NewFeatureLimit("this account isn't enabled for SIP credentials — contact Bandwidth support to enable SipCredentialSettings", err)
 	case "33006":
-		return fmt.Errorf("cannot delete the default realm — make another realm default first: band sip realm update <other-realm> --default=true: %w", err)
+		return conflict(err, "cannot delete the default realm — make another realm default first: band sip realm update <other-realm> --default=true: %v", err)
 	case "12666":
-		return fmt.Errorf("cannot delete this realm while it has SIP credentials — delete them first: band sip credential list --realm <realm>: %w", err)
+		return conflict(err, "cannot delete this realm while it has SIP credentials — delete them first: band sip credential list --realm <realm>: %v", err)
 	case "23022":
-		return fmt.Errorf("realm is not active yet — retry with --wait: %s: %w", fault.Description, err)
+		return conflict(err, "realm is not active yet — retry with --wait: %s: %v", fault.Description, err)
 	case "33002":
-		return fmt.Errorf("realm already exists: %s: %w", fault.Description, err)
+		return conflict(err, "realm already exists: %s: %v", fault.Description, err)
 	case "23026":
-		return fmt.Errorf("credential already exists — use --if-not-exists to reuse it, or 'band sip credential rotate <credential-id> --realm <realm>' to change its password: %w", err)
+		return conflict(err, "credential already exists — use --if-not-exists to reuse it, or 'band sip credential rotate <credential-id> --realm <realm>' to change its password: %v", err)
 	}
 	return err
+}
+
+// conflict builds a *cmdutil.ConflictError (exit 4) with a formatted message,
+// keeping cause reachable via errors.As so the original API fault's error code
+// and status are still inspectable.
+func conflict(cause error, format string, args ...interface{}) error {
+	return &cmdutil.ConflictError{Message: fmt.Sprintf(format, args...), Cause: cause}
 }

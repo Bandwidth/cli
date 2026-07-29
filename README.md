@@ -472,11 +472,11 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band sip realm create --name <name> --default=<bool>` | Create a SIP realm (`--description`, `--if-not-exists`; async — add `--wait` and optionally `--timeout <seconds>`) |
 | `band sip realm list` | List realms |
 | `band sip realm get <realm-id-or-name>` | Get one realm, including its FQDN |
-| `band sip realm update <realm-id-or-name> --default=true` | Promote a realm to account default |
+| `band sip realm update <realm-id-or-name>` | Update a realm: `--default=true` promotes it to the account default, `--description <text>` replaces its description. Pass either or both; omitted fields are preserved |
 | `band sip realm delete <realm-id-or-name>` | Delete a realm (async — add `--wait` and optionally `--timeout <seconds>` to confirm it's actually gone) |
 | `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`; optional `--app-id` to bind it to a voice app; `--if-not-exists` for idempotent retries) |
 | `band sip credential rotate <credential-id> --realm <realm>` | Rotate a credential's password (ID is preserved) |
-| `band sip credential list --realm <realm>` | List a realm's credentials |
+| `band sip credential list --realm <realm>` | List a realm's credentials (pagination is not implemented — a full 500-credential page warns on stderr that the list may be truncated) |
 | `band sip credential get <credential-id> --realm <realm>` | Get one credential |
 | `band sip credential delete <credential-id> --realm <realm>` | Delete a credential |
 | `band sip status` | Probe whether this account can use SIP provisioning (resolves the `unknown` capability from `band auth status`) |

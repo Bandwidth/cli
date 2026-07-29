@@ -16,6 +16,19 @@ var redactedKeys = map[string]bool{
 // a namespace prefix and optional attributes, case-insensitively.
 var hashElementRe = regexp.MustCompile(`(?is)<((?:\w+:)?hash1b?)(?:\s[^>]*)?>.*?</(?:\w+:)?hash1b?>`)
 
+// bareHashRe matches a bare 32-lowercase-hex token: the rendered form of an MD5
+// digest (ComputeHashes emits lowercase hex). The element-anchored regex above
+// cannot catch a hash echoed in prose — the live 23026 response echoes submitted
+// hashes inside the error Description, e.g. "Invalid Hash1 value d41d8cd9…" —
+// nor one truncated before its closing tag.
+//
+// This is applied ONLY by ScrubHashes, i.e. only to raw XML response/error
+// bodies and fault descriptions. It is deliberately NOT used by RedactSecrets:
+// a 32-hex value sitting in a structured output field is far more likely to be a
+// legitimate identifier than a digest, and dropping the length/case constraint
+// there would risk mangling real data.
+var bareHashRe = regexp.MustCompile(`\b[0-9a-f]{32}\b`)
+
 func isRedactedKey(k string) bool {
 	if i := strings.LastIndex(k, ":"); i >= 0 {
 		k = k[i+1:]
@@ -62,8 +75,12 @@ func RedactAndPrint(format string, plain bool, data interface{}) error {
 	return StdoutAuto(format, plain, RedactSecrets(data))
 }
 
-// ScrubHashes removes digest-hash values from a raw XML body while preserving
-// the surrounding diagnostic content (error codes, usernames).
+// ScrubHashes removes digest-hash values from a raw XML body or error
+// description while preserving the surrounding diagnostic content (error codes,
+// usernames). It runs two passes: the element-anchored one, which keeps the
+// XML shape intact, then a bare 32-hex sweep for hashes echoed as prose or left
+// unterminated by a truncated body.
 func ScrubHashes(s string) string {
-	return hashElementRe.ReplaceAllString(s, "<$1>[REDACTED]</$1>")
+	s = hashElementRe.ReplaceAllString(s, "<$1>[REDACTED]</$1>")
+	return bareHashRe.ReplaceAllString(s, "[REDACTED]")
 }

@@ -2,6 +2,7 @@ package sip
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -62,14 +63,31 @@ func runRealmCreate(cmd *cobra.Command, args []string) error {
 		}
 		for i := range realms {
 			r := realms[i]
-			if r.Name != realmCreateName {
+			// Case-insensitive per spec line 29: ValidateRealmName accepts
+			// uppercase, but the realm name is a DNS label the API may normalize
+			// to lowercase. An exact comparison would make --if-not-exists
+			// non-idempotent for `--name VAPI` against an existing `vapi`.
+			if !strings.EqualFold(r.Name, realmCreateName) {
 				continue
 			}
 			if !realmReuseAllowed(r.Status) {
-				return fmt.Errorf("realm %q exists but is in state %s — delete it and retry", r.Name, r.Status)
+				return conflict(nil, "realm %q exists but is in state %s — delete it and retry", r.Name, r.Status)
 			}
 			if !realmStateMatches(&r, realmCreateDefault, realmCreateDescription, descSet) {
-				return fmt.Errorf("realm %q exists with different settings (default=%v, description=%q) — update it explicitly", r.Name, r.Default, r.Description)
+				return conflict(nil, "realm %q exists with different settings (default=%v, description=%q) — update it explicitly", r.Name, r.Default, r.Description)
+			}
+			// --wait must be honored on the reuse path too. realmReuseAllowed
+			// admits CREATE_PENDING, so returning here unconditionally would
+			// hand an agent exit 0 with status CREATE_PENDING — and AGENTS.md's
+			// Timeout Recovery table tells agents that re-running create with
+			// --if-not-exists after a --wait timeout is safe, which is exactly
+			// how that combination gets used.
+			if realmCreateWait && r.Status != "ACTIVE" {
+				final, err := waitForRealmActive(svc, r.ID, realmCreateTimeout)
+				if err != nil {
+					return err
+				}
+				return emit(format, plain, final)
 			}
 			return emit(format, plain, r)
 		}

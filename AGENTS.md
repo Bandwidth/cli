@@ -253,8 +253,16 @@ For full flag/argument reference, use `band <command> --help`. This section cove
   was accepted, not that it completed. Only `--wait` promotes `deleted` to `true`, after confirming the realm
   is actually gone. Don't treat a bare delete as teardown-complete.
 - **`sip realm create --if-not-exists` does not always silently reuse.** If a realm with that name exists but
-  its `default` or `description` differs from what was requested, the command errors instead of reusing it —
-  update the existing realm explicitly rather than retrying create.
+  its `default` or `description` differs from what was requested, the command exits **4** instead of reusing
+  it. Reconcile with `sip realm update <realm> --description <value>` (or promote it with `--default=true`)
+  rather than retrying create. Realm names match case-insensitively, so `--name VAPI` reuses an existing
+  `vapi`.
+- **`sip realm create --if-not-exists --wait` is safe to combine.** A reused realm that is still
+  `CREATE_PENDING` is polled to `ACTIVE` before the command returns, so a re-run after a `--wait` timeout
+  cannot hand back exit 0 with a realm that is not yet usable.
+- **`sip credential list` warns on stderr if it may be truncated.** Pagination is not implemented; a realm
+  with more than 500 credentials returns only the first page, and the CLI says so on stderr. `--plain` stdout
+  stays clean JSON.
 
 ### Quickstart
 
@@ -806,13 +814,21 @@ band sip realm get vapi --plain
 
 `get` accepts a realm ID, name, or FQDN.
 
-### Promote a different realm to default
+### Update a realm
+
+Two fields are updatable: `--default=true` and `--description`. Pass either or both; an omitted field is preserved (the update reads the realm first, because the API's `PUT` is a full replace).
 
 The API refuses to delete the default realm, and a realm's `default` flag can only be set to `true` (never back to `false`). To retire a default realm, promote another one first:
 
 ```bash
 band sip realm update backup-realm --default=true
 band sip realm delete old-default-realm --wait
+```
+
+`--description` is the remediation for a `--if-not-exists` description mismatch:
+
+```bash
+band sip realm update vapi --description "Vapi production trunk"
 ```
 
 ### Delete a realm
@@ -831,6 +847,10 @@ Deletion is asynchronous (the API returns 202). A realm cannot be deleted while 
 | **12666** | Realm still has SIP credentials | Realm has credentials attached | Delete the credentials first |
 | **33002** | Realm already exists | Name collision | Use `--if-not-exists`, or pick a different `--name` |
 | **23022** | Realm is not active yet | Realm hasn't finished provisioning | Retry with `--wait` |
+| **23026** | Credential already exists | A credential with that username is already on the realm | Use `--if-not-exists` to reuse it, or change its password with `band sip credential rotate <credential-id> --realm <realm>` |
+| **33004** | Account isn't set up for SIP credentials | Account lacks `SipCredentialSettings`. Not a role problem — the credential can hold the SIP Credentials role and still get this | Contact Bandwidth support to enable it. Check up front with `band sip status --plain` |
+
+Every error in this table exits **4**, regardless of the HTTP status the API used to report it (these arrive variously as 400, 409, and even 201 with an error envelope). Branch on the exit code, then read the message for the remediation.
 
 ## Limitations
 
