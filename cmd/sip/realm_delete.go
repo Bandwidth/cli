@@ -39,7 +39,10 @@ var realmDeleteCmd = &cobra.Command{
 			return faultExit(err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
-		result := map[string]interface{}{"id": ref, "deleted": !realmDeleteWait, "accepted": true}
+		// A 202 only means the delete was accepted, not that it completed —
+		// deleted starts false regardless of --wait and is only promoted to
+		// true below once polling confirms the realm is actually gone.
+		result := map[string]interface{}{"id": ref, "deleted": false, "accepted": true}
 
 		if realmDeleteWait {
 			if _, err := cmdutil.Poll(cmdutil.PollConfig{
