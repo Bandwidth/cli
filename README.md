@@ -479,6 +479,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band sip credential list --realm <realm>` | List a realm's credentials |
 | `band sip credential get <credential-id> --realm <realm>` | Get one credential |
 | `band sip credential delete <credential-id> --realm <realm>` | Delete a credential |
+| `band sip status` | Probe whether this account can use SIP provisioning (resolves the `unknown` capability from `band auth status`) |
 
 ### Other
 

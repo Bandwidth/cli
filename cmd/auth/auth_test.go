@@ -157,6 +157,19 @@ func TestParseJWTClaimsInvalidPayload(t *testing.T) {
 	}
 }
 
+func TestSIPCapability(t *testing.T) {
+	// capabilities stays map[string]bool — a tri-state cannot live inside it,
+	// so SIP is reported as a separate typed object.
+	got := sipCapability(true)
+	if got["status"] != "unknown" || got["reason"] != "role_present_not_probed" {
+		t.Errorf("sipCapability(true) = %v, want unknown/role_present_not_probed", got)
+	}
+	got = sipCapability(false)
+	if got["status"] != "unavailable" || got["reason"] != "role_absent" {
+		t.Errorf("sipCapability(false) = %v, want unavailable/role_absent", got)
+	}
+}
+
 // TestRunSwitch_PersistsTargetIntoActiveProfile guards against the bug where
 // switch only updated the legacy top-level cfg.AccountID, leaving the active
 // profile's AccountID stale — so subsequent commands continued targeting the

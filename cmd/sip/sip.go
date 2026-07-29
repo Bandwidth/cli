@@ -36,7 +36,10 @@ var Cmd = &cobra.Command{
   band sip credential rotate 870880 --realm vapi --generate-password --plain
   band sip credential list --realm vapi --plain
   band sip credential get 870880 --realm vapi --plain
-  band sip credential delete 870880 --realm vapi --plain`,
+  band sip credential delete 870880 --realm vapi --plain
+
+  # Status
+  band sip status --plain`,
 }
 
 // emit is the single output path for every `band sip` command. Routing all

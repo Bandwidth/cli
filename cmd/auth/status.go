@@ -39,7 +39,11 @@ type statusJSON struct {
 	Build         bool            `json:"build,omitempty"`
 	Roles         []string        `json:"roles,omitempty"`
 	Capabilities  map[string]bool `json:"capabilities,omitempty"`
-	Error         string          `json:"error,omitempty"`
+	// SIP reports SIP provisioning availability as a tri-state object
+	// ({"status":..., "reason":...}) rather than a bool inside Capabilities —
+	// see sipCapability.
+	SIP   map[string]string `json:"sip,omitempty"`
+	Error string            `json:"error,omitempty"`
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -88,6 +92,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			Build:         p.Build,
 			Roles:         p.Roles,
 			Capabilities:  Capabilities(p.Roles),
+			SIP:           sipCapability(hasRole(p.Roles, "sip credentials")),
 		}
 		if keychainErr != nil {
 			out.Error = "credentials not found in keychain"
@@ -122,6 +127,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Type:        %s (voice-only, credit-based)\n", ui.Bold("Bandwidth Build"))
 		fmt.Printf("Capable of:  %s\n", capabilitySummary(Capabilities(p.Roles)))
 	}
+	fmt.Printf("SIP:         %s\n", sipSummary(sipCapability(hasRole(p.Roles, "sip credentials"))))
 	if env != "prod" || cfg.HasMultipleEnvironments() {
 		fmt.Printf("Environment: %s\n", env)
 	}
@@ -177,6 +183,43 @@ func Capabilities(roles []string) map[string]bool {
 		}
 	}
 	return caps
+}
+
+// hasRole reports whether any role string in roles contains substr,
+// case-insensitively — the same matching style Capabilities uses.
+func hasRole(roles []string, substr string) bool {
+	for _, r := range roles {
+		if strings.Contains(strings.ToLower(r), substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// sipCapability reports SIP provisioning availability as a tri-state. SIP needs
+// both the "SIP Credentials" role and account-level SipCredentialSettings, and
+// only the role is knowable offline — so a boolean would be misleading.
+// Reasons are stable identifiers, not prose: role_absent,
+// role_present_not_probed, account_not_enabled, probe_failed.
+func sipCapability(hasRole bool) map[string]string {
+	if !hasRole {
+		return map[string]string{"status": "unavailable", "reason": "role_absent"}
+	}
+	return map[string]string{"status": "unknown", "reason": "role_present_not_probed"}
+}
+
+// sipSummary renders the offline SIP tri-state for the human-readable auth
+// status output. reason values are internal identifiers (see sipCapability);
+// only this function turns them into prose.
+func sipSummary(sip map[string]string) string {
+	switch sip["reason"] {
+	case "role_absent":
+		return ui.Muted("not available (missing SIP Credentials role)")
+	case "role_present_not_probed":
+		return ui.Muted("unknown — run 'band sip status' to check")
+	default:
+		return sip["status"]
+	}
 }
 
 // capabilitySummary renders a capability map as a "have / not" line

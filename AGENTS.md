@@ -53,9 +53,37 @@ If your credentials are not bound to a specific account, the CLI will prompt you
 `band auth status --plain` returns structured JSON describing what the active account can do. The two fields agents care about most:
 
 - **`build: true`** — this is a Bandwidth Build account. Voice-only, credit-based. Messaging, number ordering, sub-accounts, VCPs, 10DLC, and toll-free verification are not available; commands targeting those exit with code 4 and a clear message pointing at the upgrade path.
-- **`capabilities`** — a derived map (`voice`, `messaging`, `numbers`, `vcp`, `campaign_management`, `tfv`, `app_management`) flipping `true`/`false` based on the credential's roles. Use this to gate work locally rather than discovering limits via 4xx errors.
+- **`capabilities`** — a derived map (`voice`, `messaging`, `numbers`, `vcp`, `campaign_management`, `tfv`, `app_management`) flipping `true`/`false` based on the credential's roles. Use this to gate work locally rather than discovering limits via 4xx errors. This map is unchanged by SIP support — it stays boolean-only.
 
 Branch on these before attempting feature-gated work. The CLI also fails fast at the moment you try a restricted command, but checking capabilities up front avoids wasted setup.
+
+#### SIP capability (tri-state, not boolean)
+
+SIP provisioning (`band sip realm ...`, `band sip credential ...`) needs **two** things: the `SIP Credentials` role on the credential, and account-level SIP configuration on the backend. Only the role is knowable from the JWT offline — the account-level setting can only be confirmed by calling the API. A plain boolean would conflate "don't know," "missing the role," and "has the role but the account isn't enabled," so `band auth status --plain` reports SIP as its own object instead of folding it into `capabilities`:
+
+```json
+"sip": { "status": "unknown", "reason": "role_present_not_probed" }
+```
+
+`status` is one of `available`, `unavailable`, or `unknown`. `reason` is a stable enumerated identifier — branch on it, not on prose:
+
+| `reason` | `status` | Meaning |
+|----------|----------|---------|
+| `role_absent` | `unavailable` | Credential lacks the `SIP Credentials` role. |
+| `role_present_not_probed` | `unknown` | Credential has the role, but `auth status` is offline and cannot confirm account-level configuration. |
+| `account_not_enabled` | `unavailable` | Only returned by `band sip status` — the account has the role but SIP Credentials isn't enabled on the account. Contact Bandwidth support. |
+| `probe_succeeded` | `available` | Only returned by `band sip status` — the account can use SIP provisioning. |
+| `probe_failed` | `unknown` | Only returned by `band sip status` — the probe itself failed (e.g. rate limited or a server error); retry later. |
+
+`band auth status` never calls the network, so it can only ever report `role_absent` or `role_present_not_probed` for `sip`. To resolve an `unknown`, run the explicit probe:
+
+```bash
+band sip status --plain
+```
+
+This issues one cheap `GET /realms` call. A `200` reports `available`/`probe_succeeded` (exit 0). Hitting error code `33004` ("account isn't setup for Sip Credentials") reports `unavailable`/`account_not_enabled` — and **exits 0**, because a successful probe that confirms a negative fact is not a command failure. Auth errors (401/403) exit 2 via the normal error path; rate limiting or server errors exit non-zero with `probe_failed`.
+
+Important: `band sip status` **does not persist** its result anywhere. Run it again any time you need a fresh answer, and don't expect `band auth status` to start reporting anything other than `unknown` for a role-holding credential — that command stays fully offline by design.
 
 ### Account Hint
 
