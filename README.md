@@ -469,11 +469,11 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 
 | Command | What it does |
 |---------|-------------|
-| `band sip realm create --name <name> --default=<bool>` | Create a SIP realm (async; add `--wait`) |
+| `band sip realm create --name <name> --default=<bool>` | Create a SIP realm (`--description`, `--if-not-exists`; async — add `--wait` and optionally `--timeout <seconds>`) |
 | `band sip realm list` | List realms |
 | `band sip realm get <realm-id-or-name>` | Get one realm, including its FQDN |
 | `band sip realm update <realm-id-or-name> --default=true` | Promote a realm to account default |
-| `band sip realm delete <realm-id-or-name>` | Delete a realm |
+| `band sip realm delete <realm-id-or-name>` | Delete a realm (async — add `--wait` and optionally `--timeout <seconds>` to confirm it's actually gone) |
 | `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`) |
 | `band sip credential rotate <credential-id> --realm <realm>` | Rotate a credential's password (ID is preserved) |
 | `band sip credential list --realm <realm>` | List a realm's credentials |
@@ -551,6 +551,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | 4 | Conflict, feature limit, or payment required (duplicate resource, missing role, plan limit, out of credits) |
 | 5 | Timed out waiting |
 | 7 | Rate limited or quota exceeded (back off and retry) |
+| 8 | A resource exists but its secret cannot be recovered (e.g. `sip credential create --if-not-exists --generate-password` against an existing credential) |
 
 ---
 
@@ -585,7 +586,7 @@ This CLI is agent-native — not just "agent-compatible." The design principles:
 - **`--plain` everywhere.** Flat, stable JSON output. Auto-enabled when stdout is piped, so agents in pipelines don't need the flag.
 - **`--if-not-exists` for idempotency.** Create commands can be retried safely without duplicating resources.
 - **`--wait` for async operations.** Agents can't poll. `--wait` blocks until the number is active, the call completes, or the transcription is ready.
-- **Structured exit codes.** 0 success, 2 auth, 3 not found, 4 conflict/feature limit, 5 timeout, 7 rate limit. Use exit codes for control flow, not string parsing.
+- **Structured exit codes.** 0 success, 2 auth, 3 not found, 4 conflict/feature limit, 5 timeout, 7 rate limit, 8 secret unavailable. Use exit codes for control flow, not string parsing.
 - **Env-var-driven auth.** `BW_CLIENT_ID` + `BW_CLIENT_SECRET` — no interactive prompts required.
 
 For the full agent reference — dependency chains, provisioning workflows, error patterns, and copy-pasteable scripts — see [AGENTS.md](AGENTS.md).

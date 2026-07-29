@@ -229,6 +229,30 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 - **`vcp delete` fails if numbers are assigned.** Move them first with `vcp assign <other-vcp-id> <numbers...>`.
 - **`vcp assign` is an upsert.** Numbers already on another VCP are moved, not duplicated.
 
+### SIP
+
+- **A generated SIP password is shown exactly once.** `sip credential create --generate-password` prints a
+  `password` field with `passwordShownOnce: true`. It cannot be retrieved later — `sip credential get` never
+  returns it. If it is lost, run `sip credential rotate <credential-id> --realm <realm>`; this **preserves the
+  credential ID**, so peers referencing it keep working.
+- **Prefer `--password-stdin`.** When the caller owns the secret, retries are safe and the password is not
+  echoed back (`passwordShownOnce: false`, no `password` field in the response). With `--generate-password`,
+  `--if-not-exists` against an existing credential exits **8** (`ExitSecretUnavailable`) because the stored
+  password cannot be recovered — an agent must not treat that as success.
+- **Exactly one of `--password-stdin`, `--password-file`, or `--generate-password` is required.** There is
+  deliberately no `--password` flag — passing a secret via argv leaks it through shell history, process
+  listings, CI logs, and agent transcripts.
+- **A credential's username and application binding are immutable.** Changing either requires delete +
+  recreate; `sip credential rotate` only replaces the password.
+- **`sip realm delete` fails while credentials exist** (error 12666) — delete the credentials first. The
+  account's **default realm cannot be deleted** (error 33006) — promote another realm first with
+  `sip realm update <other-realm> --default=true`.
+- **Realm `ACTIVE` does not guarantee the FQDN resolves in public DNS yet.** If the far end reports an
+  unresolvable host immediately after creation, retry shortly.
+- **`sip realm delete` without `--wait` reports `accepted: true, deleted: false`.** A 202 means the delete
+  was accepted, not that it completed. Only `--wait` promotes `deleted` to `true`, after confirming the realm
+  is actually gone. Don't treat a bare delete as teardown-complete.
+
 ### Quickstart
 
 - **Agents should prefer the step-by-step provisioning workflows over `band quickstart`.** Quickstart creates real resources that cost money (it orders a phone number). The default (VCP) path is idempotent — re-running reuses existing resources via find-or-create and will not order a second number — and on failure it prints the resource IDs created so far (`status: partial`, see below). Re-running reuses the app/VCP/sub-account/location — but a number that was ordered and then failed to assign to the VCP is NOT auto-reassigned; finish it with `band vcp assign <vcp-id> <number>`. The `--legacy` path is NOT idempotent (re-running it may order an additional number). Because quickstart bundles several steps behind one command, prefer the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section when you need per-step structured output or fine-grained control.
@@ -250,6 +274,8 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 | `number activate --wait` / `number deactivate --wait` | Service activation order may still be RECEIVED/PROCESSING | Check `band number get <number> --plain` — the `inboundActivated` / `outbound*Activated` flags reflect the terminal state. Re-running the same activate is idempotent. |
 | `call create --wait` | Call may still be active | Check `band call get <call-id> --plain` — look at the `state` field. |
 | `transcription create --wait` | Transcription may be processing | Check `band transcription get <call-id> <rec-id> --plain`. |
+| `sip realm create --wait` | Realm may still be CREATE_PENDING | Check `band sip realm get <id> --plain` — `status` reflects the terminal state. Re-running create with `--if-not-exists` is safe. |
+| `sip realm delete --wait` | Delete may still be in progress | Check `band sip realm get <id> --plain`; a not-found result means the delete completed. |
 
 **General rule:** after a timeout, query the resource state before retrying. Don't blindly re-run a create that might have succeeded.
 
@@ -322,6 +348,22 @@ account + auth
 ```
 
 **Key difference:** Voice on UP skips the sub-account/location hierarchy. Messaging always needs it, even on UP accounts.
+
+**SIP interconnect (third-party voice-AI platform):**
+```
+account + auth
+  └─→ sip realm create --wait            (returns the realm FQDN + id)
+        └─→ sip credential create --realm <id> --username <u> --password-stdin
+              └─→ vcp create|update --route-endpoint <partner-fqdn> --route-endpoint-type FQDN
+                    └─→ vcp assign <vcp-id> <number>
+                          └─→ number activate --voice-inbound
+```
+
+The realm's `hostname` is the outbound SIP address the far end needs — hand it to
+the third-party platform so their SIP trunk can reach your account. Credentials
+can only be created on an `ACTIVE` realm — without `--wait`, `sip realm create`
+may still be `CREATE_PENDING` when the next step runs, and `sip credential create`
+fails with "realm is not active" (API error 23022).
 
 ---
 
@@ -512,6 +554,7 @@ band number list --plain                # → all numbers on account
 | 4 | Conflict / feature limit / payment required | 402, 409, or 403 due to a plan/role gate (e.g., Build account trying to message, missing VCP/Campaign Management/TFV role, out of credits, declined card). Non-retryable — stop and escalate to the user. |
 | 5 | Timeout | `--wait` exceeded `--timeout` |
 | 7 | Rate limited / quota exceeded | 429 or concurrent-resource ceiling. Back off and retry. |
+| 8 | Secret unavailable | A resource exists but its secret cannot be recovered — currently produced by `sip credential create --if-not-exists --generate-password` against an existing credential, and by a generated-password write whose response was lost. Not retryable as-is: rotate the credential (`sip credential rotate`) to get a usable password instead. |
 
 **Use exit codes for control flow, not string parsing.**
 
