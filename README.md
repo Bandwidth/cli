@@ -474,7 +474,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band sip realm get <realm-id-or-name>` | Get one realm, including its FQDN |
 | `band sip realm update <realm-id-or-name> --default=true` | Promote a realm to account default |
 | `band sip realm delete <realm-id-or-name>` | Delete a realm (async — add `--wait` and optionally `--timeout <seconds>` to confirm it's actually gone) |
-| `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`) |
+| `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`; optional `--app-id` to bind it to a voice app; `--if-not-exists` for idempotent retries) |
 | `band sip credential rotate <credential-id> --realm <realm>` | Rotate a credential's password (ID is preserved) |
 | `band sip credential list --realm <realm>` | List a realm's credentials |
 | `band sip credential get <credential-id> --realm <realm>` | Get one credential |

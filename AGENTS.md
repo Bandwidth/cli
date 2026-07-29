@@ -252,6 +252,9 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 - **`sip realm delete` without `--wait` reports `accepted: true, deleted: false`.** A 202 means the delete
   was accepted, not that it completed. Only `--wait` promotes `deleted` to `true`, after confirming the realm
   is actually gone. Don't treat a bare delete as teardown-complete.
+- **`sip realm create --if-not-exists` does not always silently reuse.** If a realm with that name exists but
+  its `default` or `description` differs from what was requested, the command errors instead of reusing it —
+  update the existing realm explicitly rather than retrying create.
 
 ### Quickstart
 
@@ -363,7 +366,10 @@ The realm's `hostname` is the outbound SIP address the far end needs — hand it
 the third-party platform so their SIP trunk can reach your account. Credentials
 can only be created on an `ACTIVE` realm — without `--wait`, `sip realm create`
 may still be `CREATE_PENDING` when the next step runs, and `sip credential create`
-fails with "realm is not active" (API error 23022).
+fails its own client-side check with `"realm <name> is <status> — credentials can
+only be created on ACTIVE realms; retry after 'band sip realm get <name>' reports
+ACTIVE"` and exits **1**. (In the narrow case where the API itself rejects the
+create in a race, error 23022 surfaces instead — see the errors table below.)
 
 ---
 
@@ -554,7 +560,7 @@ band number list --plain                # → all numbers on account
 | 4 | Conflict / feature limit / payment required | 402, 409, or 403 due to a plan/role gate (e.g., Build account trying to message, missing VCP/Campaign Management/TFV role, out of credits, declined card). Non-retryable — stop and escalate to the user. |
 | 5 | Timeout | `--wait` exceeded `--timeout` |
 | 7 | Rate limited / quota exceeded | 429 or concurrent-resource ceiling. Back off and retry. |
-| 8 | Secret unavailable | A resource exists but its secret cannot be recovered — currently produced by `sip credential create --if-not-exists --generate-password` against an existing credential, and by a generated-password write whose response was lost. Not retryable as-is: rotate the credential (`sip credential rotate`) to get a usable password instead. |
+| 8 | Secret unavailable | A resource exists but its secret cannot be recovered — currently produced by `sip credential create --if-not-exists --generate-password` against an existing credential (the credential ID is known — the error names it directly), and by a generated-password write whose response was lost. Not retryable as-is: rotate the credential (`sip credential rotate <credential-id> --realm <realm>`) to get a usable password. In the lost-response case the ID isn't known yet — the command's own error message says so — so run `band sip credential list --realm <realm> --plain` first to find it, then rotate. |
 
 **Use exit codes for control flow, not string parsing.**
 
