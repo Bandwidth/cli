@@ -28,6 +28,20 @@ var realmNameRe = regexp.MustCompile(`^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]{0,28
 // realmFQDN must be the realm's full hostname exactly as returned by the API
 // (e.g. "vapi-3efeaa.auth.bandwidth.com"), not the short realm name — the SIP
 // server presents the FQDN in its digest challenge.
+//
+// On the use of MD5: this is not a security choice available to us. SIP/HTTP
+// digest authentication (RFC 2617) defines HA1 as MD5(user:realm:pass), and the
+// Bandwidth API accepts only MD5 digests for Hash1/Hash1b — it stores what we
+// send, and its SIP registrar validates against an MD5 challenge. Substituting a
+// stronger hash would not harden anything; it would produce a credential that no
+// SIP peer could ever authenticate with. Static analysers flag this line as
+// CWE-327 ("Use of a Broken or Risky Cryptographic Algorithm"); the finding is
+// understood and cannot be remediated without breaking protocol interoperability.
+//
+// The property that does matter is that the OUTPUT is password-equivalent:
+// anyone holding Hash1 can authenticate as this credential. That is why the
+// domain types carry no hash fields, why output is redacted, and why error
+// bodies are scrubbed before being stored on an error.
 func ComputeHashes(username, realmFQDN, password string) (hash1 string, hash1b string) {
 	sum := func(s string) string {
 		h := md5.Sum([]byte(s))
