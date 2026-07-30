@@ -64,6 +64,21 @@ var credentialRotateCmd = &cobra.Command{
 			}
 			return faultExit(err)
 		}
-		return emitCredential(cmd, cred, password, generated)
+		// The PUT has committed: a working peer's hashes are already replaced. A
+		// stdout write failure here is the worst case in this command — the peer
+		// is broken AND the only copy of the password that would fix it is gone.
+		// That is exit 8 (rotate again), never the generic 1 a write error maps
+		// to. Unlike create, the credential ID is known, so the recovery command
+		// is named in full. With a caller-supplied password nothing is lost, so
+		// the write error is returned unchanged.
+		if err := emitCredential(cmd, cred, password, generated); err != nil {
+			if generated {
+				return &cmdutil.SecretUnavailableError{Message: fmt.Sprintf(
+					"credential %s was rotated but the generated password could not be written to stdout and cannot be recovered — the SIP peer using it cannot authenticate until you rotate it again: band sip credential rotate %s --realm %s --generate-password: %v",
+					existing.ID, existing.ID, realm.Name, err)}
+			}
+			return err
+		}
+		return nil
 	},
 }

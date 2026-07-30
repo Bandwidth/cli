@@ -34,22 +34,34 @@ var realmDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		ref := args[0]
-		if err := svc.DeleteRealm(ref); err != nil {
+		// Resolve the ref to the realm's canonical ID before deleting. The
+		// command accepts an ID, a short name, or an FQDN, and echoing the input
+		// back under "id" made `band sip realm delete vapi --plain` return
+		// {"id":"vapi"} — a name in a field an agent reads as an ID. This costs
+		// one extra GET on the delete path, which is the price of the output
+		// field meaning what it says.
+		realm, err := svc.GetRealm(args[0])
+		if err != nil {
+			return faultExit(err)
+		}
+		if err := svc.DeleteRealm(realm.ID); err != nil {
 			return faultExit(err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
 		// A 202 only means the delete was accepted, not that it completed —
 		// deleted starts false regardless of --wait and is only promoted to
 		// true below once polling confirms the realm is actually gone.
-		result := map[string]interface{}{"id": ref, "deleted": false, "accepted": true}
+		result := map[string]interface{}{"id": realm.ID, "deleted": false, "accepted": true}
 
 		if realmDeleteWait {
 			if _, err := cmdutil.Poll(cmdutil.PollConfig{
 				Interval: 2 * time.Second,
 				Timeout:  time.Duration(realmDeleteTimeout) * time.Second,
 				Check: func() (bool, interface{}, error) {
-					_, err := svc.GetRealm(ref)
+					// Poll by canonical ID, not by the caller's ref: the name a
+					// deleted realm answered to is not guaranteed to keep
+					// resolving, and the ID is what the delete was issued against.
+					_, err := svc.GetRealm(realm.ID)
 					if err == nil {
 						return false, nil, nil // still present
 					}

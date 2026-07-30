@@ -1,6 +1,7 @@
 package vcp
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -96,6 +97,170 @@ func TestParseRoutePlanJSON(t *testing.T) {
 	// Unknown top-level fields are rejected rather than silently dropped.
 	if _, err := ParseRoutePlanJSON(`{"routez":[]}`); err == nil {
 		t.Error("unknown field accepted, want error")
+	}
+}
+
+// --- --route-plan-json structural validation ---
+//
+// The parsed plan is not only a request body: it is one side of the
+// RoutePlansEqual comparison behind --if-not-exists and behind the
+// --replace-routes guard. canonicalPlanJSON coerces a wrong-typed or absent
+// field to an empty slice or 0, so a plan that got past the parser with
+// "endponts" or "weigth" in it canonicalizes to a plan the caller never wrote —
+// which can make a real route change read as a no-op and slip past the guard.
+// Validating only that the single top-level key is "routes" left every nested
+// structure unchecked.
+
+func TestParseRoutePlanJSON_RejectsMalformedNestedStructures(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		// wantInErr is the field (or indexed path) the message must name, so a
+		// caller can find the mistake without diffing their JSON by eye.
+		wantInErr string
+	}{
+		{"routes is not an array", `{"routes":"not-an-array"}`, "routes"},
+		{"routes is an object", `{"routes":{}}`, "routes"},
+		{"routes is null", `{"routes":null}`, "routes"},
+		{"routes is absent", `{}`, "routes"},
+		{"whole plan is null", `null`, "routes"},
+		{"routes is empty", `{"routes":[]}`, "routes"},
+		{"null route entry", `{"routes":[null]}`, "routes[0]"},
+		{"misspelled endpoints plus string priority", `{"routes":[{"endponts":[],"priority":"high"}]}`, "endponts"},
+		{"misspelled endpoint weight", `{"routes":[{"endpoints":[{"endpoint":"x","weigth":100}]}]}`, "weigth"},
+		{"string priority", `{"routes":[{"priority":"high","endpoints":[{"endpoint":"x","type":"FQDN"}]}]}`, "priority"},
+		{"string weight", `{"routes":[{"endpoints":[{"endpoint":"x","type":"FQDN","weight":"heavy"}]}]}`, "weight"},
+		{"boolean route name", `{"routes":[{"name":true,"endpoints":[{"endpoint":"x","type":"FQDN"}]}]}`, "name"},
+		{"endpoints is not an array", `{"routes":[{"endpoints":"nope"}]}`, "endpoints"},
+		{"endpoints is null", `{"routes":[{"endpoints":null}]}`, "endpoints"},
+		{"endpoints is absent", `{"routes":[{"priority":1}]}`, "endpoints"},
+		{"endpoints is empty", `{"routes":[{"priority":1,"endpoints":[]}]}`, "endpoints"},
+		{"null endpoint entry", `{"routes":[{"endpoints":[null]}]}`, "endpoints[0]"},
+		{"endpoint value missing", `{"routes":[{"endpoints":[{"type":"FQDN"}]}]}`, "endpoint"},
+		{"endpoint value empty", `{"routes":[{"endpoints":[{"endpoint":"","type":"FQDN"}]}]}`, "endpoint"},
+		{"endpoint type missing", `{"routes":[{"endpoints":[{"endpoint":"h.example.com"}]}]}`, "type"},
+		{"endpoint type empty", `{"routes":[{"endpoints":[{"endpoint":"h.example.com","type":""}]}]}`, "type"},
+		{"unknown top-level field", `{"routez":[]}`, "routez"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			plan, err := ParseRoutePlanJSON(c.in)
+			if err == nil {
+				t.Fatalf("ParseRoutePlanJSON(%s) = %v, want an error", c.in, plan)
+			}
+			if !strings.Contains(err.Error(), c.wantInErr) {
+				t.Errorf("error = %q, want it to name %q", err.Error(), c.wantInErr)
+			}
+		})
+	}
+}
+
+// TestParseRoutePlanJSON_RejectsTrailingContent covers the decoder-specific
+// hazard: json.Decoder.Decode stops at the end of the first JSON value, so
+// anything after it is silently dropped unless dec.More() is checked. Two
+// concatenated plans must not quietly resolve to the first one.
+func TestParseRoutePlanJSON_RejectsTrailingContent(t *testing.T) {
+	valid := `{"routes":[{"priority":1,"endpoints":[{"endpoint":"h.example.com","type":"FQDN"}]}]}`
+	for _, in := range []string{
+		valid + ` {"routes":[{"priority":2,"endpoints":[{"endpoint":"other.example.com","type":"FQDN"}]}]}`,
+		valid + ` garbage`,
+		valid + ` []`,
+	} {
+		if plan, err := ParseRoutePlanJSON(in); err == nil {
+			t.Errorf("ParseRoutePlanJSON(%s) = %v, want an error for trailing content", in, plan)
+		}
+	}
+	if _, err := ParseRoutePlanJSON(``); err == nil {
+		t.Error("empty --route-plan-json accepted, want an error")
+	}
+}
+
+// TestParseRoutePlanJSON_WireShapeUnchanged pins the request body. Typed
+// decoding is only safe if converting the typed value back into the request map
+// reproduces exactly what the previous raw-map implementation sent: the plan
+// goes straight onto the wire as body["originationRoutePlan"], and it is also
+// one side of the --replace-routes comparison, so a changed shape is both a
+// changed request and a changed guard verdict. referenceWireShape is the old
+// implementation's marshaling — decode into a generic map, re-encode — so this
+// asserts byte identity against the behavior being replaced, not against a
+// literal someone could quietly re-baseline.
+func TestParseRoutePlanJSON_WireShapeUnchanged(t *testing.T) {
+	referenceWireShape := func(t *testing.T, s string) string {
+		t.Helper()
+		var m map[string]interface{}
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			t.Fatalf("reference unmarshal(%s) error = %v", s, err)
+		}
+		b, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("reference marshal(%s) error = %v", s, err)
+		}
+		return string(b)
+	}
+
+	inputs := []string{
+		// Minimal: omitted route name/type and endpoint weight must stay
+		// omitted, not be filled in with "" and 0.
+		`{"routes":[{"priority":1,"endpoints":[{"endpoint":"h.example.com","type":"FQDN"}]}]}`,
+		// Every field the shape allows.
+		`{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`,
+		// Multiple routes and multiple endpoints, order preserved.
+		`{"routes":[{"priority":1,"name":"a","type":"WEIGHTED","endpoints":[{"endpoint":"one.example.com","type":"FQDN","weight":70},{"endpoint":"+19195551234","type":"TN","weight":30}]},{"priority":2,"name":"b","type":"ANI","endpoints":[{"endpoint":"sip:agent@example.com","type":"SIP","weight":100}]}]}`,
+		// Non-integer and exponent-notation numerics still marshal the way
+		// encoding/json rendered them when they were plain interface{} values.
+		`{"routes":[{"priority":1.5,"endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":1e2}]}]}`,
+	}
+	for _, in := range inputs {
+		plan, err := ParseRoutePlanJSON(in)
+		if err != nil {
+			t.Fatalf("ParseRoutePlanJSON(%s) error = %v", in, err)
+		}
+		got, err := json.Marshal(plan)
+		if err != nil {
+			t.Fatalf("marshaling parsed plan error = %v", err)
+		}
+		if want := referenceWireShape(t, in); string(got) != want {
+			t.Errorf("wire shape changed for %s:\n got  %s\n want %s", in, got, want)
+		}
+	}
+
+	// One literal, spelled out, so the pinned bytes are visible in the test
+	// and not only derivable from the reference implementation.
+	plan, err := ParseRoutePlanJSON(`{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	if err != nil {
+		t.Fatalf("ParseRoutePlanJSON() error = %v", err)
+	}
+	b, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	const want = `{"routes":[{"endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}],"name":"primary route","priority":1,"type":"WEIGHTED"}]}`
+	if string(b) != want {
+		t.Errorf("wire shape = %s, want %s", b, want)
+	}
+}
+
+// TestParseRoutePlanJSON_StillIdempotentAgainstBuiltPlan guards the seam
+// between the two plan sources: a --route-plan-json plan that describes exactly
+// what BuildRoutePlan produces must still compare equal, or --if-not-exists
+// would report a spurious conflict and --replace-routes would demand
+// confirmation for a no-op write.
+func TestParseRoutePlanJSON_StillIdempotentAgainstBuiltPlan(t *testing.T) {
+	built, err := BuildRoutePlan("h.example.com", "FQDN", "primary route")
+	if err != nil {
+		t.Fatalf("BuildRoutePlan() error = %v", err)
+	}
+	parsed := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"h.example.com","type":"FQDN","weight":100}]}]}`)
+	if !RoutePlansEqual(built, parsed) {
+		t.Error("a --route-plan-json plan identical to the flag-built plan compared unequal")
+	}
+	if requiresRouteReplaceConfirmation(built, parsed, false) {
+		t.Error("re-writing an identical plan via --route-plan-json demanded --replace-routes")
+	}
+	// And a genuine difference must still be caught after the rewrite.
+	different := mustParsePlan(t, `{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED","endpoints":[{"endpoint":"other.example.com","type":"FQDN","weight":100}]}]}`)
+	if !requiresRouteReplaceConfirmation(built, different, false) {
+		t.Error("a different plan via --route-plan-json did not require --replace-routes")
 	}
 }
 

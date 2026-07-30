@@ -40,6 +40,42 @@ func TestReadPassword_FromFileStripsCRLF(t *testing.T) {
 	}
 }
 
+// TestReadPassword_TrimsExactlyOneLineEnding pins the trim to what the spec
+// sanctions: one "\n" or the pair "\r\n". A password ending in a BARE "\r" must
+// survive byte-for-byte — the hashes are derived from whatever survives this
+// trim, so silently dropping the \r yields a credential that can never
+// authenticate, with nothing in the output to explain it.
+func TestReadPassword_TrimsExactlyOneLineEnding(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"bare CR survives", "secret\r", "secret\r"},
+		{"CRLF stripped", "secret\r\n", "secret"},
+		{"LF stripped", "secret\n", "secret"},
+		{"no line ending untouched", "secret", "secret"},
+		{"only the last LF is stripped", "secret\n\n", "secret\n"},
+		{"CR inside is untouched", "sec\rret\n", "sec\rret"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "pw")
+			if err := os.WriteFile(p, []byte(c.input), 0600); err != nil {
+				t.Fatal(err)
+			}
+			pw, _, err := readPassword(&cobra.Command{}, false, p, false)
+			if err != nil {
+				t.Fatalf("readPassword(%q) error = %v", c.input, err)
+			}
+			if pw != c.want {
+				t.Errorf("readPassword(%q) = %q, want %q", c.input, pw, c.want)
+			}
+		})
+	}
+}
+
 func TestReadPassword_RejectsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "pw")

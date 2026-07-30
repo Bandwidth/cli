@@ -68,6 +68,26 @@ func ValidateRealmName(name string) error {
 	return nil
 }
 
+// appIDRe matches the canonical 8-4-4-4-12 hex UUID form. The check is
+// deliberately strict rather than a "looks like an ID" heuristic: the API pins
+// HttpVoiceV2AppId to a UUID, and the alternative — letting a typo or a
+// documentation placeholder through — costs a realm lookup, a password
+// generation, and (with --generate-password) a trip down the write-once path
+// before the live API rejects it.
+var appIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ValidateAppID checks that a voice application ID is a UUID. An empty value is
+// valid and means "unbound" — absent and "" are the same state to the API.
+func ValidateAppID(appID string) error {
+	if appID == "" {
+		return nil
+	}
+	if !appIDRe.MatchString(appID) {
+		return fmt.Errorf("--app-id %q must be a UUID (e.g. 04e88489-df02-4e34-a0e2-4d0e0d3f7a1c); find yours with 'band app list --plain'", appID)
+	}
+	return nil
+}
+
 // ValidateUsername rejects usernames that would corrupt digest-hash construction.
 func ValidateUsername(username string) error {
 	if username == "" {

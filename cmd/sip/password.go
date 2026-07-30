@@ -80,7 +80,7 @@ func readPassword(cmd *cobra.Command, stdin bool, file string, generate bool) (s
 	// byte count first would reject a legitimate maxPasswordBytes-length
 	// password that happens to end in a newline (the common case for both a
 	// piped secret and a file written by `echo`).
-	pw := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
+	pw := trimOneLineEnding(string(raw))
 	if len(pw) > maxPasswordBytes {
 		return "", false, fmt.Errorf("password exceeds %d bytes", maxPasswordBytes)
 	}
@@ -88,4 +88,23 @@ func readPassword(cmd *cobra.Command, stdin bool, file string, generate bool) (s
 		return "", false, fmt.Errorf("password is empty")
 	}
 	return pw, false, nil
+}
+
+// trimOneLineEnding strips exactly one trailing line ending — the pair "\r\n"
+// or a lone "\n" — and nothing else. The branches are explicit because the
+// obvious nesting, TrimSuffix(TrimSuffix(s, "\n"), "\r"), also strips a BARE
+// trailing "\r": "secret\r" became "secret". \r is a legal password byte, and
+// the hashes are computed from whatever survives this trim, so silently
+// dropping it produces a credential whose SIP peer can never authenticate —
+// with no error to explain why. The spec sanctions stripping "\n" or "\r\n",
+// not a standalone "\r".
+func trimOneLineEnding(s string) string {
+	switch {
+	case strings.HasSuffix(s, "\r\n"):
+		return strings.TrimSuffix(s, "\r\n")
+	case strings.HasSuffix(s, "\n"):
+		return strings.TrimSuffix(s, "\n")
+	default:
+		return s
+	}
 }

@@ -154,11 +154,23 @@ func TestCredentialListNoHashesAndFieldShape(t *testing.T) {
 }
 
 // TestRealmDeleteAcceptedShape guards the accepted-vs-completed shape without
-// --wait. The live API returns 202 with an empty body for delete, so the stub
-// matches that exactly rather than a synthetic body.
+// --wait, and that "id" is the realm's canonical ID rather than whatever
+// identifier the caller happened to type. The command is invoked by NAME here
+// (the form its own --help documents), so before the resolve-first fix this
+// returned {"id":"vapi"} — a name in the field an agent feeds to the next
+// command as an ID.
+//
+// The live API returns 202 with an empty body for delete; the stub matches that
+// exactly and serves the realm lookup that now precedes it.
 func TestRealmDeleteAcceptedShape(t *testing.T) {
+	var deletePath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(202)
+		if r.Method == http.MethodDelete {
+			deletePath = r.URL.Path
+			w.WriteHeader(202)
+			return
+		}
+		w.Write([]byte(realmXML))
 	}))
 	defer srv.Close()
 	withStubService(t, srv)
@@ -174,5 +186,15 @@ func TestRealmDeleteAcceptedShape(t *testing.T) {
 	}
 	if got["deleted"] != false {
 		t.Errorf("deleted = %v, want false without --wait", got["deleted"])
+	}
+	// realmXML's realm is ID 1103, name "vapi". Invoked by name, the output must
+	// still report the ID.
+	if got["id"] != "1103" {
+		t.Errorf("id = %v, want the resolved realm ID \"1103\" — not the %q ref the caller passed", got["id"], "vapi")
+	}
+	// The DELETE itself must go to the resolved ID too, so the polling loop and
+	// the reported ID describe the same resource.
+	if !strings.HasSuffix(deletePath, "/realms/1103") {
+		t.Errorf("DELETE path = %q, want it to end in /realms/1103", deletePath)
 	}
 }

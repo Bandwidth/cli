@@ -65,6 +65,89 @@ func TestCredentialRotate_GeneratedPasswordLostToPostWriteFailure_ExitsSecretUna
 	}
 }
 
+// credentialRotateSuccessStubServer answers the realm lookup, the credential
+// re-read, and a successful PUT, so the command reaches its output write.
+func credentialRotateSuccessStubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi"):
+			w.Write([]byte(`<RealmResponse><Realm><Id>1105</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>ACTIVE</Status>` +
+				`</Realm></RealmResponse>`))
+		case strings.Contains(r.URL.Path, "/sipcredentials/") &&
+			(r.Method == http.MethodGet || r.Method == http.MethodPut):
+			w.Write([]byte(`<SipCredentialResponse><SipCredential>` +
+				`<Id>870880</Id><RealmId>1105</RealmId><UserName>rotuser</UserName>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm>` +
+				`</SipCredential></SipCredentialResponse>`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+// TestCredentialRotate_GeneratedPasswordLostToStdoutFailure_ExitsSecretUnavailable
+// is the worst case in this feature and the one no earlier review covered: the
+// PUT already replaced a working peer's hashes, so the peer is broken, and the
+// write of the only copy of the new password failed. Exit 1 would tell an agent
+// "nothing happened"; the truth is "the peer is down and only a re-rotate can
+// fix it", which is exit 8.
+func TestCredentialRotate_GeneratedPasswordLostToStdoutFailure_ExitsSecretUnavailable(t *testing.T) {
+	srv := credentialRotateSuccessStubServer(t)
+	defer srv.Close()
+	withStubService(t, srv)
+	withFailingStdout(t)
+
+	root := testutil.NewTestRoot(credentialRotateCmd)
+	root.SetArgs([]string{"rotate", "870880", "--realm", "vapi", "--plain",
+		"--generate-password", "--password-stdin=false", "--password-file="})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want *cmdutil.SecretUnavailableError for a failed password write")
+	}
+	var sue *cmdutil.SecretUnavailableError
+	if !errors.As(err, &sue) {
+		t.Fatalf("error = %v (%T), want *cmdutil.SecretUnavailableError", err, err)
+	}
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want %d (ExitSecretUnavailable)", got, cmdutil.ExitSecretUnavailable)
+	}
+	// Unlike create, the credential ID is known here, so the recovery command must
+	// be spelled out rather than sending the agent to list credentials first.
+	if !strings.Contains(err.Error(), "band sip credential rotate 870880 --realm vapi") {
+		t.Errorf("error = %q, want the exact re-rotate command naming credential 870880", err.Error())
+	}
+}
+
+// TestCredentialRotate_CallerSuppliedPasswordLostToStdoutFailure_ReturnsWriteError
+// is the negative pairing: with --password-stdin the caller can reconfigure the
+// peer from the password it already holds, so this is an ordinary I/O error.
+func TestCredentialRotate_CallerSuppliedPasswordLostToStdoutFailure_ReturnsWriteError(t *testing.T) {
+	srv := credentialRotateSuccessStubServer(t)
+	defer srv.Close()
+	withStubService(t, srv)
+	withFailingStdout(t)
+
+	root := testutil.NewTestRoot(credentialRotateCmd)
+	root.SetIn(strings.NewReader("hunter2\n"))
+	root.SetArgs([]string{"rotate", "870880", "--realm", "vapi", "--plain",
+		"--password-stdin", "--generate-password=false", "--password-file="})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want the stdout write error to surface")
+	}
+	var sue *cmdutil.SecretUnavailableError
+	if errors.As(err, &sue) {
+		t.Fatalf("error = %v, want the plain write error, NOT *cmdutil.SecretUnavailableError: the caller supplied the password", err)
+	}
+	if got := cmdutil.ExitCodeForError(err); got == cmdutil.ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want anything but ExitSecretUnavailable", got)
+	}
+}
+
 // credentialRotateFaultStubServer is like the above but the PUT is rejected
 // with a structured Bandwidth fault at the given status — the server parsed the
 // request and refused it, so the hashes were definitively NOT replaced.

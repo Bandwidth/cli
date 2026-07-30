@@ -2,7 +2,9 @@ package vcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"regexp"
@@ -73,22 +75,152 @@ func BuildRoutePlan(endpoint, endpointType, routeName string) (map[string]interf
 	}, nil
 }
 
+// routePlanInput, routeInput, and endpointInput are the typed shape of the
+// originationRoutePlan object that --route-plan-json accepts. Decoding into
+// these with DisallowUnknownFields — rather than into a bare
+// map[string]interface{} — is what turns a misspelled or wrong-typed NESTED
+// field into an error instead of a silent coercion. canonicalPlanJSON reads
+// only the fields it knows about and normalizes anything missing or of the
+// wrong type to an empty slice or 0, so a plan carrying "endponts" or "weigth"
+// canonicalizes to a *different* plan than the caller wrote — and that
+// canonical form is what --if-not-exists compares and what the
+// --replace-routes destructive-write guard is decided from. Rejecting the input
+// up front is the only way that comparison can be trusted.
+//
+// Every field is a pointer so presence is distinguishable from the zero value:
+// --route-plan-json is a pass-through for callers who need fields the
+// individual flags do not expose, so a field the caller omitted must stay
+// omitted in the request body instead of being sent as 0 or "". Numerics are
+// *float64 — the exact type encoding/json produces for a JSON number decoded
+// into an interface{} — so the request map built below marshals to byte-identical
+// output to what the previous raw-map implementation put on the wire.
+type routePlanInput struct {
+	// A pointer to a slice so an absent "routes", a null "routes", and an
+	// empty one are all distinguishable from a populated one.
+	Routes *[]*routeInput `json:"routes"`
+}
+
+type routeInput struct {
+	Priority  *float64          `json:"priority"`
+	Name      *string           `json:"name"`
+	Type      *string           `json:"type"`
+	Endpoints *[]*endpointInput `json:"endpoints"`
+}
+
+type endpointInput struct {
+	Endpoint *string  `json:"endpoint"`
+	Type     *string  `json:"type"`
+	Weight   *float64 `json:"weight"`
+}
+
+// routePlanShapeHint is the one place the accepted shape is spelled out, so
+// every rejection points the caller at the same example.
+const routePlanShapeHint = `expected the originationRoutePlan object, e.g. ` +
+	`{"routes":[{"priority":1,"name":"primary route","type":"WEIGHTED",` +
+	`"endpoints":[{"endpoint":"host.example.com","type":"FQDN","weight":100}]}]}`
+
 // ParseRoutePlanJSON parses the value of --route-plan-json, which is the
 // originationRoutePlan object itself (i.e. {"routes":[...]}).
+//
+// Validation is strict on purpose. The parsed plan is not just a request body:
+// it is one side of the RoutePlansEqual comparison behind --if-not-exists and
+// behind the --replace-routes guard that stands between a caller and an
+// unintended overwrite of a live route plan. A field this function lets through
+// unvalidated is a field that participates in that comparison with a coerced
+// value, which can make a real change look like a no-op.
 func ParseRoutePlanJSON(s string) (map[string]interface{}, error) {
-	var plan map[string]interface{}
-	if err := json.Unmarshal([]byte(s), &plan); err != nil {
-		return nil, fmt.Errorf("parsing --route-plan-json: %w", err)
-	}
-	for k := range plan {
-		if k != "routes" {
-			return nil, fmt.Errorf("unknown field %q in --route-plan-json; expected the originationRoutePlan object, e.g. {\"routes\":[...]}", k)
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+
+	var in routePlanInput
+	if err := dec.Decode(&in); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("--route-plan-json is empty; %s", routePlanShapeHint)
 		}
+		return nil, fmt.Errorf("parsing --route-plan-json: %s", describeRoutePlanDecodeError(err))
 	}
-	if _, ok := plan["routes"]; !ok {
-		return nil, fmt.Errorf("--route-plan-json must contain a \"routes\" array")
+	// Decode stops at the end of the first JSON value, so `{...} {...}` or
+	// `{...} garbage` would otherwise be accepted with the trailing content
+	// silently discarded.
+	if dec.More() {
+		return nil, fmt.Errorf("parsing --route-plan-json: unexpected trailing content after the JSON object; %s", routePlanShapeHint)
 	}
-	return plan, nil
+
+	if in.Routes == nil {
+		return nil, fmt.Errorf("--route-plan-json must contain a \"routes\" array; %s", routePlanShapeHint)
+	}
+	if len(*in.Routes) == 0 {
+		return nil, fmt.Errorf("\"routes\" in --route-plan-json is empty; a route plan must contain at least one route")
+	}
+
+	routes := make([]interface{}, 0, len(*in.Routes))
+	for i, r := range *in.Routes {
+		if r == nil {
+			return nil, fmt.Errorf("routes[%d] in --route-plan-json is null; each route must be an object", i)
+		}
+		route := make(map[string]interface{}, 4)
+		if r.Priority != nil {
+			route["priority"] = *r.Priority
+		}
+		if r.Name != nil {
+			route["name"] = *r.Name
+		}
+		if r.Type != nil {
+			route["type"] = *r.Type
+		}
+		if r.Endpoints == nil {
+			return nil, fmt.Errorf("routes[%d] in --route-plan-json is missing its \"endpoints\" array", i)
+		}
+		// A route with no endpoints cannot route a call, and it canonicalizes
+		// to the same empty endpoint list as a route whose endpoints were
+		// typo'd away — exactly the coercion this parser exists to prevent.
+		if len(*r.Endpoints) == 0 {
+			return nil, fmt.Errorf("routes[%d].endpoints in --route-plan-json is empty; a route must contain at least one endpoint", i)
+		}
+		endpoints := make([]interface{}, 0, len(*r.Endpoints))
+		for j, e := range *r.Endpoints {
+			if e == nil {
+				return nil, fmt.Errorf("routes[%d].endpoints[%d] in --route-plan-json is null; each endpoint must be an object", i, j)
+			}
+			if e.Endpoint == nil || *e.Endpoint == "" {
+				return nil, fmt.Errorf("routes[%d].endpoints[%d] in --route-plan-json is missing \"endpoint\"", i, j)
+			}
+			if e.Type == nil || *e.Type == "" {
+				return nil, fmt.Errorf("routes[%d].endpoints[%d] in --route-plan-json is missing \"type\" (TN, SIP, IP_V4, or FQDN)", i, j)
+			}
+			endpoint := map[string]interface{}{
+				"endpoint": *e.Endpoint,
+				"type":     *e.Type,
+			}
+			if e.Weight != nil {
+				endpoint["weight"] = *e.Weight
+			}
+			endpoints = append(endpoints, endpoint)
+		}
+		route["endpoints"] = endpoints
+		routes = append(routes, route)
+	}
+	return map[string]interface{}{"routes": routes}, nil
+}
+
+// describeRoutePlanDecodeError turns encoding/json's decode errors into
+// messages that name the offending field instead of leaking Go type names at
+// the caller. A wrong type arrives as *json.UnmarshalTypeError, whose Field is
+// the dotted JSON path (e.g. "routes.endpoints.weight"); an unknown field
+// arrives as a plain error already carrying the field name.
+func describeRoutePlanDecodeError(err error) string {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		if typeErr.Field != "" {
+			return fmt.Sprintf("field %q has the wrong type (got JSON %s); %s", typeErr.Field, typeErr.Value, routePlanShapeHint)
+		}
+		return fmt.Sprintf("got JSON %s; %s", typeErr.Value, routePlanShapeHint)
+	}
+	msg := strings.TrimPrefix(err.Error(), "json: ")
+	if strings.HasPrefix(msg, "unknown field") {
+		return fmt.Sprintf("%s; %s", msg, routePlanShapeHint)
+	}
+	return msg
 }
 
 // isEmptyPlan treats absent, null, and {"routes":[]} as the same state — the

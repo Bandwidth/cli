@@ -5,13 +5,17 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
+	"github.com/Bandwidth/cli/internal/output"
 	sipsvc "github.com/Bandwidth/cli/internal/sip"
 	"github.com/Bandwidth/cli/internal/testutil"
 )
@@ -78,6 +82,12 @@ func TestCredentialCreate_IfNotExistsGeneratedPasswordOnExisting_ExitsSecretUnav
 	}
 }
 
+// testAppID is a syntactically valid voice application UUID. The fixture used
+// to be "app-123", which the API would have rejected: --app-id is pinned to a
+// UUID and is now validated client-side, so the old fixture could never have
+// exercised the app-binding path against the live service.
+const testAppID = "04e88489-df02-4e34-a0e2-4d0e0d3f7a1c"
+
 // TestCredentialCreate_IfNotExistsAppMismatch_ReportsNotBound covers the
 // re-read-before-compare fix: the app-binding gate must not trust
 // ListCredentials' shape for HttpVoiceV2AppId, and an empty existing binding
@@ -89,7 +99,7 @@ func TestCredentialCreate_IfNotExistsAppMismatch_ReportsNotBound(t *testing.T) {
 	withStubService(t, srv)
 
 	root := testutil.NewTestRoot(credentialCreateCmd)
-	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--app-id", "app-123", "--generate-password", "--if-not-exists"})
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--app-id", testAppID, "--generate-password", "--if-not-exists"})
 
 	err := root.Execute()
 	if err == nil {
@@ -178,6 +188,264 @@ func TestCredentialCreate_CallerSuppliedPasswordLostToPostWriteFailure_FallsThro
 	}
 }
 
+// credentialCreateSuccessStubServer answers the realm lookup and returns a
+// successful bulk-create response, so the command reaches its output write.
+func credentialCreateSuccessStubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi"):
+			w.Write([]byte(`<RealmResponse><Realm><Id>1103</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>ACTIVE</Status>` +
+				`</Realm></RealmResponse>`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/sipcredentials"):
+			w.WriteHeader(201)
+			w.Write([]byte(`<SipCredentialsResponse><ValidSipCredentials><SipCredential>` +
+				`<Id>870874</Id><RealmId>1103</RealmId><UserName>agent</UserName>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm>` +
+				`</SipCredential></ValidSipCredentials></SipCredentialsResponse>`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+// withFailingStdout points os.Stdout at a read-only descriptor for the duration
+// of a test, so every write to it fails with EBADF before a single byte — the
+// password included — reaches the caller. That is the spec's write-once hazard
+// in its sharpest form: the POST/PUT has already committed and stdout is gone.
+func withFailingStdout(t *testing.T) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(t.TempDir(), "unwritable"), os.O_RDONLY|os.O_CREATE, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = f
+	t.Cleanup(func() {
+		os.Stdout = orig
+		f.Close()
+	})
+	// Guard against a platform where writing to an O_RDONLY file succeeds: the
+	// whole test would silently prove nothing.
+	if _, err := f.Write([]byte("x")); err == nil {
+		t.Fatal("writes to the injected stdout succeeded; this test cannot detect an output-write failure")
+	}
+}
+
+// TestCredentialCreate_GeneratedPasswordLostToStdoutFailure_ExitsSecretUnavailable
+// covers the gap between "the API call succeeded" and "the caller has the
+// secret". The POST committed, so the credential exists; the write of the only
+// copy of its password failed. Before this fix emitCredential's error travelled
+// out as a generic error and mapped to exit 1, which an agent reads as "nothing
+// happened, retry" — while a credential it can never authenticate with sits on
+// the realm.
+func TestCredentialCreate_GeneratedPasswordLostToStdoutFailure_ExitsSecretUnavailable(t *testing.T) {
+	srv := credentialCreateSuccessStubServer(t)
+	defer srv.Close()
+	withStubService(t, srv)
+	withFailingStdout(t)
+
+	root := testutil.NewTestRoot(credentialCreateCmd)
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--plain",
+		"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false", "--app-id="})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want *cmdutil.SecretUnavailableError for a failed password write")
+	}
+	var sue *cmdutil.SecretUnavailableError
+	if !errors.As(err, &sue) {
+		t.Fatalf("error = %v (%T), want *cmdutil.SecretUnavailableError", err, err)
+	}
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want %d (ExitSecretUnavailable)", got, cmdutil.ExitSecretUnavailable)
+	}
+	// The recovery path must be actionable: the ID was never printed, so the
+	// message has to point at list-then-rotate.
+	for _, want := range []string{"band sip credential list --realm vapi --plain", "band sip credential rotate"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to name %q", err.Error(), want)
+		}
+	}
+	// The error goes to stderr and into agent transcripts; it must not carry the
+	// generated password itself.
+	if strings.Contains(err.Error(), "passwordShownOnce") {
+		t.Errorf("error = %q, unexpectedly echoes the payload", err.Error())
+	}
+}
+
+// TestCredentialCreate_CallerSuppliedPasswordLostToStdoutFailure_ReturnsWriteError
+// is the negative pairing: with --password-stdin the caller already holds the
+// secret, so a stdout failure is an ordinary I/O error. Reporting exit 8 there
+// would send an agent to rotate a credential that is perfectly usable.
+func TestCredentialCreate_CallerSuppliedPasswordLostToStdoutFailure_ReturnsWriteError(t *testing.T) {
+	srv := credentialCreateSuccessStubServer(t)
+	defer srv.Close()
+	withStubService(t, srv)
+	withFailingStdout(t)
+
+	root := testutil.NewTestRoot(credentialCreateCmd)
+	root.SetIn(strings.NewReader("hunter2\n"))
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--plain",
+		"--password-stdin", "--generate-password=false", "--password-file=", "--if-not-exists=false", "--app-id="})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want the stdout write error to surface")
+	}
+	var sue *cmdutil.SecretUnavailableError
+	if errors.As(err, &sue) {
+		t.Fatalf("error = %v, want the plain write error, NOT *cmdutil.SecretUnavailableError: the caller supplied the password", err)
+	}
+	if got := cmdutil.ExitCodeForError(err); got == cmdutil.ExitSecretUnavailable {
+		t.Errorf("ExitCodeForError() = %d, want anything but ExitSecretUnavailable", got)
+	}
+}
+
+// TestCredentialCreate_InvalidAppIDMakesNoRequests pins the cost of a bad
+// --app-id at zero: no realm lookup, and — the part that matters — no password
+// generation, so a typo or a documentation placeholder can never put the caller
+// on the write-once path.
+func TestCredentialCreate_InvalidAppIDMakesNoRequests(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+	withStubService(t, srv)
+
+	root := testutil.NewTestRoot(credentialCreateCmd)
+	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent", "--app-id", "app-123",
+		"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false"})
+	// --app-id is a package var on a shared cobra command, so the invalid value
+	// this test sets must not leak into whatever runs next.
+	t.Cleanup(func() { credCreateAppID = "" })
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a validation error for a non-UUID --app-id")
+	}
+	if !strings.Contains(err.Error(), "must be a UUID") {
+		t.Errorf("error = %q, want it to say --app-id must be a UUID", err.Error())
+	}
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Errorf("HTTP requests = %d, want 0 — an invalid --app-id must be rejected before any API call", got)
+	}
+}
+
+// TestEmitCredential_WritesGeneratedPasswordFirst pins the spec's write-once
+// mitigation: the generated password is the FIRST thing written on success, so a
+// stdout write truncated part-way still delivers the only copy of the secret.
+// The general emit path normalizes payloads to a map and Go's encoder writes map
+// keys alphabetically, which silently put appId, hostname, and id ahead of
+// password.
+func TestEmitCredential_WritesGeneratedPasswordFirst(t *testing.T) {
+	cred := &sipsvc.Credential{ID: "870874", RealmID: "1103", Username: "agent", Hostname: "vapi.example.com", AppID: testAppID}
+	for _, plain := range []bool{true, false} {
+		name := "json"
+		if plain {
+			name = "plain"
+		}
+		t.Run(name, func(t *testing.T) {
+			wrap := &cobra.Command{
+				Use: "wrap",
+				RunE: func(cmd *cobra.Command, args []string) error {
+					return emitCredential(cmd, cred, "generatedSecret123", true)
+				},
+			}
+			root := testutil.NewTestRoot(wrap)
+			args := []string{"wrap"}
+			if plain {
+				args = append(args, "--plain")
+			}
+			root.SetArgs(args)
+
+			out := testutil.CaptureStdout(t, func() {
+				if err := root.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+			})
+
+			// Still valid, complete JSON — ordering must not cost correctness.
+			var got map[string]interface{}
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatalf("output is not JSON: %q (%v)", out, err)
+			}
+			if got["password"] != "generatedSecret123" {
+				t.Errorf("password = %v, want generatedSecret123", got["password"])
+			}
+			pwAt := strings.Index(out, `"password"`)
+			if pwAt < 0 {
+				t.Fatalf("output has no password field: %q", out)
+			}
+			for _, k := range []string{`"appId"`, `"hostname"`, `"id"`, `"passwordShownOnce"`, `"realmId"`, `"username"`} {
+				at := strings.Index(out, k)
+				if at < 0 {
+					t.Errorf("missing field %s in %q", k, out)
+					continue
+				}
+				if at < pwAt {
+					t.Errorf("%s is written before \"password\" — a truncated write would lose the only copy of the secret: %q", k, out)
+				}
+			}
+		})
+	}
+}
+
+// TestPasswordFirstPayload_MarshalJSON covers the ordering type directly,
+// including the caller-supplied case (no password key at all) and the fact that
+// the remaining keys stay in a deterministic, sorted order.
+func TestPasswordFirstPayload_MarshalJSON(t *testing.T) {
+	withPassword, err := json.Marshal(passwordFirstPayload{
+		"id": "1", "appId": "", "password": "s3cret", "passwordShownOnce": true,
+	})
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	if want := `{"password":"s3cret","appId":"","id":"1","passwordShownOnce":true}`; string(withPassword) != want {
+		t.Errorf("MarshalJSON() = %s, want %s", withPassword, want)
+	}
+	withoutPassword, err := json.Marshal(passwordFirstPayload{"id": "1", "appId": ""})
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	if want := `{"appId":"","id":"1"}`; string(withoutPassword) != want {
+		t.Errorf("MarshalJSON() = %s, want %s", withoutPassword, want)
+	}
+}
+
+// TestEmitCredential_RedactionStillRunsOnTheOrderedPath is the guard for the
+// order-vs-redaction tradeoff. Ordering is achieved by wrapping the payload in a
+// type output.RedactSecrets does not walk, so redaction has to run BEFORE the
+// wrap. If that order is ever swapped, hash material would flow straight to
+// stdout: this asserts the composition, not just the current payload's fields.
+func TestEmitCredential_RedactionStillRunsOnTheOrderedPath(t *testing.T) {
+	payload := map[string]interface{}{
+		"id":       "1",
+		"password": "s3cret",
+		"Hash1":    "1be6abcaa8e9956021d30f33a3925b99",
+		"hash1b":   "e028e6577a0bb1b90a33d30a110dbdfe",
+	}
+	redacted, ok := output.RedactSecrets(payload).(map[string]interface{})
+	if !ok {
+		t.Fatal("RedactSecrets did not return a map")
+	}
+	b, err := json.Marshal(passwordFirstPayload(redacted))
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	if want := `{"password":"s3cret","id":"1"}`; string(b) != want {
+		t.Errorf("redact-then-order = %s, want %s", b, want)
+	}
+	// The generated password is exempt from redaction by design — it is the
+	// deliverable — and must survive both steps.
+	if !strings.Contains(string(b), "s3cret") {
+		t.Errorf("redact-then-order dropped the generated password: %s", b)
+	}
+}
+
 // credentialCreateFaultStubServer rejects the POST with a structured Bandwidth
 // fault at the given status: the server parsed the request and refused it, so
 // no credential was created.
@@ -231,7 +499,7 @@ func TestCredentialCreate_DefinitiveFaultDoesNotExitSecretUnavailable(t *testing
 			// would trip the "exactly one password source" guard before the
 			// branch under test is ever reached.
 			root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent",
-				"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false"})
+				"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false", "--app-id="})
 
 			err := root.Execute()
 			if err == nil {
@@ -267,7 +535,7 @@ func TestCredentialCreate_NonActiveRealmExitsConflict(t *testing.T) {
 
 	root := testutil.NewTestRoot(credentialCreateCmd)
 	root.SetArgs([]string{"create", "--realm", "vapi", "--username", "agent",
-		"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false"})
+		"--generate-password", "--password-stdin=false", "--password-file=", "--if-not-exists=false", "--app-id="})
 
 	err := root.Execute()
 	if err == nil {

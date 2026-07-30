@@ -1,12 +1,16 @@
 package sip
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/cmdutil"
+	"github.com/Bandwidth/cli/internal/output"
 	sipsvc "github.com/Bandwidth/cli/internal/sip"
 )
 
@@ -44,7 +48,14 @@ var credentialCreateCmd = &cobra.Command{
 }
 
 func runCredentialCreate(cmd *cobra.Command, args []string) error {
+	// Both input validations run BEFORE the service is built, before the realm
+	// lookup, and before any password is read or generated: an invalid --app-id
+	// must cost zero HTTP requests and, more importantly, must never generate a
+	// write-once secret that the live API is going to reject anyway.
 	if err := sipsvc.ValidateUsername(credCreateUsername); err != nil {
+		return err
+	}
+	if err := sipsvc.ValidateAppID(credCreateAppID); err != nil {
 		return err
 	}
 	svc, err := service(cmd)
@@ -86,7 +97,21 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 		}
 		return faultExit(err)
 	}
-	return emitCredential(cmd, cred, password, generated)
+	// The POST has committed. If stdout is full, closed, or short-writes now, the
+	// credential exists and nobody will ever know its password — the same
+	// unrecoverable state a lost response leaves behind, so it must report the
+	// same exit code (8) rather than the generic 1 a write error maps to. With a
+	// caller-supplied password there is nothing to lose: return the write error
+	// as-is.
+	if err := emitCredential(cmd, cred, password, generated); err != nil {
+		if generated {
+			return &cmdutil.SecretUnavailableError{Message: fmt.Sprintf(
+				"the credential was created but the generated password could not be written to stdout and cannot be recovered — find it with 'band sip credential list --realm %s --plain', then rotate it: band sip credential rotate <credential-id> --realm %s --generate-password: %v",
+				realm.Name, realm.Name, err)}
+		}
+		return err
+	}
+	return nil
 }
 
 // reuseCredential implements --if-not-exists after a 23026 duplicate. Identity
@@ -126,6 +151,21 @@ func reuseCredential(cmd *cobra.Command, svc *sipsvc.Service, realm *sipsvc.Real
 
 // emitCredential prints the credential. A generated password is included exactly
 // once; a caller-supplied one is omitted because the caller already has it.
+//
+// The JSON paths do NOT go through emit, for one reason: the spec requires the
+// generated password to be the FIRST thing written on success, so a stdout write
+// that is truncated part-way still delivers the only copy of the secret. emit
+// normalizes payloads to a map and Go's encoder writes map keys alphabetically,
+// which puts appId, hostname, and id ahead of password. This function performs
+// emit's two meaningful steps itself — normalize, then redact — and only then
+// wraps the result in passwordFirstPayload, whose MarshalJSON fixes the order.
+// Wrapping has to come last: output.RedactSecrets only walks
+// map[string]interface{} / []interface{}, so a wrapped payload would slip past
+// the redaction net entirely.
+//
+// The table path keeps using emit: output.printTable has no case for a
+// json.Marshaler and would print a Go struct dump, and a human reading a table
+// has no ordering guarantee to lose.
 func emitCredential(cmd *cobra.Command, cred *sipsvc.Credential, password string, generated bool) error {
 	format, plain := cmdutil.OutputFlags(cmd)
 	out := map[string]interface{}{
@@ -139,5 +179,63 @@ func emitCredential(cmd *cobra.Command, cred *sipsvc.Credential, password string
 	if generated {
 		out["password"] = password
 	}
-	return emit(format, plain, out)
+	if format == "table" && !plain {
+		return emit(format, plain, out)
+	}
+	normalized, err := normalizeForOutput(out)
+	if err != nil {
+		return err
+	}
+	redacted, ok := output.RedactSecrets(normalized).(map[string]interface{})
+	if !ok {
+		// Unreachable: out is a map, and RedactSecrets maps a map to a map.
+		return emit(format, plain, out)
+	}
+	return output.StdoutAuto(format, plain, passwordFirstPayload(redacted))
+}
+
+// passwordFirstPayload is a JSON object that marshals "password" first and every
+// other key in sorted order. It exists so the write-once generated password
+// leads the output (see emitCredential), and it is a named map type rather than
+// a struct so it carries whatever field set the payload has without a second
+// place to keep in sync.
+//
+// It is deliberately opaque to output.FlattenResponse and output.RedactSecrets,
+// which both type-assert on the unnamed map[string]interface{}: redaction has
+// already run by the time a payload is wrapped, and this payload is flat, so
+// there is nothing for flattening to unwrap.
+type passwordFirstPayload map[string]interface{}
+
+func (p passwordFirstPayload) MarshalJSON() ([]byte, error) {
+	keys := make([]string, 0, len(p))
+	for k := range p {
+		if k != "password" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	if _, ok := p["password"]; ok {
+		keys = append([]string{"password"}, keys...)
+	}
+
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, k := range keys {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		key, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		val, err := json.Marshal(p[k])
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		buf.Write(val)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
 }
