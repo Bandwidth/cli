@@ -473,9 +473,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band sip realm list` | List realms |
 | `band sip realm get <realm-id-or-name>` | Get one realm, including its FQDN |
 | `band sip realm update <realm-id-or-name>` | Update a realm: `--default=true` promotes it to the account default, `--description <text>` replaces its description. Pass either or both; omitted fields are preserved |
-| `band sip realm delete <realm-id-or-name>` | Delete a realm (async — add `--wait` and optionally `--timeout <seconds>` to confirm it's actually gone) |
-| `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`; optional `--app-id` to bind it to a voice app; `--if-not-exists` for idempotent retries) |
-| `band sip credential rotate <credential-id> --realm <realm>` | Rotate a credential's password (ID is preserved) |
+| `band sip realm delete <realm-id-or-name>` | Delete a realm (async — add `--wait` and optionally `--timeout <seconds>` to confirm it's actually gone). The argument may be an ID, short name, or FQDN, but the returned `id` is always the resolved numeric realm ID — resolving it costs one extra GET |
+| `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`; optional `--app-id` to bind it to a voice app — it must be a UUID, checked before any HTTP request; `--if-not-exists` for idempotent retries). With `--generate-password`, `password` is the first key in the JSON output so a truncated write still delivers it |
+| `band sip credential rotate <credential-id> --realm <realm>` | Rotate a credential's password (ID is preserved). With `--generate-password`, `password` is the first key in the JSON output |
 | `band sip credential list --realm <realm>` | List a realm's credentials (pagination is not implemented — a full 500-credential page warns on stderr that the list may be truncated) |
 | `band sip credential get <credential-id> --realm <realm>` | Get one credential |
 | `band sip credential delete <credential-id> --realm <realm>` | Delete a credential |
@@ -551,7 +551,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | 4 | Conflict, feature limit, or payment required (duplicate resource, missing role, plan limit, out of credits) |
 | 5 | Timed out waiting |
 | 7 | Rate limited or quota exceeded (back off and retry) |
-| 8 | A resource exists but its secret cannot be recovered (e.g. `sip credential create --if-not-exists --generate-password` against an existing credential) |
+| 8 | A resource exists but its secret cannot be recovered — `sip credential create --if-not-exists --generate-password` against an existing credential, a generated-password write whose response was lost, or a generated password that could not be written to stdout (full pipe, closed pipe, or short write) *after* the API write already succeeded. See below for recovery. |
+
+**Recovering from exit 8.** The resource exists; only the secret is gone. If you don't have the credential ID (the error message says so when it doesn't know it), find it with `band sip credential list --realm <realm> --plain`, then run `band sip credential rotate <credential-id> --realm <realm> --generate-password`. Rotating preserves the credential ID, so SIP peers referencing it keep working. Note that the generated `password` is written as the **first** key of the JSON object precisely so a write that gets cut short still delivers the one copy of the secret.
 
 ---
 

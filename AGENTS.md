@@ -239,6 +239,27 @@ For full flag/argument reference, use `band <command> --help`. This section cove
   echoed back (`passwordShownOnce: false`, no `password` field in the response). With `--generate-password`,
   `--if-not-exists` against an existing credential exits **8** (`ExitSecretUnavailable`) because the stored
   password cannot be recovered — an agent must not treat that as success.
+- **A stdout write failure after a successful write also exits 8.** If the API accepts the create/rotate but the
+  generated password cannot be written to stdout — a full pipe, a closed pipe, or a short write — the credential
+  exists and its password is unrecoverable, which is exactly the exit-8 state and not the generic 1 a write
+  error would otherwise produce. Recovery is the same as any exit 8: if you don't already have the credential
+  ID, `band sip credential list --realm <realm> --plain` to find it, then
+  `band sip credential rotate <credential-id> --realm <realm> --generate-password`. On rotate the ID is always
+  known, so the error names the exact command to re-run. With a caller-supplied password nothing is lost, so a
+  write failure there stays a plain write error.
+- **The generated `password` is the FIRST key in JSON output.** `sip credential create` and
+  `sip credential rotate` emit `password` ahead of `id`, `hostname`, and `appId` specifically so a stdout write
+  that gets truncated part-way still delivers the only copy of the secret. This is the one place in `band sip`
+  that does not route its JSON through the shared `emit` helper — every other SIP command does, and gets Go's
+  alphabetical map-key order. The exception is deliberate: `emit` normalizes the payload to a map, and
+  alphabetical ordering would put `appId` ahead of `password`. Redaction still runs on this path, explicitly,
+  and the human-facing table output still goes through `emit`. Don't "fix" this back to `emit`, and don't rely
+  on key order for any other command.
+- **`--app-id` is validated as a UUID before anything else happens.** `sip credential create --app-id` must be
+  a canonical 8-4-4-4-12 UUID. The check runs ahead of the realm lookup and ahead of reading or generating the
+  password, so an invalid value fails deterministically with exit **1**, **zero HTTP requests**, and — the part
+  that matters — **no password generated**. A typo in `--app-id` cannot burn a write-once secret. Get real IDs
+  from `band app list --plain`. Omitting `--app-id` (or passing an empty value) is valid and means "unbound".
 - **Exactly one of `--password-stdin`, `--password-file`, or `--generate-password` is required.** There is
   deliberately no `--password` flag — passing a secret via argv leaks it through shell history, process
   listings, CI logs, and agent transcripts.
@@ -252,6 +273,11 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 - **`sip realm delete` without `--wait` reports `accepted: true, deleted: false`.** A 202 means the delete
   was accepted, not that it completed. Only `--wait` promotes `deleted` to `true`, after confirming the realm
   is actually gone. Don't treat a bare delete as teardown-complete.
+- **`sip realm delete` returns the realm's canonical ID, not the ref you passed.** The argument accepts an ID,
+  a short name, or an FQDN, but the `--plain` `id` field is always the resolved numeric realm ID:
+  `band sip realm delete vapi --plain` returns that ID, not `"vapi"`. The command resolves the ref with a GET
+  before issuing the delete, so this costs one extra request on the delete path — the trade for an `id` field
+  that always means an ID. Don't match the returned `id` against the string you passed in.
 - **`sip realm create --if-not-exists` does not always silently reuse.** If a realm with that name exists but
   its `default` or `description` differs from what was requested, the command exits **4** instead of reusing
   it. Reconcile with `sip realm update <realm> --description <value>` (or promote it with `--default=true`)
@@ -568,7 +594,7 @@ band number list --plain                # → all numbers on account
 | 4 | Conflict / feature limit / payment required | 402, 409, or 403 due to a plan/role gate (e.g., Build account trying to message, missing VCP/Campaign Management/TFV role, out of credits, declined card). Non-retryable — stop and escalate to the user. |
 | 5 | Timeout | `--wait` exceeded `--timeout` |
 | 7 | Rate limited / quota exceeded | 429 or concurrent-resource ceiling. Back off and retry. |
-| 8 | Secret unavailable | A resource exists but its secret cannot be recovered — currently produced by `sip credential create --if-not-exists --generate-password` against an existing credential (the credential ID is known — the error names it directly), and by a generated-password write whose response was lost. Not retryable as-is: rotate the credential (`sip credential rotate <credential-id> --realm <realm>`) to get a usable password. In the lost-response case the ID isn't known yet — the command's own error message says so — so run `band sip credential list --realm <realm> --plain` first to find it, then rotate. |
+| 8 | Secret unavailable | A resource exists but its secret cannot be recovered. Three producers: (1) `sip credential create --if-not-exists --generate-password` against an existing credential (the credential ID is known — the error names it directly); (2) a generated-password write whose response was lost; (3) a generated-password write that the API accepted but whose password could not be written to stdout — full pipe, closed pipe, or short write — leaving a credential nobody holds the password for. Not retryable as-is: rotate the credential (`sip credential rotate <credential-id> --realm <realm>`) to get a usable password. When the ID isn't known yet — the lost-response and failed-write cases on create; the command's own error message says so — run `band sip credential list --realm <realm> --plain` first to find it, then rotate. On rotate the ID is always known, so the error names the exact rotate command. |
 
 **Use exit codes for control flow, not string parsing.**
 
