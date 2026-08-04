@@ -116,6 +116,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if err := cmdutil.ValidateAPIOverride(); err != nil {
+		return err
+	}
+
 	tokenURL := tokenURLForEnvironment(environment)
 
 	// Step 1: Verify credentials

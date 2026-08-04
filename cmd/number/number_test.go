@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 )
 
 func TestBuildOrderBody(t *testing.T) {
@@ -59,9 +60,9 @@ func TestNormalizeE164(t *testing.T) {
 		{"442071838750", "+442071838750"},
 	}
 	for _, c := range cases {
-		got := normalizeE164(c.in)
+		got := cmdutil.NormalizeE164(c.in)
 		if got != c.want {
-			t.Errorf("normalizeE164(%q) = %q, want %q", c.in, got, c.want)
+			t.Errorf("NormalizeE164(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

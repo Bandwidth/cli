@@ -34,6 +34,8 @@ func TestExitCodeForError(t *testing.T) {
 		{"feature limit wraps 403", cmdutil.NewFeatureLimit("nope", &api.APIError{StatusCode: 403}), cmdutil.ExitConflict},
 		{"feature limit precedence beats raw 401", cmdutil.NewFeatureLimit("nope", &api.APIError{StatusCode: 401}), cmdutil.ExitConflict},
 		{"wrapped 429 keeps rate limit", fmt.Errorf("wrap: %w", &api.APIError{StatusCode: 429}), cmdutil.ExitRateLimit},
+		{"poll timeout", fmt.Errorf("%w after 2m0s waiting for operation to complete", cmdutil.ErrPollTimeout), cmdutil.ExitTimeout},
+		{"wrapped poll timeout keeps exit 5", fmt.Errorf("order still validating: %w", cmdutil.ErrPollTimeout), cmdutil.ExitTimeout},
 		{"wrapped ErrPollTimeout", fmt.Errorf("timed out: %w", cmdutil.ErrPollTimeout), cmdutil.ExitTimeout},
 		// *sip.APIFault must unwrap to *api.APIError so a documented SIP
 		// failure (one that carries an ErrorCode) maps onto the CLI's

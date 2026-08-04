@@ -36,6 +36,23 @@ func NormalizeNumber(number string) string {
 	return number
 }
 
+// NormalizeE164 converts common NANP input forms (10-digit, 1-prefixed
+// 11-digit, already-E.164, or any of those with spaces/dashes/dots/parens)
+// to full E.164 (+1XXXXXXXXXX).
+func NormalizeE164(number string) string {
+	stripped := strings.NewReplacer(" ", "", "-", "", ".", "", "(", "", ")", "").Replace(number)
+	if strings.HasPrefix(stripped, "+") {
+		return stripped
+	}
+	if len(stripped) == 10 {
+		return "+1" + stripped
+	}
+	if len(stripped) == 11 && strings.HasPrefix(stripped, "1") {
+		return "+" + stripped
+	}
+	return "+" + stripped
+}
+
 // ClassifyNumber determines the number type from an E.164-formatted phone number.
 func ClassifyNumber(number string) NumberType {
 	// Strip the + prefix if present
