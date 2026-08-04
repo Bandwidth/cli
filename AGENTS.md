@@ -818,6 +818,71 @@ band tendlc number +19195551234 --plain
 band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
 
+### Test SIP credentials end-to-end
+
+Use this workflow to verify that a SIP realm and credential authenticate correctly by placing a real call through Bandwidth. The pattern creates an ephemeral realm and credential so nothing existing is disrupted, dials a number via a local SIP UA, then tears everything down.
+
+**Prerequisites:** a SIP UA installed locally (baresip works; any UA that supports digest auth and reads an accounts file will do), and a Bandwidth phone number to call from.
+
+```bash
+# 1. Pick a from number — must be on your account and voice-capable
+FROM=$(band number list --plain | jq -r '.[0]')
+# On Bandwidth Build accounts, band number list is not available.
+# Pass the pre-provisioned number manually: FROM=+19195551234
+
+# 2. Create an ephemeral realm (never the default — it cannot be deleted if it is)
+REALM=$(band sip realm create --name sip-test --default=false --wait --plain)
+REALM_ID=$(echo "$REALM" | jq -r '.id')
+REALM_FQDN=$(echo "$REALM" | jq -r '.hostname')
+
+# 3. Create a credential and capture the password — printed exactly once
+CRED=$(band sip credential create \
+  --realm "$REALM_ID" \
+  --username sip-test-agent \
+  --generate-password \
+  --plain)
+CRED_ID=$(echo "$CRED" | jq -r '.id')
+SIP_PASS=$(echo "$CRED" | jq -r '.password')
+
+# 4. Write a temp accounts file — 600 permissions, never passed on the command line
+TMPDIR=$(mktemp -d)
+chmod 700 "$TMPDIR"
+printf '<sip:%s@%s;transport=udp>;regint=0;audio_codecs=pcmu/8000,pcma/8000;auth_user=sip-test-agent;auth_pass=%s\n' \
+  "$FROM" "$REALM_FQDN" "$SIP_PASS" > "$TMPDIR/accounts"
+chmod 600 "$TMPDIR/accounts"
+unset SIP_PASS   # clear from environment immediately after writing
+
+# Copy any existing baresip config (codec/module paths) into the temp dir.
+# This ensures the SIP UA can find its audio modules.
+# Skip this line if you prefer baresip to generate a fresh default config.
+cp ~/.baresip/config "$TMPDIR/config" 2>/dev/null || true
+
+# 5. Dial — replace <TO> with the destination E.164 number
+TO=+15559876543
+baresip -f "$TMPDIR" -e "d sip:${TO}@${REALM_FQDN}" -t 30
+
+# 6. Clean up — always run, even if the call fails
+rm -rf "$TMPDIR"
+band sip credential delete "$CRED_ID" --realm "$REALM_ID"
+band sip realm delete "$REALM_ID" --wait
+```
+
+**Interpreting baresip output:**
+
+| Signal | Meaning |
+|--------|---------|
+| `407 Proxy Authentication Required` → re-INVITE | Auth challenge is working. Wait for the response to the re-INVITE. |
+| `180 Ringing` or `183 Session Progress` | Call reached the PSTN. |
+| `200 OK` + "Call established" | Call connected. SIP auth is fully functional. |
+| `403 Forbidden` after the re-INVITE | Credential mismatch — the password written to the accounts file does not match the stored hashes. Rotate the credential and retry from step 3. |
+| `503 Service Unavailable` or `480` | Routing issue. Check that the realm is `ACTIVE` (`band sip realm get sip-test --plain`) and that the FQDN has propagated in DNS — new realms may take a moment. |
+
+**Always clean up in step 6**, even on failure. A leftover credential is not a security risk (Bandwidth never stores or returns the plaintext password), but unused credentials and realms should not accumulate.
+
+**Why a new realm instead of an existing one.** Rotating a credential on an existing realm invalidates the password for any other system using that credential. A fresh realm + fresh credential is purely additive — nothing else depends on it, and teardown leaves no side effects.
+
+---
+
 ## SIP Trunk Authentication
 
 SIP realms provide the FQDN a SIP peer uses as its outbound address for SIP trunk digest authentication. This is separate from inbound call routing, which is configured with `band vcp`.
