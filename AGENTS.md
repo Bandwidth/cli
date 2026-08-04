@@ -818,7 +818,7 @@ band tendlc number +19195551234 --plain
 band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
 
-### Test SIP credentials end-to-end
+### Test SIP Trunking end-to-end
 
 Use this workflow to verify that a SIP realm and credential authenticate correctly by placing a real call through Bandwidth. The pattern creates an ephemeral realm and credential so nothing existing is disrupted, dials a number via a local SIP UA, then tears everything down.
 
