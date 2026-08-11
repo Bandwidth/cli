@@ -392,9 +392,11 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | Command | What it does |
 |---------|-------------|
 | `band vcp create` | Create a VCP |
+| `band vcp create --route-endpoint <value> --route-endpoint-type <TN\|SIP\|IP_V4\|FQDN>` | Create a VCP with an origination route |
 | `band vcp list` | List all VCPs |
 | `band vcp get <id>` | Get VCP details |
 | `band vcp update <id>` | Update a VCP (name, description, linked app) |
+| `band vcp update <vcp-id> --route-endpoint <value> --route-endpoint-type FQDN --replace-routes` | Replace a VCP's origination route plan |
 | `band vcp delete <id>` | Delete a VCP |
 | `band vcp assign <id> <number...>` | Assign (or move) numbers to a VCP |
 | `band vcp numbers <id>` | List numbers on a VCP |
@@ -462,6 +464,22 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption assign <number...>` | Assign phone numbers to a 10DLC campaign |
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
+
+### SIP trunk authentication
+
+| Command | What it does |
+|---------|-------------|
+| `band sip realm create --name <name> --default=<bool>` | Create a SIP realm (`--description`, `--if-not-exists`; async — add `--wait` and optionally `--timeout <seconds>`) |
+| `band sip realm list` | List realms |
+| `band sip realm get <realm-id-or-name>` | Get one realm, including its FQDN |
+| `band sip realm update <realm-id-or-name>` | Update a realm: `--default=true` promotes it to the account default, `--description <text>` replaces its description. Pass either or both; omitted fields are preserved |
+| `band sip realm delete <realm-id-or-name>` | Delete a realm (async — add `--wait` and optionally `--timeout <seconds>` to confirm it's actually gone). The argument may be an ID, short name, or FQDN, but the returned `id` is always the resolved numeric realm ID — resolving it costs one extra GET |
+| `band sip credential create --realm <realm> --username <user>` | Create a credential (`--password-stdin`, `--password-file`, or `--generate-password`; optional `--app-id` to bind it to a voice app — it must be a UUID, checked before any HTTP request; `--if-not-exists` for idempotent retries). With `--generate-password`, `password` is the first key in the JSON output so a truncated write still delivers it |
+| `band sip credential rotate <credential-id> --realm <realm>` | Rotate a credential's password (ID is preserved). With `--generate-password`, `password` is the first key in the JSON output |
+| `band sip credential list --realm <realm>` | List a realm's credentials (pagination is not implemented — a full 500-credential page warns on stderr that the list may be truncated) |
+| `band sip credential get <credential-id> --realm <realm>` | Get one credential |
+| `band sip credential delete <credential-id> --realm <realm>` | Delete a credential |
+| `band sip status` | Probe whether this account can use SIP provisioning (resolves the `unknown` capability from `band auth status`) |
 
 ### Porting
 
@@ -554,6 +572,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | 4 | Conflict, feature limit, or payment required (duplicate resource, missing role, plan limit, out of credits) |
 | 5 | Timed out waiting |
 | 7 | Rate limited or quota exceeded (back off and retry) |
+| 8 | A resource exists but its secret cannot be recovered — `sip credential create --if-not-exists --generate-password` against an existing credential, a generated-password write whose response was lost, or a generated password that could not be written to stdout (full pipe, closed pipe, or short write) *after* the API write already succeeded. See below for recovery. |
+
+**Recovering from exit 8.** The resource exists; only the secret is gone. If you don't have the credential ID (the error message says so when it doesn't know it), find it with `band sip credential list --realm <realm> --plain`, then run `band sip credential rotate <credential-id> --realm <realm> --generate-password`. Rotating preserves the credential ID, so SIP peers referencing it keep working. Note that the generated `password` is written as the **first** key of the JSON object precisely so a write that gets cut short still delivers the one copy of the secret.
 
 ---
 
@@ -588,7 +609,7 @@ This CLI is agent-native — not just "agent-compatible." The design principles:
 - **`--plain` everywhere.** Flat, stable JSON output. Auto-enabled when stdout is piped, so agents in pipelines don't need the flag.
 - **`--if-not-exists` for idempotency.** Create commands can be retried safely without duplicating resources.
 - **`--wait` for async operations.** Agents can't poll. `--wait` blocks until the number is active, the call completes, or the transcription is ready.
-- **Structured exit codes.** 0 success, 2 auth, 3 not found, 4 conflict/feature limit, 5 timeout, 7 rate limit. Use exit codes for control flow, not string parsing.
+- **Structured exit codes.** 0 success, 2 auth, 3 not found, 4 conflict/feature limit, 5 timeout, 7 rate limit, 8 secret unavailable. Use exit codes for control flow, not string parsing.
 - **Env-var-driven auth.** `BW_CLIENT_ID` + `BW_CLIENT_SECRET` — no interactive prompts required.
 
 For the full agent reference — dependency chains, provisioning workflows, error patterns, and copy-pasteable scripts — see [AGENTS.md](AGENTS.md).

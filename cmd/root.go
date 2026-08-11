@@ -28,6 +28,7 @@ import (
 	quickstartcmd "github.com/Bandwidth/cli/cmd/quickstart"
 	recordingcmd "github.com/Bandwidth/cli/cmd/recording"
 	shortcodecmd "github.com/Bandwidth/cli/cmd/shortcode"
+	sipcmd "github.com/Bandwidth/cli/cmd/sip"
 	sitecmd "github.com/Bandwidth/cli/cmd/site"
 	tendlccmd "github.com/Bandwidth/cli/cmd/tendlc"
 	tfvcmd "github.com/Bandwidth/cli/cmd/tfv"
@@ -96,6 +97,7 @@ func init() {
 	rootCmd.AddCommand(authcmd.Cmd)
 	rootCmd.AddCommand(accountcmd.Cmd)
 	rootCmd.AddCommand(sitecmd.Cmd)
+	rootCmd.AddCommand(sipcmd.Cmd)
 	rootCmd.AddCommand(locationcmd.Cmd)
 	rootCmd.AddCommand(appcmd.Cmd)
 	rootCmd.AddCommand(numbercmd.Cmd)

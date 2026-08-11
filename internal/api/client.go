@@ -67,7 +67,7 @@ type Client struct {
 func NewClient(baseURL string, tm *auth.TokenManager) *Client {
 	return &Client{
 		BaseURL:     baseURL,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		httpClient:  &http.Client{Timeout: 30 * time.Second, CheckRedirect: sameOriginRedirect},
 		tm:          tm,
 		contentType: "json",
 	}
@@ -77,7 +77,7 @@ func NewClient(baseURL string, tm *auth.TokenManager) *Client {
 func NewXMLClient(baseURL string, tm *auth.TokenManager) *Client {
 	return &Client{
 		BaseURL:     baseURL,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		httpClient:  &http.Client{Timeout: 30 * time.Second, CheckRedirect: sameOriginRedirect},
 		tm:          tm,
 		contentType: "xml",
 	}
@@ -87,7 +87,7 @@ func NewXMLClient(baseURL string, tm *auth.TokenManager) *Client {
 func NewBasicAuthClient(baseURL, username, password string) *Client {
 	return &Client{
 		BaseURL:       baseURL,
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		httpClient:    &http.Client{Timeout: 30 * time.Second, CheckRedirect: sameOriginRedirect},
 		contentType:   "json",
 		basicUser:     username,
 		basicPassword: password,
@@ -98,7 +98,7 @@ func NewBasicAuthClient(baseURL, username, password string) *Client {
 func NewClientNoAuth(baseURL string) *Client {
 	return &Client{
 		BaseURL:     baseURL,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		httpClient:  &http.Client{Timeout: 30 * time.Second, CheckRedirect: sameOriginRedirect},
 		contentType: "json",
 	}
 }

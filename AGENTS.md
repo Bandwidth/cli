@@ -53,9 +53,37 @@ If your credentials are not bound to a specific account, the CLI will prompt you
 `band auth status --plain` returns structured JSON describing what the active account can do. The two fields agents care about most:
 
 - **`build: true`** — this is a Bandwidth Build account. Voice-only, credit-based. Messaging, number ordering, sub-accounts, VCPs, 10DLC, and toll-free verification are not available; commands targeting those exit with code 4 and a clear message pointing at the upgrade path.
-- **`capabilities`** — a derived map (`voice`, `messaging`, `numbers`, `vcp`, `campaign_management`, `tfv`, `app_management`) flipping `true`/`false` based on the credential's roles. Use this to gate work locally rather than discovering limits via 4xx errors.
+- **`capabilities`** — a derived map (`voice`, `messaging`, `numbers`, `vcp`, `campaign_management`, `tfv`, `app_management`) flipping `true`/`false` based on the credential's roles. Use this to gate work locally rather than discovering limits via 4xx errors. This map is unchanged by SIP support — it stays boolean-only.
 
 Branch on these before attempting feature-gated work. The CLI also fails fast at the moment you try a restricted command, but checking capabilities up front avoids wasted setup.
+
+#### SIP capability (tri-state, not boolean)
+
+SIP provisioning (`band sip realm ...`, `band sip credential ...`) needs **two** things: the `SIP Credentials` role on the credential, and account-level SIP configuration on the backend. Only the role is knowable from the JWT offline — the account-level setting can only be confirmed by calling the API. A plain boolean would conflate "don't know," "missing the role," and "has the role but the account isn't enabled," so `band auth status --plain` reports SIP as its own object instead of folding it into `capabilities`:
+
+```json
+"sip": { "status": "unknown", "reason": "role_present_not_probed" }
+```
+
+`status` is one of `available`, `unavailable`, or `unknown`. `reason` is a stable enumerated identifier — branch on it, not on prose:
+
+| `reason` | `status` | Meaning |
+|----------|----------|---------|
+| `role_absent` | `unavailable` | Credential lacks the `SIP Credentials` role. |
+| `role_present_not_probed` | `unknown` | Credential has the role, but `auth status` is offline and cannot confirm account-level configuration. |
+| `account_not_enabled` | `unavailable` | Only returned by `band sip status` — the account has the role but SIP Credentials isn't enabled on the account. Contact Bandwidth support. |
+| `probe_succeeded` | `available` | Only returned by `band sip status` — the account can use SIP provisioning. |
+| `probe_failed` | `unknown` | Only returned by `band sip status` — the probe itself failed (e.g. rate limited or a server error); retry later. |
+
+`band auth status` never calls the network, so it can only ever report `role_absent` or `role_present_not_probed` for `sip`. To resolve an `unknown`, run the explicit probe:
+
+```bash
+band sip status --plain
+```
+
+This issues one cheap `GET /realms` call. A `200` reports `available`/`probe_succeeded` (exit 0). Hitting error code `33004` ("account isn't setup for Sip Credentials") reports `unavailable`/`account_not_enabled` — and **exits 0**, because a successful probe that confirms a negative fact is not a command failure. Auth errors (401/403) exit 2 via the normal error path; rate limiting or server errors exit non-zero with `probe_failed`.
+
+Important: `band sip status` **does not persist** its result anywhere. Run it again any time you need a fresh answer, and don't expect `band auth status` to start reporting anything other than `unknown` for a role-holding credential — that command stays fully offline by design.
 
 ### Account Hint
 
@@ -201,6 +229,67 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 - **`vcp delete` fails if numbers are assigned.** Move them first with `vcp assign <other-vcp-id> <numbers...>`.
 - **`vcp assign` is an upsert.** Numbers already on another VCP are moved, not duplicated.
 
+### SIP
+
+- **A generated SIP password is shown exactly once.** `sip credential create --generate-password` prints a
+  `password` field with `passwordShownOnce: true`. It cannot be retrieved later — `sip credential get` never
+  returns it. If it is lost, run `sip credential rotate <credential-id> --realm <realm>`; this **preserves the
+  credential ID**, so peers referencing it keep working.
+- **Prefer `--password-stdin`.** When the caller owns the secret, retries are safe and the password is not
+  echoed back (`passwordShownOnce: false`, no `password` field in the response). With `--generate-password`,
+  `--if-not-exists` against an existing credential exits **8** (`ExitSecretUnavailable`) because the stored
+  password cannot be recovered — an agent must not treat that as success.
+- **A stdout write failure after a successful write also exits 8.** If the API accepts the create/rotate but the
+  generated password cannot be written to stdout — a full pipe, a closed pipe, or a short write — the credential
+  exists and its password is unrecoverable, which is exactly the exit-8 state and not the generic 1 a write
+  error would otherwise produce. Recovery is the same as any exit 8: if you don't already have the credential
+  ID, `band sip credential list --realm <realm> --plain` to find it, then
+  `band sip credential rotate <credential-id> --realm <realm> --generate-password`. On rotate the ID is always
+  known, so the error names the exact command to re-run. With a caller-supplied password nothing is lost, so a
+  write failure there stays a plain write error.
+- **The generated `password` is the FIRST key in JSON output.** `sip credential create` and
+  `sip credential rotate` emit `password` ahead of `id`, `hostname`, and `appId` specifically so a stdout write
+  that gets truncated part-way still delivers the only copy of the secret. This is the one place in `band sip`
+  that does not route its JSON through the shared `emit` helper — every other SIP command does, and gets Go's
+  alphabetical map-key order. The exception is deliberate: `emit` normalizes the payload to a map, and
+  alphabetical ordering would put `appId` ahead of `password`. Redaction still runs on this path, explicitly,
+  and the human-facing table output still goes through `emit`. Don't "fix" this back to `emit`, and don't rely
+  on key order for any other command.
+- **`--app-id` is validated as a UUID before anything else happens.** `sip credential create --app-id` must be
+  a canonical 8-4-4-4-12 UUID. The check runs ahead of the realm lookup and ahead of reading or generating the
+  password, so an invalid value fails deterministically with exit **1**, **zero HTTP requests**, and — the part
+  that matters — **no password generated**. A typo in `--app-id` cannot burn a write-once secret. Get real IDs
+  from `band app list --plain`. Omitting `--app-id` (or passing an empty value) is valid and means "unbound".
+- **Exactly one of `--password-stdin`, `--password-file`, or `--generate-password` is required.** There is
+  deliberately no `--password` flag — passing a secret via argv leaks it through shell history, process
+  listings, CI logs, and agent transcripts.
+- **A credential's username and application binding are immutable.** Changing either requires delete +
+  recreate; `sip credential rotate` only replaces the password.
+- **`sip realm delete` fails while credentials exist** (error 12666) — delete the credentials first. The
+  account's **default realm cannot be deleted** (error 33006) — promote another realm first with
+  `sip realm update <other-realm> --default=true`.
+- **Realm `ACTIVE` does not guarantee the FQDN resolves in public DNS yet.** If the far end reports an
+  unresolvable host immediately after creation, retry shortly.
+- **`sip realm delete` without `--wait` reports `accepted: true, deleted: false`.** A 202 means the delete
+  was accepted, not that it completed. Only `--wait` promotes `deleted` to `true`, after confirming the realm
+  is actually gone. Don't treat a bare delete as teardown-complete.
+- **`sip realm delete` returns the realm's canonical ID, not the ref you passed.** The argument accepts an ID,
+  a short name, or an FQDN, but the `--plain` `id` field is always the resolved numeric realm ID:
+  `band sip realm delete vapi --plain` returns that ID, not `"vapi"`. The command resolves the ref with a GET
+  before issuing the delete, so this costs one extra request on the delete path — the trade for an `id` field
+  that always means an ID. Don't match the returned `id` against the string you passed in.
+- **`sip realm create --if-not-exists` does not always silently reuse.** If a realm with that name exists but
+  its `default` or `description` differs from what was requested, the command exits **4** instead of reusing
+  it. Reconcile with `sip realm update <realm> --description <value>` (or promote it with `--default=true`)
+  rather than retrying create. Realm names match case-insensitively, so `--name VAPI` reuses an existing
+  `vapi`.
+- **`sip realm create --if-not-exists --wait` is safe to combine.** A reused realm that is still
+  `CREATE_PENDING` is polled to `ACTIVE` before the command returns, so a re-run after a `--wait` timeout
+  cannot hand back exit 0 with a realm that is not yet usable.
+- **`sip credential list` warns on stderr if it may be truncated.** Pagination is not implemented; a realm
+  with more than 500 credentials returns only the first page, and the CLI says so on stderr. `--plain` stdout
+  stays clean JSON.
+
 ### Quickstart
 
 - **Agents should prefer the step-by-step provisioning workflows over `band quickstart`.** Quickstart creates real resources that cost money (it orders a phone number). The default (VCP) path is idempotent — re-running reuses existing resources via find-or-create and will not order a second number — and on failure it prints the resource IDs created so far (`status: partial`, see below). Re-running reuses the app/VCP/sub-account/location — but a number that was ordered and then failed to assign to the VCP is NOT auto-reassigned; finish it with `band vcp assign <vcp-id> <number>`. The `--legacy` path is NOT idempotent (re-running it may order an additional number). Because quickstart bundles several steps behind one command, prefer the step-by-step provisioning workflows in the [Agent Workflows](#agent-workflows) section when you need per-step structured output or fine-grained control.
@@ -222,6 +311,8 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 | `number activate --wait` / `number deactivate --wait` | Service activation order may still be RECEIVED/PROCESSING | Check `band number get <number> --plain` — the `inboundActivated` / `outbound*Activated` flags reflect the terminal state. Re-running the same activate is idempotent. |
 | `call create --wait` | Call may still be active | Check `band call get <call-id> --plain` — look at the `state` field. |
 | `transcription create --wait` | Transcription may be processing | Check `band transcription get <call-id> <rec-id> --plain`. |
+| `sip realm create --wait` | Realm may still be CREATE_PENDING | Check `band sip realm get <id> --plain` — `status` reflects the terminal state. Re-running create with `--if-not-exists` is safe. |
+| `sip realm delete --wait` | Delete may still be in progress | Check `band sip realm get <id> --plain`; a not-found result means the delete completed. |
 | `portin validate-tf --wait` | TF validation order may still be PROCESSING | Check `band portin validate-tf <numbers> --plain` again — caching means a re-run is cheap. |
 | `portin submit --wait` | Order may still be in VALIDATE_TFNS | Check `band portin get <order-id> --plain` — look at the `status` field. |
 | `portin supp` | Supp's propagation poll timed out | Check `band portin get <order-id> --plain`. The CLI's silent-fail check (error code 7300) only runs against the GET it observed before timeout — re-run the GET before retrying the supp. |
@@ -298,6 +389,25 @@ account + auth
 ```
 
 **Key difference:** Voice on UP skips the sub-account/location hierarchy. Messaging always needs it, even on UP accounts.
+
+**SIP interconnect (third-party voice-AI platform):**
+```
+account + auth
+  └─→ sip realm create --wait            (returns the realm FQDN + id)
+        └─→ sip credential create --realm <id> --username <u> --password-stdin
+              └─→ vcp create|update --route-endpoint <partner-fqdn> --route-endpoint-type FQDN
+                    └─→ vcp assign <vcp-id> <number>
+                          └─→ number activate --voice-inbound
+```
+
+The realm's `hostname` is the outbound SIP address the far end needs — hand it to
+the third-party platform so their SIP trunk can reach your account. Credentials
+can only be created on an `ACTIVE` realm — without `--wait`, `sip realm create`
+may still be `CREATE_PENDING` when the next step runs, and `sip credential create`
+fails its own client-side check with `"realm <name> is <status> — credentials can
+only be created on ACTIVE realms; retry after 'band sip realm get <name>' reports
+ACTIVE"` and exits **1**. (In the narrow case where the API itself rejects the
+create in a race, error 23022 surfaces instead — see the errors table below.)
 
 ---
 
@@ -637,6 +747,7 @@ band portin create --numbers +1... --site <id> --peer <id> --foc <date> \
 | 4 | Conflict / feature limit / payment required | 402, 409, or 403 due to a plan/role gate (e.g., Build account trying to message, missing VCP/Campaign Management/TFV role, out of credits, declined card). Non-retryable — stop and escalate to the user. |
 | 5 | Timeout | `--wait` exceeded `--timeout` |
 | 7 | Rate limited / quota exceeded | 429 or concurrent-resource ceiling. Back off and retry. |
+| 8 | Secret unavailable | A resource exists but its secret cannot be recovered. Three producers: (1) `sip credential create --if-not-exists --generate-password` against an existing credential (the credential ID is known — the error names it directly); (2) a generated-password write whose response was lost; (3) a generated-password write that the API accepted but whose password could not be written to stdout — full pipe, closed pipe, or short write — leaving a credential nobody holds the password for. Not retryable as-is: rotate the credential (`sip credential rotate <credential-id> --realm <realm>`) to get a usable password. When the ID isn't known yet — the lost-response and failed-write cases on create; the command's own error message says so — run `band sip credential list --realm <realm> --plain` first to find it, then rotate. On rotate the ID is always known, so the error names the exact rotate command. |
 
 **Use exit codes for control flow, not string parsing.**
 
@@ -862,6 +973,131 @@ band tendlc number +19195551234 --plain
 # 6. Now send
 band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
+
+### Test SIP Trunking end-to-end
+
+Use this workflow to verify that a SIP realm and credential authenticate correctly by placing a real call through Bandwidth. The pattern creates an ephemeral realm and credential so nothing existing is disrupted, dials a number via a local SIP UA, then tears everything down.
+
+**Prerequisites:** a SIP UA installed locally (baresip works; any UA that supports digest auth and reads an accounts file will do), and a Bandwidth phone number to call from.
+
+```bash
+# 1. Pick a from number — must be on your account and voice-capable
+FROM=$(band number list --plain | jq -r '.[0]')
+# On Bandwidth Build accounts, band number list is not available.
+# Pass the pre-provisioned number manually: FROM=+19195551234
+
+# 2. Create an ephemeral realm (never the default — it cannot be deleted if it is)
+REALM=$(band sip realm create --name sip-test --default=false --wait --plain)
+REALM_ID=$(echo "$REALM" | jq -r '.id')
+REALM_FQDN=$(echo "$REALM" | jq -r '.hostname')
+
+# 3. Create a credential and capture the password — printed exactly once
+CRED=$(band sip credential create \
+  --realm "$REALM_ID" \
+  --username sip-test-agent \
+  --generate-password \
+  --plain)
+CRED_ID=$(echo "$CRED" | jq -r '.id')
+SIP_PASS=$(echo "$CRED" | jq -r '.password')
+
+# 4. Write a temp accounts file — 600 permissions, never passed on the command line
+TMPDIR=$(mktemp -d)
+chmod 700 "$TMPDIR"
+printf '<sip:%s@%s;transport=udp>;regint=0;audio_codecs=pcmu/8000,pcma/8000;auth_user=sip-test-agent;auth_pass=%s\n' \
+  "$FROM" "$REALM_FQDN" "$SIP_PASS" > "$TMPDIR/accounts"
+chmod 600 "$TMPDIR/accounts"
+unset SIP_PASS   # clear from environment immediately after writing
+
+# Copy any existing baresip config (codec/module paths) into the temp dir.
+# This ensures the SIP UA can find its audio modules.
+# Skip this line if you prefer baresip to generate a fresh default config.
+cp ~/.baresip/config "$TMPDIR/config" 2>/dev/null || true
+
+# 5. Dial — replace <TO> with the destination E.164 number
+TO=+15559876543
+baresip -f "$TMPDIR" -e "d sip:${TO}@${REALM_FQDN}" -t 30
+
+# 6. Clean up — always run, even if the call fails
+rm -rf "$TMPDIR"
+band sip credential delete "$CRED_ID" --realm "$REALM_ID"
+band sip realm delete "$REALM_ID" --wait
+```
+
+**Interpreting baresip output:**
+
+| Signal | Meaning |
+|--------|---------|
+| `407 Proxy Authentication Required` → re-INVITE | Auth challenge is working. Wait for the response to the re-INVITE. |
+| `180 Ringing` or `183 Session Progress` | Call reached the PSTN. |
+| `200 OK` + "Call established" | Call connected. SIP auth is fully functional. |
+| `403 Forbidden` after the re-INVITE | Credential mismatch — the password written to the accounts file does not match the stored hashes. Rotate the credential and retry from step 3. |
+| `503 Service Unavailable` or `480` | Routing issue. Check that the realm is `ACTIVE` (`band sip realm get sip-test --plain`) and that the FQDN has propagated in DNS — new realms may take a moment. |
+
+**Always clean up in step 6**, even on failure. A leftover credential is not a security risk (Bandwidth never stores or returns the plaintext password), but unused credentials and realms should not accumulate.
+
+**Why a new realm instead of an existing one.** Rotating a credential on an existing realm invalidates the password for any other system using that credential. A fresh realm + fresh credential is purely additive — nothing else depends on it, and teardown leaves no side effects.
+
+---
+
+## SIP Trunk Authentication
+
+SIP realms provide the FQDN a SIP peer uses as its outbound address for SIP trunk digest authentication. This is separate from inbound call routing, which is configured with `band vcp`.
+
+### Create a realm
+
+```bash
+band sip realm create --name vapi --default=false --wait --plain
+# → { "id": "...", "name": "vapi", "hostname": "vapi-3efeaa.auth.bandwidth.com", "status": "ACTIVE", ... }
+```
+
+`--default` is **required** — the API rejects creates without it (error 1003). Creation is asynchronous (`CREATE_PENDING` → `ACTIVE`); use `--wait` to block until the realm is `ACTIVE`, or `--if-not-exists` for a safe retry.
+
+### List and inspect realms
+
+```bash
+band sip realm list --plain
+band sip realm get vapi --plain
+```
+
+`get` accepts a realm ID, name, or FQDN.
+
+### Update a realm
+
+Two fields are updatable: `--default=true` and `--description`. Pass either or both; an omitted field is preserved (the update reads the realm first, because the API's `PUT` is a full replace).
+
+The API refuses to delete the default realm, and a realm's `default` flag can only be set to `true` (never back to `false`). To retire a default realm, promote another one first:
+
+```bash
+band sip realm update backup-realm --default=true
+band sip realm delete old-default-realm --wait
+```
+
+`--description` is the remediation for a `--if-not-exists` description mismatch:
+
+```bash
+band sip realm update vapi --description "Vapi production trunk"
+```
+
+### Delete a realm
+
+```bash
+band sip realm delete vapi --wait
+```
+
+Deletion is asynchronous (the API returns 202). A realm cannot be deleted while it still has SIP credentials (error 12666) or while it is the account default (error 33006).
+
+### Common errors
+
+| Error code | Message | Cause | Fix |
+|---|---|---|---|
+| **33006** | Cannot delete the default realm | Realm is the account default | Promote another realm first: `band sip realm update <other-realm> --default=true` |
+| **12666** | Realm still has SIP credentials | Realm has credentials attached | Delete the credentials first |
+| **33002** | Realm already exists | Name collision | Use `--if-not-exists`, or pick a different `--name` |
+| **23022** | Realm is not active yet | Realm hasn't finished provisioning | Retry with `--wait` |
+| **23026** | Credential already exists | A credential with that username is already on the realm | Use `--if-not-exists` to reuse it, or change its password with `band sip credential rotate <credential-id> --realm <realm>` |
+| **33004** | Account isn't set up for SIP credentials | Account lacks `SipCredentialSettings`. Not a role problem — the credential can hold the SIP Credentials role and still get this | Contact Bandwidth support to enable it. Check up front with `band sip status --plain` |
+
+Every error in this table exits **4**, regardless of the HTTP status the API used to report it (these arrive variously as 400, 409, and even 201 with an error envelope). Branch on the exit code, then read the message for the remediation.
 
 ## Limitations
 
