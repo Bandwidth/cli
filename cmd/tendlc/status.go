@@ -14,6 +14,18 @@ import (
 
 func init() { Cmd.AddCommand(statusCmd) }
 
+// service builds a tendlc Service for the active account. It is a package
+// var, not a plain func, so tests can substitute a service pointed at a stub
+// server — the same seam pattern as cmd/sip's `service` and
+// cmdutil.VoiceClient.
+var service = func(cmd *cobra.Command) (*tendlcsvc.Service, error) {
+	client, acctID, err := cmdutil.PlatformClient(cmdutil.AccountIDFlag(cmd))
+	if err != nil {
+		return nil, err
+	}
+	return tendlcsvc.NewService(client, acctID), nil
+}
+
 // modeUnknown is returned on every code path. Account mode (direct vs
 // import) is a property of how the account is configured with Bandwidth, not
 // a runtime-discoverable fact: brand.imported is true on direct AND import
@@ -25,6 +37,14 @@ func modeUnknown() map[string]string {
 }
 
 // statusResult maps a probe outcome onto the stable --plain shape.
+//
+// The 403 branches are checked in a deliberate order — Registration Center,
+// then campaign management, then role — because a body could in principle
+// contain more than one of these substrings and the first match wins. This
+// order reports the most fundamental blocker first: an account-level feature
+// gap (Registration Center or campaign management not enabled) is a bigger
+// blocker than a missing role on the credential, so it's surfaced ahead of
+// role_absent.
 func statusResult(statusCode int, body string) map[string]any {
 	res := map[string]any{"mode": modeUnknown()}
 	switch {
@@ -59,32 +79,40 @@ or the other, and that is a property of your Bandwidth setup. If you don't know
 which yours is, ask your Bandwidth account contact rather than guessing.`,
 	Example: `  band tendlc status --plain`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		client, acctID, err := cmdutil.PlatformClient(cmdutil.AccountIDFlag(cmd))
+		svc, err := service(cmd)
 		if err != nil {
 			return err
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
-		svc := tendlcsvc.NewService(client, acctID)
 
 		_, probeErr := svc.ListBrands(1, 0, nil)
 		if probeErr == nil {
 			return output.StdoutAuto(format, plain, statusResult(200, ""))
 		}
 
+		// Default to unknown/probe_failed so that EVERY failure path — a
+		// recognized 403, an unrecognized 403, a 429/5xx, or a bare transport
+		// error (DNS, connection refused, TLS, timeout, context cancellation)
+		// — emits a stable JSON document on stdout. A caller parsing stdout
+		// must never see an empty body just because the failure didn't happen
+		// to arrive wrapped in *api.APIError.
+		res := statusResult(0, "")
 		var apiErr *api.APIError
 		if errors.As(probeErr, &apiErr) {
-			res := statusResult(apiErr.StatusCode, apiErr.Body)
+			res = statusResult(apiErr.StatusCode, apiErr.Body)
 			// A 403 is a probe that succeeded in answering the question:
 			// this account cannot use the Registration Center. Exit 0 — the
-			// command did its job. Anything else is a failure to answer, so
-			// emit the "unknown" result for callers parsing stdout, then
-			// fall through to the normal non-zero error path.
+			// command did its job.
 			if apiErr.StatusCode == 403 {
 				return output.StdoutAuto(format, plain, res)
 			}
-			if emitErr := output.StdoutAuto(format, plain, res); emitErr != nil {
-				return emitErr
-			}
+		}
+		// Anything else — 429, 5xx, or a transport error that never made it
+		// to an HTTP response — is a failure to answer, not an answer. Emit
+		// the result for callers parsing stdout, then fall through to the
+		// normal non-zero error path.
+		if emitErr := output.StdoutAuto(format, plain, res); emitErr != nil {
+			return emitErr
 		}
 		return roleGateError(probeErr, "Campaign Management")
 	},
