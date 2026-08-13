@@ -53,21 +53,47 @@ func TestEnvelopeShapeMismatchIsAnError(t *testing.T) {
 	}
 }
 
+// Data that is null, or a data key that is entirely absent, must fail
+// closed rather than being read as "no results" — genuinely empty lists
+// come back from the API as "data":[], so nil is anomalous, not normal.
+func TestEnvelopeNilDataIsAnError(t *testing.T) {
+	env, err := ParseEnvelope([]byte(`{"data":null}`))
+	if err != nil {
+		t.Fatalf("ParseEnvelope: %v", err)
+	}
+	if _, err := env.List(); err == nil {
+		t.Error("List() on explicit null data should error, not report an empty list")
+	}
+
+	env2, err := ParseEnvelope([]byte(`{}`))
+	if err != nil {
+		t.Fatalf("ParseEnvelope: %v", err)
+	}
+	if _, err := env2.List(); err == nil {
+		t.Error("List() on a body with no data key should error, not report an empty list")
+	}
+}
+
 func TestPageTruncated(t *testing.T) {
 	tests := []struct {
-		name     string
-		page     *Page
-		returned int
-		want     bool
+		name          string
+		page          *Page
+		returnedSoFar int
+		want          bool
 	}{
 		{"more pages remain", &Page{TotalElements: 10, TotalPages: 5, Size: 2}, 2, true},
 		{"everything returned", &Page{TotalElements: 2, TotalPages: 1, Size: 50}, 2, false},
 		{"empty result", &Page{TotalElements: 0, TotalPages: 0, Size: 50}, 0, false},
+		// Cumulative count across all pages walked equals the total: nothing
+		// left, even though a naive per-page count would have said otherwise
+		// on earlier pages.
+		{"cumulative count reaches total on last page", &Page{TotalElements: 10, TotalPages: 5, Size: 2}, 10, false},
+		{"nil page is never truncated", nil, 2, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.page.Truncated(tt.returned); got != tt.want {
-				t.Errorf("Truncated(%d) = %v, want %v", tt.returned, got, tt.want)
+			if got := tt.page.Truncated(tt.returnedSoFar); got != tt.want {
+				t.Errorf("Truncated(%d) = %v, want %v", tt.returnedSoFar, got, tt.want)
 			}
 		})
 	}
