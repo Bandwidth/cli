@@ -211,6 +211,37 @@ func TestHasRole(t *testing.T) {
 	}
 }
 
+func TestTenDLCCapability(t *testing.T) {
+	got := tendlcCapability(true)
+	if got["status"] != "unknown" || got["reason"] != "role_present_not_probed" {
+		t.Errorf("tendlcCapability(true) = %v, want unknown/role_present_not_probed", got)
+	}
+	got = tendlcCapability(false)
+	if got["status"] != "unavailable" || got["reason"] != "role_absent" {
+		t.Errorf("tendlcCapability(false) = %v, want unavailable/role_absent", got)
+	}
+}
+
+// Customer Profiles Access is a distinct role from campaign_management —
+// confirmed on a live credential that carries both.
+func TestCustomerProfilesCapabilityIsSeparate(t *testing.T) {
+	caps := Capabilities([]string{"campaign_management"})
+	if caps["customer_profiles"] {
+		t.Error("customer_profiles should be false without the Customer Profiles Access role")
+	}
+	if !caps["campaign_management"] {
+		t.Error("campaign_management should be true")
+	}
+
+	caps = Capabilities([]string{"Customer Profiles Access"})
+	if !caps["customer_profiles"] {
+		t.Error("customer_profiles should be true with the role")
+	}
+	if caps["campaign_management"] {
+		t.Error("campaign_management should be false without its own role")
+	}
+}
+
 // TestRunSwitch_PersistsTargetIntoActiveProfile guards against the bug where
 // switch only updated the legacy top-level cfg.AccountID, leaving the active
 // profile's AccountID stale — so subsequent commands continued targeting the
