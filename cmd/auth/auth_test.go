@@ -242,6 +242,81 @@ func TestCustomerProfilesCapabilityIsSeparate(t *testing.T) {
 	}
 }
 
+// liveAccount9901287Roles is the (trimmed) role list observed on a live
+// credential for account 9901287 — captured directly rather than invented, so
+// tests exercise the tri-state wiring against a realistic role string, not
+// just an idealized one. In particular it confirms the role is genuinely
+// snake_case "campaign_management" (not the "Campaign Management" display
+// string used elsewhere for error messages), and it includes a decoy —
+// "specialized customer external tns" — that contains the word "customer" but
+// is not a Customer Profiles Access role.
+var liveAccount9901287Roles = []string{
+	"Alerting Insights", "Analytics", "Billing Reports",
+	"campaign_management", "Configuration", "Customer Profiles Access",
+	"Disconnect", "E911 Management", "specialized customer external tns",
+	"HTTP Application Management", "HttpVoice", "Line Features",
+	"Ordering", "Porting", "Reporting", "Short Code Access",
+}
+
+// removeRole returns a copy of roles with every occurrence of target removed.
+func removeRole(roles []string, target string) []string {
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if r != target {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// TestTenDLCWiringAgainstLiveRoles exercises hasRole, tendlcCapability, and
+// Capabilities together against the real role strings from
+// liveAccount9901287Roles, rather than testing tendlcCapability(bool) in
+// isolation. TestTenDLCCapability and TestCustomerProfilesCapabilityIsSeparate
+// already cover the functions' own logic; this test guards the wiring itself
+// — a future change to hasRole's matching (e.g. adding normalization that
+// treats "_" and " " differently, or an accidental typo in the substring
+// passed at the call site) could silently make campaign_management always
+// evaluate to role_absent while every existing test still passes.
+func TestTenDLCWiringAgainstLiveRoles(t *testing.T) {
+	if !hasRole(liveAccount9901287Roles, "campaign_management") {
+		t.Fatal("hasRole should find campaign_management in the live role list")
+	}
+	got := tendlcCapability(hasRole(liveAccount9901287Roles, "campaign_management"))
+	if got["status"] != "unknown" || got["reason"] != "role_present_not_probed" {
+		t.Errorf("tendlcCapability with live roles = %v, want unknown/role_present_not_probed", got)
+	}
+	if !Capabilities(liveAccount9901287Roles)["customer_profiles"] {
+		t.Error("customer_profiles should be true with live roles (Customer Profiles Access is present)")
+	}
+
+	withoutCampaign := removeRole(liveAccount9901287Roles, "campaign_management")
+	if hasRole(withoutCampaign, "campaign_management") {
+		t.Fatal("hasRole should not find campaign_management once it's removed from the role list")
+	}
+	got = tendlcCapability(hasRole(withoutCampaign, "campaign_management"))
+	if got["status"] != "unavailable" || got["reason"] != "role_absent" {
+		t.Errorf("tendlcCapability without campaign_management = %v, want unavailable/role_absent", got)
+	}
+
+	withoutCustomerProfiles := removeRole(liveAccount9901287Roles, "Customer Profiles Access")
+	if Capabilities(withoutCustomerProfiles)["customer_profiles"] {
+		t.Error("customer_profiles should be false once Customer Profiles Access is removed from the role list")
+	}
+}
+
+// TestCustomerProfilesMatcherNotOverBroad guards against loosening the
+// customer_profiles matcher from "customer profiles" to just "customer".
+// "specialized customer external tns" is a real role from
+// liveAccount9901287Roles that contains "customer" but has nothing to do with
+// Customer Profiles Access — it must not flip customer_profiles to true.
+func TestCustomerProfilesMatcherNotOverBroad(t *testing.T) {
+	caps := Capabilities([]string{"specialized customer external tns"})
+	if caps["customer_profiles"] {
+		t.Error("customer_profiles should be false for 'specialized customer external tns' — it contains 'customer' but is not a Customer Profiles Access role")
+	}
+}
+
 // TestRunSwitch_PersistsTargetIntoActiveProfile guards against the bug where
 // switch only updated the legacy top-level cfg.AccountID, leaving the active
 // profile's AccountID stale — so subsequent commands continued targeting the
