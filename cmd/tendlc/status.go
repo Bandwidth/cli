@@ -78,6 +78,16 @@ import them from TCR — is not probed and cannot be discovered: an account is o
 or the other, and that is a property of your Bandwidth setup. If you don't know
 which yours is, ask your Bandwidth account contact rather than guessing.`,
 	Example: `  band tendlc status --plain`,
+	// Contract: probe success is coupled to envelope decoding. svc.ListBrands
+	// parses the response body before returning, so a 200 whose body is not
+	// valid JSON (or whose envelope shape has changed) surfaces as an error
+	// here exactly like a transport failure, and is reported as
+	// unknown/probe_failed rather than available/probe_succeeded. This is
+	// deliberate, not a gap to fix: the command cannot distinguish "access is
+	// fine but the payload changed" from a genuine failure, and reporting
+	// available off a response it could not actually read would be a false
+	// positive — worse than a false probe_failed, which just means "run it
+	// again."
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := service(cmd)
 		if err != nil {

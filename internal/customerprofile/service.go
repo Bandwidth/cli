@@ -19,7 +19,8 @@ type Service struct {
 	accountID string
 }
 
-// NewService returns a Service bound to an account.
+// NewService returns a Service bound to an account. c must be a JSON client
+// (see cmdutil.PlatformClient).
 func NewService(c *api.Client, accountID string) *Service {
 	return &Service{client: c, accountID: accountID}
 }

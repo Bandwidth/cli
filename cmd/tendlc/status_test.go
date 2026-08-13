@@ -169,6 +169,33 @@ func TestTendlcStatus_ServerError(t *testing.T) {
 	assertModeUnknown(t, got)
 }
 
+// TestTendlcStatus_MalformedSuccessBody locks in the documented coupling
+// between probe success and envelope decoding: svc.ListBrands parses the
+// response body before returning, so a 200 whose body is not valid JSON
+// cannot be distinguished from a genuine failure. The command must not
+// report available/probe_succeeded off a body it could not read — it reports
+// unknown/probe_failed and returns a non-nil error, same as any other
+// failure to answer.
+func TestTendlcStatus_MalformedSuccessBody(t *testing.T) {
+	srv := statusStubServerWithCode(t, 200, `not json at all`)
+	defer srv.Close()
+	withStubStatusService(t, srv.URL)
+
+	out, err := runStatus(t)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a non-nil error for an undecodable 200 body")
+	}
+
+	got := decodeStatusOutput(t, out)
+	if got["access"] != "unknown" {
+		t.Errorf("access = %v, want %q", got["access"], "unknown")
+	}
+	if got["reason"] != "probe_failed" {
+		t.Errorf("reason = %v, want %q", got["reason"], "probe_failed")
+	}
+	assertModeUnknown(t, got)
+}
+
 // TestTendlcStatus_TransportFailure is the regression lock for the bug where
 // a bare transport error (never wrapped in *api.APIError) produced EMPTY
 // stdout: RunE fell straight through to roleGateError without emitting

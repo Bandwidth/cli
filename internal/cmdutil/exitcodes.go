@@ -43,7 +43,15 @@ func NewFlagError(msg string) error { return &FlagError{Message: msg} }
 // NewMissingFlagsError reports every missing required flag in one error,
 // sorted for determinism. Cobra's MarkFlagRequired is not used on commands
 // with conditional requirements, so aggregation happens here instead.
+//
+// A nil or empty names is a caller bug — there is no missing flag to report —
+// but this must still produce a sensible message rather than the malformed
+// "missing required flags: " (trailing separator, no names) that naive
+// joining would emit.
 func NewMissingFlagsError(names []string) error {
+	if len(names) == 0 {
+		return &FlagError{Message: "missing required flags"}
+	}
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
 	for i, n := range sorted {
@@ -72,6 +80,9 @@ func (e *ConflictError) Error() string { return e.Message }
 func (e *ConflictError) Unwrap() error { return e.Cause }
 
 // ExitCodeForError maps an error to the appropriate exit code.
+// FlagError takes precedence over everything else, including a wrapped API
+// error: it is a client-side validation failure and no HTTP request was ever
+// made, so it must win regardless of what else the error chain contains.
 // FeatureLimitError takes precedence over the raw API status code so a
 // 403 caused by a plan/role limit maps to ExitConflict (4) rather than
 // ExitAuth (2) — agents can then distinguish "stop, escalate" from

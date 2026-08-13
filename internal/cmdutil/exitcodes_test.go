@@ -133,6 +133,19 @@ func TestMissingFlagsErrorListsAllNames(t *testing.T) {
 	}
 }
 
+// An empty or nil names slice must not produce the malformed
+// "missing required flags: " (trailing separator, no names). Locks the
+// guard added for this case.
+func TestMissingFlagsErrorEmptyNames(t *testing.T) {
+	want := "missing required flags"
+	if got := cmdutil.NewMissingFlagsError(nil).Error(); got != want {
+		t.Errorf("NewMissingFlagsError(nil).Error() = %q, want %q", got, want)
+	}
+	if got := cmdutil.NewMissingFlagsError([]string{}).Error(); got != want {
+		t.Errorf("NewMissingFlagsError([]string{}).Error() = %q, want %q", got, want)
+	}
+}
+
 // A FlagError must win over a wrapped APIError: it is a client-side
 // failure and no request was ever sent.
 func TestFlagErrorTakesPrecedenceOverAPIError(t *testing.T) {

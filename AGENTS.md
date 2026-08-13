@@ -102,6 +102,21 @@ band tendlc status --plain
 # → {"access":"available","mode":{"reason":"not_discoverable","status":"unknown"},"reason":"probe_succeeded"}
 ```
 
+`band tendlc status` can emit any of these `reason` values. Every 403-derived result
+exits **0** — the probe answered the question, even when the answer is negative — so
+there is no stderr message to fall back on; this table is the only authoritative place
+to learn what to do next. `probe_failed` is the sole exception: the probe couldn't
+answer at all, so it exits non-zero and is the only reason worth retrying.
+
+| `reason` | `access` | Exit code | Next action |
+|---|---|---|---|
+| `probe_succeeded` | `available` | 0 | Registration Center access confirmed. Proceed with `band tendlc` commands. |
+| `registration_center_not_enabled` | `unavailable` | 0 | Account doesn't have the Registration Center feature. Escalate to your Bandwidth account manager to enable it — do not retry. |
+| `campaign_management_not_enabled` | `unavailable` | 0 | Campaign Management/messaging is not enabled on the account. Escalate to your Bandwidth account manager — do not retry. |
+| `role_absent` | `unavailable` | 0 | The credential lacks the Campaign Management role. Have an account manager assign the role — do not retry; a retry hits the same 403. |
+| `access_denied` | `unavailable` | 0 | A 403 that didn't match any recognized cause. Escalate to your Bandwidth account manager — do not retry. |
+| `probe_failed` | `unknown` | non-zero | The probe itself failed (rate limited, 5xx, or a transport error) — it could not answer the question. This is the only reason where retrying makes sense. |
+
 **`mode` is always `unknown`, by design.** An account either registers campaigns *directly* or
 *imports* them from TCR — never both — and that is a property of the account's Bandwidth setup,
 not something the API exposes. Do not infer it, and do not try one path to see what happens.
