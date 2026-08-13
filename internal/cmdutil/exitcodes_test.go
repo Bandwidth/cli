@@ -136,7 +136,10 @@ func TestMissingFlagsErrorListsAllNames(t *testing.T) {
 // A FlagError must win over a wrapped APIError: it is a client-side
 // failure and no request was ever sent.
 func TestFlagErrorTakesPrecedenceOverAPIError(t *testing.T) {
-	wrapped := fmt.Errorf("%w", cmdutil.NewFlagError("bad"))
+	// Build an error chain with both FlagError and APIError; FlagError must win.
+	// If the flagErr branch in ExitCodeForError is moved after APIError handling,
+	// this test fails: the 403 APIError (ExitAuth=2) would be checked first.
+	wrapped := fmt.Errorf("flag problem: %w (during %w)", cmdutil.NewFlagError("bad"), &api.APIError{StatusCode: 403, Body: "forbidden"})
 	if got := cmdutil.ExitCodeForError(wrapped); got != cmdutil.ExitFlagError {
 		t.Errorf("ExitCodeForError = %d, want %d", got, cmdutil.ExitFlagError)
 	}
