@@ -31,6 +31,10 @@ type Filter struct {
 // there is nothing to send. Parameters are sorted so output is deterministic
 // and testable. Filters with an empty Value are omitted entirely rather than
 // sent blank, which the API treats as a match-nothing filter.
+//
+// Filters are keyed by Field+Op, so a later filter with the same Field and Op
+// overwrites an earlier one. Callers needing multiple constraints on one field
+// (e.g. createdDate[gte] and createdDate[lte]) must use distinct Ops.
 func EncodeQuery(limit, offset int, filters []Filter) string {
 	v := url.Values{}
 	if limit > 0 {

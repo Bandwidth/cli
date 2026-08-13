@@ -47,6 +47,22 @@ func TestEncodeQueryDeepObjectForm(t *testing.T) {
 			filters: []Filter{{Field: "campaignName", Op: OpContains, Value: "Acme Corp&Co"}},
 			want:    "?campaignName%5Bcontains%5D=Acme+Corp%26Co",
 		},
+		{
+			name: "duplicate field+op: last value wins",
+			filters: []Filter{
+				{Field: "status", Op: OpEq, Value: "PENDING"},
+				{Field: "status", Op: OpEq, Value: "APPROVED"},
+			},
+			want: "?status%5Beq%5D=APPROVED",
+		},
+		{
+			name: "same field, different ops: both kept",
+			filters: []Filter{
+				{Field: "createdDate", Op: "gte", Value: "2024-01-01"},
+				{Field: "createdDate", Op: "lte", Value: "2024-12-31"},
+			},
+			want: "?createdDate%5Bgte%5D=2024-01-01&createdDate%5Blte%5D=2024-12-31",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
