@@ -11,7 +11,6 @@ import (
 	"net/url"
 
 	"github.com/Bandwidth/cli/internal/api"
-	"github.com/Bandwidth/cli/internal/tendlc"
 )
 
 // Service wraps the customer-profile endpoints for one account.
@@ -29,23 +28,23 @@ func (s *Service) base() string {
 	return "/api/v2/accounts/" + url.PathEscape(s.accountID) + "/customerProfiles"
 }
 
-func (s *Service) get(path string) (*tendlc.Envelope, error) {
+func (s *Service) get(path string) (*api.Envelope, error) {
 	raw, err := s.client.GetRaw(path)
 	if err != nil {
 		return nil, err
 	}
-	return tendlc.ParseEnvelope(raw)
+	return api.ParseEnvelope(raw)
 }
 
 // List returns customer profiles on the account.
-func (s *Service) List(limit, offset int, filters []tendlc.Filter) (*tendlc.Envelope, error) {
-	return s.get(s.base() + tendlc.EncodeQuery(limit, offset, filters))
+func (s *Service) List(limit, offset int, filters []api.Filter) (*api.Envelope, error) {
+	return s.get(s.base() + api.EncodeQuery(limit, offset, filters))
 }
 
 // Get returns one customer profile. Soft-deleted profiles are still
 // returned individually, with a "deleted" flag set — check it before
 // creating any association.
-func (s *Service) Get(profileID string) (*tendlc.Envelope, error) {
+func (s *Service) Get(profileID string) (*api.Envelope, error) {
 	if profileID == "" {
 		return nil, fmt.Errorf("customer profile ID is required")
 	}

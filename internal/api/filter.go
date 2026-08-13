@@ -1,11 +1,4 @@
-// Package tendlc wraps Bandwidth's v2 A2P Campaign Management (10DLC
-// Registration Center) API.
-//
-// Responses are returned as map[string]any rather than typed structs:
-// production returns fields absent from the published spec, and
-// encoding/json silently drops unknown fields when decoding into a struct.
-// Requests are typed; responses are lossless.
-package tendlc
+package api
 
 import (
 	"net/url"

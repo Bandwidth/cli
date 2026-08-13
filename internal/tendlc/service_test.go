@@ -28,7 +28,7 @@ func TestListBrandsBuildsPathAndQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.ListBrands(25, 0, []Filter{{Field: "brandType", Op: OpEq, Value: "PUBLIC_PROFIT"}})
+	_, err := svc.ListBrands(25, 0, []api.Filter{{Field: "brandType", Op: api.OpEq, Value: "PUBLIC_PROFIT"}})
 	if err != nil {
 		t.Fatalf("ListBrands: %v", err)
 	}

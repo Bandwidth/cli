@@ -1,3 +1,5 @@
+// Package api provides the shared HTTP client, response-envelope parsing,
+// and query encoding used by Bandwidth's platform API packages.
 package api
 
 import (

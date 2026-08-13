@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/api"
-	"github.com/Bandwidth/cli/internal/tendlc"
 )
 
 func newTestService(t *testing.T, h http.HandlerFunc) (*Service, func()) {
@@ -49,7 +48,7 @@ func TestListWithFilterBuildsQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.List(25, 5, []tendlc.Filter{{Field: "brandId", Op: tendlc.OpEq, Value: "B0IRNU4"}})
+	_, err := svc.List(25, 5, []api.Filter{{Field: "brandId", Op: api.OpEq, Value: "B0IRNU4"}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

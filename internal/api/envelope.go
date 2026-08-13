@@ -1,4 +1,4 @@
-package tendlc
+package api
 
 import (
 	"encoding/json"
@@ -34,6 +34,11 @@ func (p *Page) Truncated(returnedSoFar int) bool {
 // brand detail, an array for lists and history. The published spec says
 // array in both cases; production disagrees, so callers state which they
 // expect and get an error rather than a silent zero value if wrong.
+//
+// Responses are returned as map[string]any rather than typed structs:
+// production returns fields absent from the published spec, and
+// encoding/json silently drops unknown fields when decoding into a struct.
+// Requests are typed; responses are lossless.
 type Envelope struct {
 	Data any
 	Page *Page
