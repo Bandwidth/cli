@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,8 +11,13 @@ import (
 
 func newTestService(t *testing.T, h http.HandlerFunc) (*Service, func()) {
 	t.Helper()
+	return newTestServiceForAccount(t, "9901287", h)
+}
+
+func newTestServiceForAccount(t *testing.T, accountID string, h http.HandlerFunc) (*Service, func()) {
+	t.Helper()
 	srv := httptest.NewServer(h)
-	return NewService(api.NewClientNoAuth(srv.URL), "9901287"), srv.Close
+	return NewService(api.NewClientNoAuth(srv.URL), accountID), srv.Close
 }
 
 func TestListBrandsBuildsPathAndQuery(t *testing.T) {
@@ -67,6 +73,23 @@ func TestGetBrandEscapesID(t *testing.T) {
 	}
 }
 
+func TestListBrandsEscapesAccountID(t *testing.T) {
+	var gotPath string
+	svc, done := newTestServiceForAccount(t, "99/../../etc", func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+	defer done()
+
+	_, err := svc.ListBrands(0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListBrands: %v", err)
+	}
+	if want := "/api/v2/accounts/99%2F..%2F..%2Fetc/tendlc/brands"; gotPath != want {
+		t.Errorf("escaped path = %q, want %q", gotPath, want)
+	}
+}
+
 func TestServicePropagatesAPIError(t *testing.T) {
 	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -74,8 +97,22 @@ func TestServicePropagatesAPIError(t *testing.T) {
 	})
 	defer done()
 
-	if _, err := svc.ListBrands(0, 0, nil); err == nil {
+	_, err := svc.ListBrands(0, 0, nil)
+	if err == nil {
 		t.Fatal("expected an error for 403")
+	}
+
+	// band tendlc status (Task 9) distinguishes "no Registration Center
+	// access" (403, a definite answer) from a transport failure by doing
+	// errors.As(err, &apiErr) and branching on apiErr.StatusCode. That
+	// contract only holds if *api.APIError survives this layer unwrapped
+	// and untyped-away — assert both, not just "an error happened".
+	var apiErr *api.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *api.APIError (or something wrapping it)", err)
+	}
+	if apiErr.StatusCode != http.StatusForbidden {
+		t.Errorf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusForbidden)
 	}
 }
 
