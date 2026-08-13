@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Bandwidth/cli/internal/auth"
 )
@@ -464,5 +466,38 @@ func TestXMLClient_NonXMLBodyReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "XMLBody") {
 		t.Errorf("expected error mentioning XMLBody, got: %v", err)
+	}
+}
+
+func TestAPIErrorCapturesHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.Header().Set("X-Rate-Limit-Remaining", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"errors":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClientNoAuth(srv.URL)
+	var out any
+	err := c.Get("/x", &out)
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if got := apiErr.Header.Get("X-Rate-Limit-Remaining"); got != "0" {
+		t.Errorf("X-Rate-Limit-Remaining = %q, want %q", got, "0")
+	}
+	d, ok := apiErr.RetryAfter()
+	if !ok || d != 7*time.Second {
+		t.Errorf("RetryAfter() = %v, %v; want 7s, true", d, ok)
+	}
+}
+
+func TestRetryAfterAbsentReportsFalse(t *testing.T) {
+	e := &APIError{StatusCode: 500, Header: http.Header{}}
+	if _, ok := e.RetryAfter(); ok {
+		t.Error("RetryAfter() reported ok with no header")
 	}
 }
