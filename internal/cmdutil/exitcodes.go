@@ -2,6 +2,8 @@ package cmdutil
 
 import (
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/Bandwidth/cli/internal/api"
 )
@@ -26,6 +28,29 @@ const (
 type SecretUnavailableError struct{ Message string }
 
 func (e *SecretUnavailableError) Error() string { return e.Message }
+
+// FlagError reports invalid or missing command-line flags. It maps to
+// ExitFlagError (6) so agents can distinguish "you called this wrong" —
+// fixable without any API state — from a server-side failure. No HTTP
+// request has been made when this is returned.
+type FlagError struct{ Message string }
+
+func (e *FlagError) Error() string { return e.Message }
+
+// NewFlagError returns a FlagError with the given message.
+func NewFlagError(msg string) error { return &FlagError{Message: msg} }
+
+// NewMissingFlagsError reports every missing required flag in one error,
+// sorted for determinism. Cobra's MarkFlagRequired is not used on commands
+// with conditional requirements, so aggregation happens here instead.
+func NewMissingFlagsError(names []string) error {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	for i, n := range sorted {
+		sorted[i] = "--" + n
+	}
+	return &FlagError{Message: "missing required flags: " + strings.Join(sorted, ", ")}
+}
 
 // ConflictError reports that the target resource exists but is not in a state
 // where the requested operation can succeed — a duplicate, a wrong lifecycle
@@ -59,6 +84,10 @@ func ExitCodeForError(err error) int {
 	}
 	if errors.Is(err, ErrPollTimeout) {
 		return ExitTimeout
+	}
+	var flagErr *FlagError
+	if errors.As(err, &flagErr) {
+		return ExitFlagError
 	}
 	var fle *FeatureLimitError
 	if errors.As(err, &fle) {

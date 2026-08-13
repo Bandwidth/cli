@@ -114,3 +114,30 @@ func TestConflictError_PreservesCauseChain(t *testing.T) {
 		t.Errorf("unwrapped Code = %q, want 33006", got.Code)
 	}
 }
+
+func TestFlagErrorExitCode(t *testing.T) {
+	err := cmdutil.NewFlagError("bad value for --evp")
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitFlagError {
+		t.Errorf("ExitCodeForError = %d, want %d", got, cmdutil.ExitFlagError)
+	}
+}
+
+func TestMissingFlagsErrorListsAllNames(t *testing.T) {
+	err := cmdutil.NewMissingFlagsError([]string{"usecase", "description", "sample1"})
+	want := "missing required flags: --description, --sample1, --usecase"
+	if err.Error() != want {
+		t.Errorf("Error() = %q, want %q", err.Error(), want)
+	}
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitFlagError {
+		t.Errorf("ExitCodeForError = %d, want %d", got, cmdutil.ExitFlagError)
+	}
+}
+
+// A FlagError must win over a wrapped APIError: it is a client-side
+// failure and no request was ever sent.
+func TestFlagErrorTakesPrecedenceOverAPIError(t *testing.T) {
+	wrapped := fmt.Errorf("%w", cmdutil.NewFlagError("bad"))
+	if got := cmdutil.ExitCodeForError(wrapped); got != cmdutil.ExitFlagError {
+		t.Errorf("ExitCodeForError = %d, want %d", got, cmdutil.ExitFlagError)
+	}
+}
