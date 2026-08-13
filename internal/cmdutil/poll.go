@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +14,9 @@ var ErrPollTimeout = errors.New("operation did not complete in time")
 
 // PollConfig configures a polling loop.
 type PollConfig struct {
+	// Context cancels the poll loop. Optional — nil means context.Background().
+	// Existing callers omit it and keep the previous behavior exactly.
+	Context  context.Context
 	Interval time.Duration
 	Timeout  time.Duration
 	// Check performs one poll attempt. It should return done=true when the
@@ -25,7 +29,17 @@ type PollConfig struct {
 // cfg.Timeout is exceeded. On success it returns the result from Check.
 // On timeout it returns ErrPollTimeout.
 func Poll(cfg PollConfig) (interface{}, error) {
+	ctx := cfg.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	deadline := time.Now().Add(cfg.Timeout)
+	timer := time.NewTimer(0)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
+
 	for {
 		done, result, err := cfg.Check()
 		if err != nil {
@@ -37,6 +51,14 @@ func Poll(cfg PollConfig) (interface{}, error) {
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("timed out after %s: %w", cfg.Timeout, ErrPollTimeout)
 		}
-		time.Sleep(cfg.Interval)
+		timer.Reset(cfg.Interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
