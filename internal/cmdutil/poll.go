@@ -34,11 +34,6 @@ func Poll(cfg PollConfig) (interface{}, error) {
 		ctx = context.Background()
 	}
 	deadline := time.Now().Add(cfg.Timeout)
-	timer := time.NewTimer(0)
-	if !timer.Stop() {
-		<-timer.C
-	}
-	defer timer.Stop()
 
 	for {
 		done, result, err := cfg.Check()
@@ -51,12 +46,17 @@ func Poll(cfg PollConfig) (interface{}, error) {
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("timed out after %s: %w", cfg.Timeout, ErrPollTimeout)
 		}
-		timer.Reset(cfg.Interval)
+		// A fresh timer per iteration. Go 1.23+ made timer channels
+		// unbuffered and Stop() cancels any in-flight send, so there is
+		// nothing left to drain after Stop() returns — draining an
+		// already-stopped timer's channel would just block forever.
+		// Stop() on the cancellation path is a courtesy; an abandoned
+		// timer is garbage collected once unreferenced, so there is no
+		// leak either way.
+		timer := time.NewTimer(cfg.Interval)
 		select {
 		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
 			return nil, ctx.Err()
 		case <-timer.C:
 		}

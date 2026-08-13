@@ -67,8 +67,13 @@ func TestPollRespectsContextCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	if calls == 0 {
-		t.Error("Check was never called")
+	// Poll always calls Check at least once before it can observe
+	// cancellation, so calls == 0 could never fail here. Assert instead
+	// that the loop actually iterated more than once — the interval
+	// (10ms) is well under the 30ms cancellation delay, so a working
+	// loop calls Check several times before ctx.Done() is observed.
+	if calls < 2 {
+		t.Errorf("calls = %d, want > 1 (loop should iterate before cancellation)", calls)
 	}
 }
 
