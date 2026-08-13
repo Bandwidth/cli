@@ -27,9 +27,13 @@ func userAgent() string {
 type APIError struct {
 	StatusCode int
 	Body       string
-	// Header is the response header set. Populated on every error path so
-	// callers can honor Retry-After and the X-Rate-Limit-* family, which
-	// only ever appear on the 429 that needs them.
+	// Header is the response header set. Populated whenever api.Client itself
+	// constructs the error (the doRaw and PostXMLReturnLocation paths), so
+	// callers can honor Retry-After and the X-Rate-Limit-* family, which only
+	// ever appear on the 429 that needs them. Code elsewhere that builds an
+	// APIError from a parsed response body rather than an *http.Response —
+	// internal/sip is the current example — may leave this nil. RetryAfter
+	// returns false in that case; treat that as "unknown," not "none sent."
 	Header http.Header
 }
 
