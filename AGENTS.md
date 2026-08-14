@@ -281,8 +281,7 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 - **`sip realm create --if-not-exists` does not always silently reuse.** If a realm with that name exists but
   its `default` or `description` differs from what was requested, the command exits **4** instead of reusing
   it. Reconcile with `sip realm update <realm> --description <value>` (or promote it with `--default=true`)
-  rather than retrying create. Realm names match case-insensitively, so `--name VAPI` reuses an existing
-  `vapi`.
+  rather than retrying create. Realm names are validated to lowercase alphanumeric only (`[a-z0-9]`) — uppercase and hyphens are rejected before any API call.
 - **`sip realm create --if-not-exists --wait` is safe to combine.** A reused realm that is still
   `CREATE_PENDING` is polled to `ACTIVE` before the command returns, so a re-run after a `--wait` timeout
   cannot hand back exit 0 with a realm that is not yet usable.
@@ -986,24 +985,37 @@ FROM=$(band number list --plain | jq -r '.[0]')
 # On Bandwidth Build accounts, band number list is not available.
 # Pass the pre-provisioned number manually: FROM=+19195551234
 
-# 2. Create an ephemeral realm (never the default — it cannot be deleted if it is)
-REALM=$(band sip realm create --name sip-test --default=false --wait --plain)
+# 2. Create an ephemeral realm (never the default — it cannot be deleted if it is).
+#    Realm names must be lowercase alphanumeric only (a-z, 0-9) — no hyphens.
+REALM=$(band sip realm create --name siptest --default=false --wait --plain)
 REALM_ID=$(echo "$REALM" | jq -r '.id')
 REALM_FQDN=$(echo "$REALM" | jq -r '.hostname')
+
+# DNS for a new realm FQDN can take 1–2 minutes to propagate after ACTIVE status.
+# Poll until it resolves before proceeding — dialing an unresolvable FQDN fails
+# immediately with no useful error from the SIP UA.
+until dig +short "$REALM_FQDN" | grep -q '.'; do
+  echo "Waiting for DNS ($REALM_FQDN)..."; sleep 10
+done
 
 # 3. Create a credential and capture the password — printed exactly once
 CRED=$(band sip credential create \
   --realm "$REALM_ID" \
-  --username sip-test-agent \
+  --username siptestagent \
   --generate-password \
   --plain)
 CRED_ID=$(echo "$CRED" | jq -r '.id')
 SIP_PASS=$(echo "$CRED" | jq -r '.password')
 
+# Bandwidth's SIP proxy caches credential hashes. Allow ~15 s for the new
+# credential to propagate before dialing — otherwise auth challenges fail
+# even though the digest response is mathematically correct.
+sleep 15
+
 # 4. Write a temp accounts file — 600 permissions, never passed on the command line
 TMPDIR=$(mktemp -d)
 chmod 700 "$TMPDIR"
-printf '<sip:%s@%s;transport=udp>;regint=0;audio_codecs=pcmu/8000,pcma/8000;auth_user=sip-test-agent;auth_pass=%s\n' \
+printf '<sip:%s@%s;transport=udp>;regint=0;audio_codecs=pcmu/8000,pcma/8000;auth_user=siptestagent;auth_pass=%s\n' \
   "$FROM" "$REALM_FQDN" "$SIP_PASS" > "$TMPDIR/accounts"
 chmod 600 "$TMPDIR/accounts"
 unset SIP_PASS   # clear from environment immediately after writing
@@ -1027,11 +1039,12 @@ band sip realm delete "$REALM_ID" --wait
 
 | Signal | Meaning |
 |--------|---------|
-| `407 Proxy Authentication Required` → re-INVITE | Auth challenge is working. Wait for the response to the re-INVITE. |
+| `407 Proxy Authentication Required` → re-INVITE → `180`/`183` | Auth challenge accepted. Call is connecting. |
+| `407` repeating after re-INVITE (no `180`/`183`) | SIP proxy credential cache hasn't refreshed. Wait 15 s and retry from step 5. |
 | `180 Ringing` or `183 Session Progress` | Call reached the PSTN. |
 | `200 OK` + "Call established" | Call connected. SIP auth is fully functional. |
 | `403 Forbidden` after the re-INVITE | Credential mismatch — the password written to the accounts file does not match the stored hashes. Rotate the credential and retry from step 3. |
-| `503 Service Unavailable` or `480` | Routing issue. Check that the realm is `ACTIVE` (`band sip realm get sip-test --plain`) and that the FQDN has propagated in DNS — new realms may take a moment. |
+| `503 Service Unavailable` or `480` | Routing issue. Check that the realm is `ACTIVE` (`band sip realm get siptest --plain`) and that the FQDN has propagated in DNS — new realms can take 1–2 minutes. |
 
 **Always clean up in step 6**, even on failure. A leftover credential is not a security risk (Bandwidth never stores or returns the plaintext password), but unused credentials and realms should not accumulate.
 
