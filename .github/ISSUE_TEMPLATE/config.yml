@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Bandwidth support
+    url: https://support.bandwidth.com/
+    about: Account, billing, provisioning, or API problems that aren't caused by the CLI itself.
+  - name: API reference and guides
+    url: https://dev.bandwidth.com/
+    about: Documentation for the Bandwidth APIs the CLI talks to.
+  - name: Service status
+    url: https://status.bandwidth.com/
+    about: Check for an ongoing incident before filing a bug about failing requests.
+  - name: Report a security vulnerability
+    url: https://www.bandwidth.com/security/report-a-vulnerability/
+    about: Never report vulnerabilities in a public issue — use the bug bounty program or email security@bandwidth.com.

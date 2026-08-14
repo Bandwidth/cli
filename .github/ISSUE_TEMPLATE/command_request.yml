@@ -1,0 +1,60 @@
+name: New command or flag
+description: Propose a new command, or a new flag on an existing one
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        [CONTRIBUTING.md](https://github.com/Bandwidth/cli/blob/main/CONTRIBUTING.md) asks you to open an issue before writing code for a new command. This is that issue — let's agree on the design before you spend hours on a PR.
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What are you trying to accomplish?
+      description: Describe the task, not the command. What's the workflow that's painful or impossible today?
+    validations:
+      required: true
+
+  - type: input
+    id: api
+    attributes:
+      label: Which Bandwidth API backs this?
+      description: Link the relevant page on dev.bandwidth.com, or name the endpoint.
+      placeholder: https://dev.bandwidth.com/docs/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: Proposed command shape
+      description: Sketch it out. Doesn't have to be final — it's a starting point for discussion.
+      render: shell
+      placeholder: band number search --area-code 919 --quantity 5
+    validations:
+      required: true
+
+  - type: textarea
+    id: existing
+    attributes:
+      label: Does an existing command almost do this?
+      description: If something gets you 80% of the way there, say what it is and where it falls short. A new flag beats a new command.
+    validations:
+      required: true
+
+  - type: textarea
+    id: agent-native
+    attributes:
+      label: Agent-native considerations
+      description: This CLI is built for scripts and agents as much as humans. Does this need `--wait` for an async operation, `--if-not-exists` for safe retries, or a particular `--plain` output shape? See [AGENTS.md](https://github.com/Bandwidth/cli/blob/main/AGENTS.md).
+
+  - type: dropdown
+    id: pr
+    attributes:
+      label: Would you open a PR for this?
+      options:
+        - Yes, once we agree on the design
+        - Yes, but I'd need some guidance
+        - "No, I'm just requesting it"
+    validations:
+      required: true
