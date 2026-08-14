@@ -1,0 +1,43 @@
+name: Documentation problem
+description: Something's wrong, missing, or confusing in the docs
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fixing a typo or tightening a sentence? Skip this form and open a PR — [CONTRIBUTING.md](https://github.com/Bandwidth/cli/blob/main/CONTRIBUTING.md) says ship it. Use this form when the fix isn't obvious or you'd rather someone else write it.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where is it?
+      options:
+        - README.md
+        - AGENTS.md
+        - CONTRIBUTING.md
+        - Command help output (`band ... --help`)
+        - dev.bandwidth.com
+        - Somewhere else
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Specific section or command
+      description: A heading, a line link, or the command whose help text is off.
+      placeholder: "README.md → \"Credential profiles\""
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong?
+      description: Wrong, out of date, missing, or just hard to follow — tell us which, and what you expected to find.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested wording
+      description: Optional, but the fastest path to a fix.
