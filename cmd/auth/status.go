@@ -85,6 +85,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	_, keychainErr := intauth.GetPassword(p.ClientID)
 
 	if plain {
+		caps := Capabilities(p.Roles)
 		out := statusJSON{
 			Authenticated: keychainErr == nil,
 			Profile:       profileName,
@@ -94,9 +95,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			Environment:   env,
 			Build:         p.Build,
 			Roles:         p.Roles,
-			Capabilities:  Capabilities(p.Roles),
+			Capabilities:  caps,
 			SIP:           sipCapability(hasRole(p.Roles, "sip credentials")),
-			TenDLC:        tendlcCapability(hasRole(p.Roles, "campaign_management")),
+			TenDLC:        tendlcCapability(caps["campaign_management"]),
 		}
 		if keychainErr != nil {
 			out.Error = "credentials not found in keychain"
@@ -127,12 +128,13 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	} else if len(p.Accounts) == 0 && p.AccountID == "" {
 		fmt.Println("Scope:       system-wide (use --account-id to target an account)")
 	}
+	caps := Capabilities(p.Roles)
 	if p.Build {
 		fmt.Printf("Type:        %s (voice-only, credit-based)\n", ui.Bold("Bandwidth Build"))
-		fmt.Printf("Capable of:  %s\n", capabilitySummary(Capabilities(p.Roles)))
+		fmt.Printf("Capable of:  %s\n", capabilitySummary(caps))
 	}
 	fmt.Printf("SIP:         %s\n", sipSummary(sipCapability(hasRole(p.Roles, "sip credentials"))))
-	fmt.Printf("10DLC:       %s\n", tendlcSummary(tendlcCapability(hasRole(p.Roles, "campaign_management"))))
+	fmt.Printf("10DLC:       %s\n", tendlcSummary(tendlcCapability(caps["campaign_management"])))
 	if env != "prod" || cfg.HasMultipleEnvironments() {
 		fmt.Printf("Environment: %s\n", env)
 	}
@@ -238,8 +240,10 @@ func sipSummary(sip map[string]string) string {
 // account-level Registration Center feature; only the role is knowable
 // offline, so a boolean would over-promise. Mirrors sipCapability.
 //
-// Note this is deliberately separate from the campaign_management boolean,
-// which keeps its existing meaning: "the credential holds the role."
+// Callers must pass caps["campaign_management"] from the same Capabilities()
+// call used for the campaign_management boolean, not a separately-matched
+// hasRole lookup — otherwise the two can disagree on a single credential
+// (e.g. a display-form role string) even though they describe the same fact.
 func tendlcCapability(hasRole bool) map[string]string {
 	if !hasRole {
 		return map[string]string{"status": "unavailable", "reason": "role_absent"}

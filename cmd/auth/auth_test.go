@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Bandwidth/cli/internal/config"
+	"github.com/Bandwidth/cli/internal/testutil"
 )
 
 func TestCmdStructure(t *testing.T) {
@@ -302,6 +305,76 @@ func TestTenDLCWiringAgainstLiveRoles(t *testing.T) {
 	withoutCustomerProfiles := removeRole(liveAccount9901287Roles, "Customer Profiles Access")
 	if Capabilities(withoutCustomerProfiles)["customer_profiles"] {
 		t.Error("customer_profiles should be false once Customer Profiles Access is removed from the role list")
+	}
+}
+
+// TestStatusPlainTenDLCAgreesWithCapabilities is an end-to-end regression
+// test on `band auth status --plain`'s actual JSON output, not just on the
+// helper functions in isolation. The bug lived in the call-site wiring
+// inside runStatus (status.go), which fed tendlcCapability a *different*
+// signal — hasRole(p.Roles, "campaign_management"), a plain substring match
+// on the unnormalized snake_case string — than the one behind
+// capabilities.campaign_management, which is Contains(rl, "campaign") over
+// the same roles. For the display-form role "Campaign Management" those two
+// signals disagree: the boolean matches (it contains "campaign") but the old
+// hasRole lookup does not (no role contains the literal substring
+// "campaign_management" with an underscore). That produced a single JSON
+// document asserting both capabilities.campaign_management=true and
+// tendlc={"status":"unavailable","reason":"role_absent"} for the same
+// credential. Testing tendlcCapability(caps["campaign_management"]) directly
+// would trivially pass by construction regardless of what runStatus itself
+// does; only driving runStatus end to end (as done here) actually exercises
+// the wiring and would have failed before the fix.
+func TestStatusPlainTenDLCAgreesWithCapabilities(t *testing.T) {
+	tests := []struct {
+		name  string
+		roles []string
+	}{
+		{name: "snake_case role as seen on live account 9901287", roles: []string{"campaign_management"}},
+		{name: "display-form role", roles: []string{"Campaign Management"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+			cfgPath, err := config.DefaultPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{Format: "json"}
+			cfg.SetProfile("default", &config.Profile{
+				ClientID:  "id1",
+				AccountID: "ACCT_A",
+				Roles:     tt.roles,
+			})
+			if err := config.Save(cfgPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+
+			wrap := &cobra.Command{Use: "status", RunE: runStatus}
+			root := testutil.NewTestRoot(wrap)
+			root.SetArgs([]string{"status", "--plain"})
+
+			out := testutil.CaptureStdout(t, func() {
+				if err := root.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+			})
+
+			var got statusJSON
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatalf("unmarshal output: %v\noutput: %s", err, out)
+			}
+
+			if !got.Capabilities["campaign_management"] {
+				t.Fatalf("capabilities.campaign_management = false for roles %v, want true", tt.roles)
+			}
+			if got.TenDLC["reason"] == "role_absent" {
+				t.Errorf("capabilities.campaign_management = true but tendlc = %v — the two must agree in one JSON document", got.TenDLC)
+			}
+		})
 	}
 }
 

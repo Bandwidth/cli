@@ -5,7 +5,9 @@ import (
 	"fmt"
 )
 
-// Page is the pagination block present on every v2 A2P response.
+// Page is the pagination block present on every Bandwidth v2 response that
+// supports pagination (10DLC A2P registration and customer profiles, among
+// others).
 type Page struct {
 	Number        int `json:"pageNumber"`
 	Size          int `json:"pageSize"`

@@ -58,10 +58,10 @@ func TestEncodeQueryDeepObjectForm(t *testing.T) {
 		{
 			name: "same field, different ops: both kept",
 			filters: []Filter{
-				{Field: "createdDate", Op: "gte", Value: "2024-01-01"},
-				{Field: "createdDate", Op: "lte", Value: "2024-12-31"},
+				{Field: "createdDate", Op: OpGt, Value: "2024-01-01"},
+				{Field: "createdDate", Op: OpLt, Value: "2024-12-31"},
 			},
-			want: "?createdDate%5Bgte%5D=2024-01-01&createdDate%5Blte%5D=2024-12-31",
+			want: "?createdDate%5Bgt%5D=2024-01-01&createdDate%5Blt%5D=2024-12-31",
 		},
 	}
 	for _, tt := range tests {

@@ -8,9 +8,18 @@ import (
 // Filter operators. The API uses OpenAPI deepObject encoding, so a filter is
 // sent as field[op]=value. Sending the bare field=value form is accepted by
 // the server and then IGNORED — the result looks successful but is unfiltered.
+//
+// This is the full set of operators the tendlc and customerprofile deepObject
+// filter parameters document (see ~/Developer/api-specs/external/tendlc.yml,
+// components.parameters.*Param): string/enum fields support eq and/or
+// contains depending on the field, and date fields (createdDate,
+// modifiedDate) support gt and lt — NOT gte/lte, which do not appear
+// anywhere in the spec.
 const (
 	OpEq       = "eq"
 	OpContains = "contains"
+	OpGt       = "gt"
+	OpLt       = "lt"
 )
 
 // Filter is one deepObject query filter.
