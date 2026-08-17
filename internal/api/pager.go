@@ -15,12 +15,15 @@ type PageFetcher func(limit, offset int) (*Envelope, error)
 // Page.Truncated's doc comment warns about, and this loop exists so nobody has
 // to get it right more than once.
 //
+// pageSize is passed through to fetch as-is. A pageSize of 0 or less is not
+// modified: it is passed to the fetcher, which typically feeds it to EncodeQuery.
+// EncodeQuery omits a non-positive limit from the query string, allowing the
+// server to apply its own default page size. This matches EncodeQuery's
+// convention and simplifies testing.
+//
 // Fails closed when a response carries no page metadata. Returning the first
 // page as if it were the whole result would look like success.
 func ForEachPage(fetch PageFetcher, pageSize int, fn func([]any) error) error {
-	if pageSize <= 0 {
-		pageSize = 50
-	}
 	seen := 0
 	for {
 		env, err := fetch(pageSize, seen)

@@ -122,3 +122,22 @@ func TestForEachPageEmptyResultIsNotAnError(t *testing.T) {
 		t.Errorf("fetched %d pages for an empty result, want 1", calls)
 	}
 }
+
+// pageSize is passed through to fetch unchanged, including zero or negative
+// values. This allows the fetcher to defer to the server's default via
+// EncodeQuery, which omits non-positive limits from the query string.
+func TestForEachPagePassesThroughPageSize(t *testing.T) {
+	var receivedSize int
+	body := []byte(`{"data":[],"page":{"pageSize":0,"totalElements":0}}`)
+	env, _ := ParseEnvelope(body)
+	err := ForEachPage(func(limit, offset int) (*Envelope, error) {
+		receivedSize = limit
+		return env, nil
+	}, 0, func([]any) error { return nil })
+	if err != nil {
+		t.Fatalf("ForEachPage: %v", err)
+	}
+	if receivedSize != 0 {
+		t.Errorf("fetcher received pageSize %d, want 0", receivedSize)
+	}
+}
