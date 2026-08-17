@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -210,24 +209,27 @@ func credentialCreateSuccessStubServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// withFailingStdout points os.Stdout at a read-only descriptor for the duration
-// of a test, so every write to it fails with EBADF before a single byte — the
+// withFailingStdout points os.Stdout at an already-closed descriptor for the
+// duration of a test, so every write to it fails before a single byte — the
 // password included — reaches the caller. That is the spec's write-once hazard
 // in its sharpest form: the POST/PUT has already committed and stdout is gone.
+//
+// The file is closed rather than opened O_RDONLY because Go's *os.File tracks
+// closure itself and returns ErrClosed without consulting the OS, which makes
+// the failure identical on every platform. An O_RDONLY descriptor only fails on
+// Unix; on Windows the write succeeds and the test proves nothing.
 func withFailingStdout(t *testing.T) {
 	t.Helper()
-	f, err := os.OpenFile(filepath.Join(t.TempDir(), "unwritable"), os.O_RDONLY|os.O_CREATE, 0600)
+	f, err := os.CreateTemp(t.TempDir(), "stdout")
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.Close()
 	orig := os.Stdout
 	os.Stdout = f
-	t.Cleanup(func() {
-		os.Stdout = orig
-		f.Close()
-	})
-	// Guard against a platform where writing to an O_RDONLY file succeeds: the
-	// whole test would silently prove nothing.
+	t.Cleanup(func() { os.Stdout = orig })
+	// Guard against a platform where writing to a closed file succeeds: the whole
+	// test would silently prove nothing.
 	if _, err := f.Write([]byte("x")); err == nil {
 		t.Fatal("writes to the injected stdout succeeded; this test cannot detect an output-write failure")
 	}
