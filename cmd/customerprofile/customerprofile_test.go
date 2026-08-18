@@ -1,12 +1,10 @@
 package customerprofile
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -15,36 +13,28 @@ import (
 
 	"github.com/Bandwidth/cli/internal/api"
 	cpsvc "github.com/Bandwidth/cli/internal/customerprofile"
+	"github.com/Bandwidth/cli/internal/testutil"
 )
 
-// Every test in this file (and in Tasks 5-7's create/list/get command tests)
-// runs Cmd itself directly with Cmd.Execute() rather than wrapping a leaf
-// command in a fresh fake root (testutil.NewTestRoot's pattern elsewhere in
-// this repo). That means Cmd IS its own root for the lifetime of this test
-// binary: cmd.Root() resolves to Cmd, never to the real cmd.rootCmd, because
-// `go test ./cmd/customerprofile` never links cmd/root.go at all.
+// testRoot is a single fake root, built once via testutil.NewTestRoot and
+// reused by every runCmd call in this package, with Cmd as its only child.
+// --format/--plain/--account-id/--environment live here, not on Cmd, exactly
+// as in production (Cmd carries none of its own — see customerprofile.go).
 //
-// cmdutil.OutputFlags / cmdutil.AccountIDFlag read --format/--plain/
-// --account-id via cmd.Root().Flag(...), so Cmd needs those three flags
-// registered directly on itself for standalone execution to parse them.
-//
-// This registration deliberately lives here, in a _test.go file, and NOT in
-// customerprofile.go: production Cmd is mounted under the real rootCmd
-// (cmd/root.go's rootCmd.AddCommand(customerprofile.Cmd)), which already owns
-// --format/--plain/--account-id as persistent flags. If Cmd ALSO declared its
-// own copies, cobra's flag merge would let Cmd's copy shadow root's for any
-// customer-profile subcommand's actual parse (closest ancestor wins on a
-// name collision), while cmd.Root().Flag("plain") still reads the REAL root's
-// untouched flag object — silently reporting --plain as never set in
-// production. Confirmed with a minimal cobra repro before writing this.
-// Keeping the flags test-only avoids that regression entirely: the real
-// `band` binary never compiles this file, so production Cmd never carries
-// them.
-func init() {
-	Cmd.PersistentFlags().String("format", "json", "")
-	Cmd.PersistentFlags().Bool("plain", false, "")
-	Cmd.PersistentFlags().String("account-id", "", "")
-}
+// It is deliberately NOT rebuilt per call. cobra caches each command's merged
+// ancestor flags (parentsPflags) the first time it parses and never
+// refreshes that cache for a different root object later: constructing a
+// fresh testutil.NewTestRoot(Cmd) inside runCmd on every invocation would
+// mean Cmd/createCmd/listCmd/getCmd — all package-level, so the same
+// instances across every test — get pinned to the FIRST test's root the
+// first time any of them parses, and every later --plain/--format/
+// --account-id would silently parse into that stale, discarded root's flag
+// object while cmd.Root().Flag(...) reads the current (untouched, always
+// default) root. Verified with a minimal cobra repro before writing this:
+// a fresh root per call reports --plain as false on every call after the
+// first; a single shared root with its own flags reset between calls
+// reports it correctly every time. See task-4-report.md, "Fix round 1".
+var testRoot = testutil.NewTestRoot(Cmd)
 
 // resetFlags restores every flag on cmd and all its descendants to its
 // default value and clears the Changed bit.
@@ -58,7 +48,9 @@ func init() {
 // TestListRejectsAllWithExplicitOffset or making it pass for the wrong
 // reason. resetFlags is walked recursively (rather than listing flag names
 // per command) so it does not need updating as later tasks add more
-// commands and flags to this tree.
+// commands and flags to this tree. It is called on testRoot, not Cmd, so it
+// also resets testRoot's own --format/--plain/--account-id/--environment
+// (recursion reaches Cmd and its subcommands via testRoot.Commands()).
 func resetFlags(cmd *cobra.Command) {
 	reset := func(f *pflag.Flag) {
 		_ = f.Value.Set(f.DefValue)
@@ -185,7 +177,7 @@ func TestFilterFlagUsesDeepObjectEncoding(t *testing.T) {
 func runCmd(t *testing.T, h http.HandlerFunc, args ...string) (string, error) {
 	t.Helper()
 
-	resetFlags(Cmd)
+	resetFlags(testRoot)
 
 	var srvURL string
 	if h != nil {
@@ -203,32 +195,11 @@ func runCmd(t *testing.T, h http.HandlerFunc, args ...string) (string, error) {
 	}
 	t.Cleanup(func() { service = orig })
 
-	stdout := captureStdout(t)
-	Cmd.SetArgs(args)
-	Cmd.SetOut(io.Discard)
-	Cmd.SetErr(io.Discard)
-	err := Cmd.Execute()
-	return stdout(), err
-}
+	testRoot.SetArgs(append([]string{Cmd.Name()}, args...))
+	testRoot.SetOut(io.Discard)
+	testRoot.SetErr(io.Discard)
 
-// captureStdout redirects os.Stdout for the duration of a test and returns a
-// func that yields what was written. Commands print structured output with
-// fmt.Print rather than to cobra's writer, so cobra's SetOut is not enough.
-func captureStdout(t *testing.T) func() string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	orig := os.Stdout
-	os.Stdout = w
-	var buf bytes.Buffer
-	done := make(chan struct{})
-	go func() { _, _ = io.Copy(&buf, r); close(done) }()
-	t.Cleanup(func() { os.Stdout = orig })
-	return func() string {
-		_ = w.Close()
-		<-done
-		return buf.String()
-	}
+	var err error
+	out := testutil.CaptureStdout(t, func() { err = testRoot.Execute() })
+	return out, err
 }
