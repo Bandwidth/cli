@@ -147,3 +147,33 @@ func TestWriteMethodsPropagateAPIErrorType(t *testing.T) {
 		t.Errorf("StatusCode = %d, want 409", apiErr.StatusCode)
 	}
 }
+
+func TestUpdateEscapesID(t *testing.T) {
+	svc, cap, done := newCapturingService(t, 200, `{"data":{}}`)
+	defer done()
+
+	_, _ = svc.Update("CP/../evil", map[string]any{"name": "x", "version": 1})
+	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil"; cap.path != want {
+		t.Errorf("escaped path = %q, want %q", cap.path, want)
+	}
+}
+
+func TestDeleteEscapesID(t *testing.T) {
+	svc, cap, done := newCapturingService(t, 204, ``)
+	defer done()
+
+	_ = svc.Delete("CP/../evil")
+	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil"; cap.path != want {
+		t.Errorf("escaped path = %q, want %q", cap.path, want)
+	}
+}
+
+func TestHistoryVersionEscapesIDAndVersion(t *testing.T) {
+	svc, cap, done := newCapturingService(t, 200, `{"data":{}}`)
+	defer done()
+
+	_, _ = svc.HistoryVersion("CP/../evil", "v/../1")
+	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil/history/v%2F..%2F1"; cap.path != want {
+		t.Errorf("escaped path = %q, want %q", cap.path, want)
+	}
+}

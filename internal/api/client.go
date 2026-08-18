@@ -285,17 +285,23 @@ func (c *Client) PutRaw(path string, data []byte, contentType string) error {
 }
 
 // PostRaw posts a JSON body and returns the raw response bytes, so callers can
-// parse an envelope without a typed target.
+// parse an envelope without a typed target. JSON-only: returns an error
+// without making a request if c is configured for XML (see NewXMLClient).
 func (c *Client) PostRaw(path string, body interface{}) ([]byte, error) {
 	return c.doRawJSON("POST", path, body)
 }
 
-// PutRawJSON puts a JSON body and returns the raw response bytes.
+// PutRawJSON puts a JSON body and returns the raw response bytes. JSON-only:
+// returns an error without making a request if c is configured for XML (see
+// NewXMLClient).
 func (c *Client) PutRawJSON(path string, body interface{}) ([]byte, error) {
 	return c.doRawJSON("PUT", path, body)
 }
 
 func (c *Client) doRawJSON(method, path string, body interface{}) ([]byte, error) {
+	if c.contentType == "xml" {
+		return nil, fmt.Errorf("PostRaw/PutRawJSON send JSON; this client is configured for XML (use the XML methods instead)")
+	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("encoding request body: %w", err)

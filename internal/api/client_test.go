@@ -469,6 +469,33 @@ func TestXMLClient_NonXMLBodyReturnsError(t *testing.T) {
 	}
 }
 
+func TestPostRawAndPutRawJSON_RefuseXMLClient(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewXMLClient(srv.URL, nil)
+
+	if _, err := client.PostRaw("/", map[string]any{"a": "b"}); err == nil {
+		t.Error("PostRaw on an XML-configured client: want error, got nil")
+	} else if !strings.Contains(err.Error(), "XML") {
+		t.Errorf("PostRaw error = %q, want mention of XML", err)
+	}
+
+	if _, err := client.PutRawJSON("/", map[string]any{"a": "b"}); err == nil {
+		t.Error("PutRawJSON on an XML-configured client: want error, got nil")
+	} else if !strings.Contains(err.Error(), "XML") {
+		t.Errorf("PutRawJSON error = %q, want mention of XML", err)
+	}
+
+	if called {
+		t.Error("guard must fire before making an HTTP request, but the server was hit")
+	}
+}
+
 func TestAPIErrorCapturesHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "7")
