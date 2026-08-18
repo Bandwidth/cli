@@ -22,7 +22,7 @@ var getCmd = &cobra.Command{
 		}
 		env, err := svc.Get(args[0])
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		obj, err := env.Object()
 		if err != nil {

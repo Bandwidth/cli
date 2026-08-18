@@ -32,18 +32,18 @@ attached.`,
 	Example: `  band customer-profile delete 3IIzIFnRRQBE3AMzPpMTNo --confirm --plain`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if !deleteConfirm {
-			return cmdutil.NewFlagError(
-				"this soft-deletes customer profile " + args[0] +
-					", removing it from listings; pass --confirm to proceed " +
-					"(restore it later with 'band customer-profile restore " + args[0] + "')")
+		if err := requireConfirm(deleteConfirm,
+			"this soft-deletes customer profile "+args[0]+
+				", removing it from listings; pass --confirm to proceed "+
+				"(restore it later with 'band customer-profile restore "+args[0]+"')"); err != nil {
+			return err
 		}
 		svc, err := service(cmd)
 		if err != nil {
 			return err
 		}
 		if err := svc.Delete(args[0]); err != nil {
-			return err
+			return roleGateError(err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
 		// A 204 is a completed delete, not an async acceptance, so the receipt
@@ -75,7 +75,7 @@ No --confirm needed: restoring is not destructive.`,
 		}
 		env, err := svc.Get(args[0])
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		current, err := env.Object()
 		if err != nil {
@@ -87,7 +87,7 @@ No --confirm needed: restoring is not destructive.`,
 		}
 		restored, err := svc.Update(args[0], body)
 		if err != nil {
-			return conflictHint(err)
+			return roleGateError(conflictHint(err))
 		}
 		obj, err := restored.Object()
 		if err != nil {

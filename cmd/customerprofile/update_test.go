@@ -99,6 +99,35 @@ func TestUpdateWithNoFlagsIsAnError(t *testing.T) {
 	}
 }
 
+// Confirmed live against production: --name "" overlays a null name onto the
+// PUT body, and the API answers with a raw 400 "name must not be null". That
+// must be caught locally instead — a FlagError (exit 6) with zero writes.
+func TestUpdateEmptyNameExitsSixWithNoWrite(t *testing.T) {
+	putCalled := false
+	_, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalled = true
+		}
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"data":{"id":"abc","name":"Acme","version":1}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"id":"abc","version":2}}`))
+	}, "update", "abc", "--name", "", "--plain")
+	if err == nil {
+		t.Fatal("expected an error when --name is cleared to empty")
+	}
+	if got := exitCodeOf(err); got != 6 {
+		t.Errorf("exit code = %d, want 6", got)
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("error = %q, want it to name the field", err.Error())
+	}
+	if putCalled {
+		t.Error("PUT was issued despite an invalid update body — validation must happen before any write")
+	}
+}
+
 // A 409 means someone else wrote between our GET and PUT. That is a conflict
 // the caller can resolve by retrying, so it must exit 4, not 1.
 func TestUpdateConflictExitsFour(t *testing.T) {

@@ -76,10 +76,10 @@ func TestRestoreSendsSoftDeletedNotDeleted(t *testing.T) {
 func TestRestoreDoesNotRequireConfirm(t *testing.T) {
 	_, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`{"data":{"id":"abc","version":1,"softDeleted":true}}`))
+			_, _ = w.Write([]byte(`{"data":{"id":"abc","name":"Acme","version":1,"softDeleted":true}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":{"id":"abc","version":2,"softDeleted":false}}`))
+		_, _ = w.Write([]byte(`{"data":{"id":"abc","name":"Acme","version":2,"softDeleted":false}}`))
 	}, "restore", "abc", "--plain")
 	if err != nil {
 		t.Fatalf("restore should not need --confirm — it is not destructive: %v", err)

@@ -63,7 +63,7 @@ is rejected by the API's version check — the command exits 4 and you can retry
 
 		env, err := svc.Get(args[0])
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		current, err := env.Object()
 		if err != nil {
@@ -77,7 +77,7 @@ is rejected by the API's version check — the command exits 4 and you can retry
 
 		updated, err := svc.Update(args[0], body)
 		if err != nil {
-			return conflictHint(err)
+			return roleGateError(conflictHint(err))
 		}
 		obj, err := updated.Object()
 		if err != nil {

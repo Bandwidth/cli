@@ -31,6 +31,8 @@ var listCmd = &cobra.Command{
 	Example: `  band customer-profile list --plain
   band customer-profile list --all --plain
   band customer-profile list --name-contains Acme --plain`,
+	// No positional args: list takes only flags.
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Detected via Changed so that an explicit --offset 0 also conflicts.
 		if listAll && cmd.Flags().Changed("offset") {
@@ -51,13 +53,13 @@ var listCmd = &cobra.Command{
 		if !listAll {
 			env, err := svc.List(listLimit, listOffset, filters)
 			if err != nil {
-				return err
+				return roleGateError(err)
 			}
 			items, err := env.List()
 			if err != nil {
 				return err
 			}
-			warnIfTruncated(cmd, env, len(items))
+			warnIfTruncated(cmd, env, listOffset, len(items), "profiles")
 			return output.StdoutPlainList(format, plain, items)
 		}
 
@@ -69,20 +71,11 @@ var listCmd = &cobra.Command{
 			return nil
 		})
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		if all == nil {
 			all = []any{}
 		}
 		return output.StdoutPlainList(format, plain, all)
 	},
-}
-
-// warnIfTruncated tells the caller on stderr when more records exist. stdout
-// stays clean so a pipeline sees only data.
-func warnIfTruncated(cmd *cobra.Command, env *api.Envelope, returned int) {
-	if env.Page != nil && env.Page.Truncated(listOffset+returned) {
-		cmd.PrintErrf("showing %d of %d profiles; pass --all to fetch every page\n",
-			returned, env.Page.TotalElements)
-	}
 }

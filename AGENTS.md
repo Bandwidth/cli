@@ -912,6 +912,16 @@ to match on, and it's strictly 1:1 with a brand — a retry that silently reused
 an existing profile could link an old brand's profile to a new brand's data.
 Each brand needs its own freshly created profile; a retry must create, not reuse.
 
+**`create` is also non-idempotent, which cuts the other way after an
+ambiguous failure.** If a `create` call fails ambiguously — e.g. the
+connection drops after the POST reached the server but before the response
+reached you — do not blindly retry. A blind retry can create a *second*,
+duplicate profile if the first one actually succeeded. Instead, run `band
+customer-profile list --plain` and reconcile the results against what you
+just submitted (name, website, contact) to determine whether the first call
+already created a profile. If you cannot establish uniqueness that way, stop
+and escalate rather than guessing.
+
 ### Update is read-modify-write
 
 The API replaces the whole record, so `update` reads the profile first and

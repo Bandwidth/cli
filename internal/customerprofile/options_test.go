@@ -2,6 +2,7 @@ package customerprofile
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/cmdutil"
@@ -203,6 +204,75 @@ func TestBuildUpdateRequestPreservesUnchangedContactFields(t *testing.T) {
 	}
 	if c["email"] != "new@acme.com" {
 		t.Errorf("contact email = %v, want the newly set value", c["email"])
+	}
+}
+
+// Confirmed live against production (account 9901287): --name "" overlays a
+// null name onto the PUT body, and the API answers 400 "name must not be
+// null". ValidateUpdate must catch that locally, as a FlagError (exit 6),
+// before the request is ever sent.
+func TestBuildUpdateRequestRejectsClearedName(t *testing.T) {
+	current := map[string]any{"name": "Acme", "version": float64(1)}
+	_, err := BuildUpdateRequest(current, UpdateOptions{Name: ""}, map[string]bool{"name": true})
+	if err == nil {
+		t.Fatal("expected an error when --name is cleared to empty")
+	}
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) {
+		t.Fatalf("error type = %T, want *cmdutil.FlagError so it exits 6", err)
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("error = %q, want it to name the field", err.Error())
+	}
+}
+
+// A contact object with every one of its fields cleared, or a contact-name
+// explicitly cleared while another contact field remains, must not reach the
+// API without a contact name — the API's contact object requires one.
+func TestBuildUpdateRequestRejectsContactWithoutName(t *testing.T) {
+	current := map[string]any{
+		"name":    "Acme",
+		"version": float64(1),
+		"contact": map[string]any{"name": "Ops", "email": "ops@acme.com"},
+	}
+	_, err := BuildUpdateRequest(current, UpdateOptions{ContactName: ""},
+		map[string]bool{"contact-name": true})
+	if err == nil {
+		t.Fatal("expected an error when contact-name is cleared but the contact object remains")
+	}
+	if got := cmdutil.ExitCodeForError(err); got != cmdutil.ExitFlagError {
+		t.Errorf("exit code = %d, want %d", got, cmdutil.ExitFlagError)
+	}
+}
+
+func TestValidateUpdateRejectsMissingName(t *testing.T) {
+	err := ValidateUpdate(map[string]any{"name": nil, "version": float64(1)})
+	if err == nil {
+		t.Fatal("expected an error when name is null")
+	}
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) {
+		t.Fatalf("error type = %T, want *cmdutil.FlagError", err)
+	}
+}
+
+func TestValidateUpdateRejectsContactWithoutName(t *testing.T) {
+	err := ValidateUpdate(map[string]any{
+		"name":    "Acme",
+		"contact": map[string]any{"email": "ops@acme.com"},
+	})
+	if err == nil {
+		t.Fatal("expected an error when contact has no name")
+	}
+}
+
+func TestValidateUpdateAcceptsValidBody(t *testing.T) {
+	err := ValidateUpdate(map[string]any{
+		"name":    "Acme",
+		"contact": map[string]any{"name": "Ops", "email": "ops@acme.com"},
+	})
+	if err != nil {
+		t.Errorf("err = %v, want nil for a valid body", err)
 	}
 }
 

@@ -55,13 +55,13 @@ CREATED, UPDATED, and DELETED.`,
 		if !historyAll {
 			env, err := svc.History(args[0], historyLimit, historyOffset)
 			if err != nil {
-				return err
+				return roleGateError(err)
 			}
 			items, err := env.List()
 			if err != nil {
 				return err
 			}
-			warnIfHistoryTruncated(cmd, env, len(items))
+			warnIfTruncated(cmd, env, historyOffset, len(items), "versions")
 			return output.StdoutPlainList(format, plain, items)
 		}
 
@@ -73,7 +73,7 @@ CREATED, UPDATED, and DELETED.`,
 			return nil
 		})
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		if all == nil {
 			all = []any{}
@@ -103,7 +103,7 @@ count: list always returns an array, get always returns an object.`,
 		}
 		env, err := svc.HistoryVersion(args[0], args[1])
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		obj, err := env.Object()
 		if err != nil {
@@ -112,14 +112,4 @@ count: list always returns an array, get always returns an object.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 		return output.StdoutAuto(format, plain, obj)
 	},
-}
-
-// warnIfHistoryTruncated tells the caller on stderr when more versions exist
-// than a single page returned. Mirrors list.go's warnIfTruncated: stdout
-// stays clean so a pipeline sees only data.
-func warnIfHistoryTruncated(cmd *cobra.Command, env *api.Envelope, returned int) {
-	if env.Page != nil && env.Page.Truncated(historyOffset+returned) {
-		cmd.PrintErrf("showing %d of %d versions; pass --all to fetch every page\n",
-			returned, env.Page.TotalElements)
-	}
 }

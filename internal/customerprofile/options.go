@@ -96,11 +96,12 @@ func BuildUpdateRequest(current map[string]any, o UpdateOptions, changed map[str
 	overlayIfChanged(body, changed, "address-id", "addressId", o.AddressID)
 
 	if changed["contact-name"] || changed["contact-phone"] || changed["contact-email"] {
-		contact := map[string]any{}
-		if existing, ok := body["contact"].(map[string]any); ok {
-			for k, v := range existing {
-				contact[k] = v
-			}
+		// body is already a deepCopyMap of current, so body["contact"] (if
+		// present) is already an independent copy — safe to mutate in place
+		// without recopying it key-by-key into a second new map.
+		contact, ok := body["contact"].(map[string]any)
+		if !ok {
+			contact = map[string]any{}
 		}
 		overlayIfChanged(contact, changed, "contact-name", "name", o.ContactName)
 		overlayIfChanged(contact, changed, "contact-phone", "phoneNumber", o.ContactPhone)
@@ -108,7 +109,34 @@ func BuildUpdateRequest(current map[string]any, o UpdateOptions, changed map[str
 		body["contact"] = contact
 	}
 
+	if err := ValidateUpdate(body); err != nil {
+		return nil, err
+	}
 	return body, nil
+}
+
+// ValidateUpdate checks the fully overlaid PUT body — the object about to go
+// over the wire — not the options struct. A struct that looks fine in
+// isolation (e.g. an empty --name with no other flags set) can still combine
+// with the read profile into a body the API rejects. Catching that here means
+// the failure is a local, zero-request FlagError (exit 6) instead of a raw
+// 400 surfaced from the API side, measured against production: --name ""
+// sends a null name and the API answers 400 "name must not be null".
+//
+// Kept as its own exported function, called from BuildUpdateRequest, so the
+// check is independently testable and update.go's control flow (surface the
+// error before calling svc.Update) falls out for free — BuildUpdateRequest
+// already runs, and is already checked, before svc.Update.
+func ValidateUpdate(body map[string]any) error {
+	if name, ok := body["name"].(string); !ok || name == "" {
+		return cmdutil.NewFlagError("name must not be empty or null")
+	}
+	if contact, ok := body["contact"].(map[string]any); ok {
+		if name, ok := contact["name"].(string); !ok || name == "" {
+			return cmdutil.NewFlagError("contact-name must not be empty when a contact is present")
+		}
+	}
+	return nil
 }
 
 // BuildRestoreRequest undoes a soft delete.

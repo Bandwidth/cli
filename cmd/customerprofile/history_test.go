@@ -1,25 +1,19 @@
 package customerprofile
 
 import (
-	"bytes"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/spf13/cobra"
-
-	"github.com/Bandwidth/cli/internal/api"
-	cpsvc "github.com/Bandwidth/cli/internal/customerprofile"
-	"github.com/Bandwidth/cli/internal/testutil"
 )
 
 // Split into list and get so --plain output shape never depends on whether an
 // optional argument was supplied: list is always an array, get always an object.
 func TestHistoryListReturnsArray(t *testing.T) {
 	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"version":1},{"version":2}],"page":{"pageSize":50,"totalElements":2}}`))
+		_, _ = w.Write([]byte(`{"data":[
+			{"data":{"id":"abc","name":"Acme"},"metadata":{"version":1,"operation":"CREATED","userName":"someone","createdDate":"2026-01-01T00:00:00Z"}},
+			{"data":{"id":"abc","name":"Acme Renamed"},"metadata":{"version":2,"operation":"UPDATED","userName":"someone","createdDate":"2026-01-02T00:00:00Z"}}
+		],"page":{"pageSize":50,"totalElements":2}}`))
 	}, "history", "list", "abc", "--plain")
 	if err != nil {
 		t.Fatalf("history list: %v", err)
@@ -29,17 +23,23 @@ func TestHistoryListReturnsArray(t *testing.T) {
 	}
 }
 
+// The real API nests the profile snapshot under "data" and audit fields under
+// "metadata" — the version lives at metadata.version, not top-level, unlike
+// 'customer-profile get'.
 func TestHistoryGetReturnsObject(t *testing.T) {
 	var gotPath string
 	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.EscapedPath()
-		_, _ = w.Write([]byte(`{"data":{"version":2,"name":"Acme"}}`))
+		_, _ = w.Write([]byte(`{"data":{"data":{"id":"abc","name":"Acme"},"metadata":{"version":2,"operation":"UPDATED","userName":"someone","createdDate":"2026-01-02T00:00:00Z"}}}`))
 	}, "history", "get", "abc", "2", "--plain")
 	if err != nil {
 		t.Fatalf("history get: %v", err)
 	}
 	if !strings.HasPrefix(strings.TrimSpace(out), "{") {
 		t.Errorf("stdout = %q, want a JSON object", out)
+	}
+	if !strings.Contains(out, `"version":2`) && !strings.Contains(out, `"version": 2`) {
+		t.Errorf("stdout = %q, want metadata.version at 2", out)
 	}
 	if !strings.HasSuffix(gotPath, "/history/2") {
 		t.Errorf("path = %q, want it to end in /history/2", gotPath)
@@ -57,10 +57,10 @@ func TestHistoryListAllWalksPages(t *testing.T) {
 	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if calls == 1 {
-			_, _ = w.Write([]byte(`{"data":[{"version":1}],"page":{"pageSize":1,"totalElements":2}}`))
+			_, _ = w.Write([]byte(`{"data":[{"data":{"id":"abc"},"metadata":{"version":1,"operation":"CREATED"}}],"page":{"pageSize":1,"totalElements":2}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":[{"version":2}],"page":{"pageSize":1,"totalElements":2}}`))
+		_, _ = w.Write([]byte(`{"data":[{"data":{"id":"abc"},"metadata":{"version":2,"operation":"UPDATED"}}],"page":{"pageSize":1,"totalElements":2}}`))
 	}, "history", "list", "abc", "--all", "--limit", "1", "--plain")
 	if err != nil {
 		t.Fatalf("history list --all: %v", err)
@@ -77,12 +77,12 @@ func TestHistoryListAllWalksPages(t *testing.T) {
 }
 
 // TestHistoryListWarnsWhenTruncated guards against list.go's warnIfTruncated
-// pattern silently not being mirrored here: a paginated, non---all history
+// pattern silently not being mirrored here: a paginated, non-`--all` history
 // list must warn on stderr when more versions exist than the page returned,
 // exactly like 'customer-profile list' does.
 func TestHistoryListWarnsWhenTruncated(t *testing.T) {
 	_, stderr, err := runCmdCapturingStderr(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"metadata":{"version":1}}],"page":{"pageSize":1,"totalElements":2}}`))
+		_, _ = w.Write([]byte(`{"data":[{"data":{"id":"abc"},"metadata":{"version":1}}],"page":{"pageSize":1,"totalElements":2}}`))
 	}, "history", "list", "abc", "--limit", "1", "--plain")
 	if err != nil {
 		t.Fatalf("history list: %v", err)
@@ -94,7 +94,7 @@ func TestHistoryListWarnsWhenTruncated(t *testing.T) {
 
 func TestHistoryListNoWarningWhenNotTruncated(t *testing.T) {
 	_, stderr, err := runCmdCapturingStderr(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"metadata":{"version":1}},{"metadata":{"version":2}}],"page":{"pageSize":50,"totalElements":2}}`))
+		_, _ = w.Write([]byte(`{"data":[{"data":{"id":"abc"},"metadata":{"version":1}},{"data":{"id":"abc"},"metadata":{"version":2}}],"page":{"pageSize":50,"totalElements":2}}`))
 	}, "history", "list", "abc", "--plain")
 	if err != nil {
 		t.Fatalf("history list: %v", err)
@@ -102,41 +102,4 @@ func TestHistoryListNoWarningWhenNotTruncated(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr = %q, want no truncation warning", stderr)
 	}
-}
-
-// runCmdCapturingStderr is runCmd's twin, but with testRoot's error writer
-// pointed at a buffer instead of io.Discard so a test can assert on
-// cmd.PrintErrf output. It is a separate function, rather than a change to
-// runCmd's signature, because runCmd's (string, error) return is used by
-// every other test in this package (including in other files this task
-// must not modify) and changing it would ripple across the whole suite.
-func runCmdCapturingStderr(t *testing.T, h http.HandlerFunc, args ...string) (stdout, stderr string, err error) {
-	t.Helper()
-
-	resetFlags(testRoot)
-
-	var srvURL string
-	if h != nil {
-		srv := httptest.NewServer(h)
-		t.Cleanup(srv.Close)
-		srvURL = srv.URL
-	}
-
-	orig := service
-	service = func(cmd *cobra.Command) (*cpsvc.Service, error) {
-		if srvURL == "" {
-			t.Fatal("command made a request but no stub server was provided")
-		}
-		return cpsvc.NewService(api.NewClientNoAuth(srvURL), "9901287"), nil
-	}
-	t.Cleanup(func() { service = orig })
-
-	testRoot.SetArgs(append([]string{Cmd.Name()}, args...))
-	testRoot.SetOut(io.Discard)
-	var errBuf bytes.Buffer
-	testRoot.SetErr(&errBuf)
-	t.Cleanup(func() { testRoot.SetErr(io.Discard) })
-
-	out := testutil.CaptureStdout(t, func() { err = testRoot.Execute() })
-	return out, errBuf.String(), err
 }

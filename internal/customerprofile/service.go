@@ -43,8 +43,8 @@ func (s *Service) List(limit, offset int, filters []api.Filter) (*api.Envelope, 
 }
 
 // Get returns one customer profile. Soft-deleted profiles are still
-// returned individually, with a "deleted" flag set — check it before
-// creating any association.
+// returned individually, with softDeleted set to true — check it before
+// creating any association. There is no "deleted" field on reads.
 func (s *Service) Get(profileID string) (*api.Envelope, error) {
 	if profileID == "" {
 		return nil, fmt.Errorf("customer profile ID is required")

@@ -46,8 +46,8 @@ func ForEachPage(fetch PageFetcher, pageSize int, fn func([]any) error) error {
 		}
 		// A page that returns nothing while claiming more remain would spin forever.
 		if len(batch) == 0 {
-			return fmt.Errorf("page at offset %d returned no items but %d of %d were expected",
-				seen, seen, env.Page.TotalElements)
+			return fmt.Errorf("page at offset %d returned no items, but the server reports %d total elements remaining to be fetched",
+				seen, env.Page.TotalElements)
 		}
 	}
 }

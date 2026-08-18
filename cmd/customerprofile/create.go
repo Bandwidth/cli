@@ -27,12 +27,19 @@ var createCmd = &cobra.Command{
 	Long: `Creates a customer profile.
 
 A profile backs exactly one 10DLC brand, so create a new one for each brand
-you intend to register — reusing a profile fails at brand creation.`,
+you intend to register — reusing a profile fails at brand creation.
+
+This is a non-idempotent write: after an ambiguous failure, do not blindly
+retry — list profiles and reconcile against what you submitted first.`,
 	Example: `  band customer-profile create --name "Acme Corp" --plain
 
   band customer-profile create --name "Acme Corp" \
     --website https://acme.com \
     --contact-name "Ops Team" --contact-email ops@acme.com`,
+	// No positional args: this is a non-idempotent create, so a stray
+	// positional (e.g. a typo'd second word meant for another flag) must be
+	// rejected rather than silently ignored and creating an unintended profile.
+	Args: cobra.NoArgs,
 	// Required-ness is enforced in RunE, not via MarkFlagRequired: cobra
 	// rejects before RunE, which reports one flag at a time and would block a
 	// future interactive prompt from filling them in.
@@ -46,7 +53,7 @@ you intend to register — reusing a profile fails at brand creation.`,
 		}
 		env, err := svc.Create(cpsvc.BuildCreateRequest(createOpts))
 		if err != nil {
-			return err
+			return roleGateError(err)
 		}
 		obj, err := env.Object()
 		if err != nil {

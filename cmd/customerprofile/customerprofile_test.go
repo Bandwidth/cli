@@ -1,6 +1,7 @@
 package customerprofile
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -102,6 +103,31 @@ func TestCreateEmitsReceipt(t *testing.T) {
 	}
 	if got["id"] != "abc" {
 		t.Errorf("stdout id = %v, want abc", got["id"])
+	}
+}
+
+// create is a non-idempotent write: a stray positional argument (e.g. a
+// typo meant for a flag value) must be rejected outright, not silently
+// ignored while the command creates a real profile anyway. Passing a nil
+// handler to runCmd means the stub's t.Fatal fires if the command ever
+// reaches the wire despite the bad args.
+func TestCreateRejectsPositionalArgs(t *testing.T) {
+	out, err := runCmd(t, nil, "create", "GARBAGE", "--name", "Acme")
+	if err == nil {
+		t.Fatal("expected an error: create takes no positional arguments")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing written when args are rejected", out)
+	}
+}
+
+func TestListRejectsPositionalArgs(t *testing.T) {
+	out, err := runCmd(t, nil, "list", "GARBAGE")
+	if err == nil {
+		t.Fatal("expected an error: list takes no positional arguments")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing written when args are rejected", out)
 	}
 }
 
@@ -214,10 +240,14 @@ func TestRunCmdRootFlagsSurviveAcrossCalls(t *testing.T) {
 	}
 }
 
-// runCmd executes one command against a stub server and returns stdout.
-// Every command test in this package goes through it, so the seam is
-// swapped in exactly one place.
-func runCmd(t *testing.T, h http.HandlerFunc, args ...string) (string, error) {
+// runCmdWithStderr executes one command against a stub server and returns
+// both stdout and stderr. It is the single implementation behind runCmd and
+// runCmdCapturingStderr — they used to be two near-identical copies of this
+// same setup (resetFlags, stub server, service seam, testRoot args/writers),
+// differing only in whether stderr was captured or discarded. Every command
+// test in this package goes through one of the two wrappers below, so the
+// seam is swapped in exactly one place.
+func runCmdWithStderr(t *testing.T, h http.HandlerFunc, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 
 	resetFlags(testRoot)
@@ -240,9 +270,27 @@ func runCmd(t *testing.T, h http.HandlerFunc, args ...string) (string, error) {
 
 	testRoot.SetArgs(append([]string{Cmd.Name()}, args...))
 	testRoot.SetOut(io.Discard)
-	testRoot.SetErr(io.Discard)
+	var errBuf bytes.Buffer
+	testRoot.SetErr(&errBuf)
+	t.Cleanup(func() { testRoot.SetErr(io.Discard) })
 
-	var err error
 	out := testutil.CaptureStdout(t, func() { err = testRoot.Execute() })
+	return out, errBuf.String(), err
+}
+
+// runCmd is runCmdWithStderr for the common case that only cares about
+// stdout. Its (string, error) signature is preserved deliberately: it is used
+// by every other test in this package, and changing it would ripple across
+// the whole suite.
+func runCmd(t *testing.T, h http.HandlerFunc, args ...string) (string, error) {
+	t.Helper()
+	out, _, err := runCmdWithStderr(t, h, args...)
 	return out, err
+}
+
+// runCmdCapturingStderr is runCmd's twin for tests that assert on
+// cmd.PrintErrf output (e.g. truncation warnings).
+func runCmdCapturingStderr(t *testing.T, h http.HandlerFunc, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	return runCmdWithStderr(t, h, args...)
 }
