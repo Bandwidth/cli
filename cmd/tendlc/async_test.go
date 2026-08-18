@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +210,80 @@ func TestAwaitTerminalGoneIsDoneForDeletes(t *testing.T) {
 	got := decodeReceipt(t, out)
 	if got["deleted"] != true {
 		t.Errorf("delete success should print the receipt, got %v", got)
+	}
+}
+
+// fetchBrandStubServer returns a stub that answers GET .../brands/{id} with
+// the given status code and body, and a Service pointed at it — the same
+// api.NewClientNoAuth seam used by cmd/tendlc/status_test.go.
+func fetchBrandStubServer(t *testing.T, code int, body string) *tendlcsvc.Service {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(code)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return tendlcsvc.NewService(api.NewClientNoAuth(srv.URL), "9901287")
+}
+
+// fetchBrand is the sole translator of a real 404 into pollTarget's
+// found=false — the mechanism the create-vs-delete GoneIsDone contract
+// depends on — so all three outcomes need direct coverage against a real
+// HTTP response, not just the classifier logic above it.
+func TestFetchBrandFoundReturnsObject(t *testing.T) {
+	svc := fetchBrandStubServer(t, http.StatusOK, `{"data":{"bandwidthId":"WABC","brandIdentityStatus":"VERIFIED"}}`)
+	obj, found, err := fetchBrand(svc, "WABC")()
+	if err != nil {
+		t.Fatalf("want no error, got %v", err)
+	}
+	if !found {
+		t.Fatal("want found=true for a 200 response")
+	}
+	if obj["bandwidthId"] != "WABC" {
+		t.Errorf("obj = %v, want bandwidthId WABC", obj)
+	}
+}
+
+// A 404 must translate to found=false with NO error — that translation is
+// the whole point of fetchBrand. An error here would make a create poll fail
+// immediately on a resource that just isn't readable yet, instead of
+// retrying until it appears or the poll times out.
+func TestFetchBrandNotFoundIsFoundFalseNotError(t *testing.T) {
+	svc := fetchBrandStubServer(t, http.StatusNotFound, `{"errors":[{"description":"brand not found"}]}`)
+	obj, found, err := fetchBrand(svc, "WABC")()
+	if err != nil {
+		t.Fatalf("want no error for a 404, got %v", err)
+	}
+	if found {
+		t.Fatal("want found=false for a 404")
+	}
+	if obj != nil {
+		t.Errorf("want a nil object for a 404, got %v", obj)
+	}
+}
+
+func TestFetchBrandServerErrorIsError(t *testing.T) {
+	svc := fetchBrandStubServer(t, http.StatusInternalServerError, `{"errors":[{"description":"boom"}]}`)
+	_, found, err := fetchBrand(svc, "WABC")()
+	if err == nil {
+		t.Fatal("want an error for a 500")
+	}
+	if found {
+		t.Error("want found=false alongside the error")
+	}
+}
+
+// A 200 with a non-object data field (e.g. an array) is a malformed
+// response, not "not ready yet". Reporting it as found=false would make a
+// create poll spin silently until timeout instead of failing fast on a
+// response shape it can never recover from.
+func TestFetchBrandMalformedDataIsError(t *testing.T) {
+	svc := fetchBrandStubServer(t, http.StatusOK, `{"data":[{"bandwidthId":"WABC"}]}`)
+	_, found, err := fetchBrand(svc, "WABC")()
+	if err == nil {
+		t.Fatal("want an error when data is not an object")
+	}
+	if found {
+		t.Error("want found=false alongside the error")
 	}
 }

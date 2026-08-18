@@ -103,8 +103,18 @@ func awaitTerminal(cmd *cobra.Command, t pollTarget, receipt map[string]any, tim
 	}
 
 	if t.Classify(final) == tendlcsvc.StateFailure {
+		// final is real API data (not a synthetic receipt), so StdoutAuto's
+		// flatten-on-plain behavior is correct here — see emitReceipt above
+		// for why receipts print differently.
+		//
+		// The write error is reported but does not replace the return value:
+		// this is a business failure regardless of whether the write
+		// succeeded, and returning the bare write error here would drop the
+		// ConflictError classification (exit 4) along with the remediation
+		// text below, silently downgrading a failed brand/vetting into
+		// "something went wrong printing it."
 		if err := output.StdoutAuto(format, plain, final); err != nil {
-			return err
+			cmd.PrintErrln(fmt.Sprintf("writing result: %v", err))
 		}
 		msg := fmt.Sprintf("%s did not complete successfully", t.Noun)
 		if t.Remediate != nil {
@@ -116,6 +126,8 @@ func awaitTerminal(cmd *cobra.Command, t pollTarget, receipt map[string]any, tim
 		return &cmdutil.ConflictError{Message: msg}
 	}
 
+	// final is real API data, not a synthetic receipt — see emitReceipt above
+	// for why receipts go through output.Stdout instead of StdoutAuto.
 	return output.StdoutAuto(format, plain, final)
 }
 
