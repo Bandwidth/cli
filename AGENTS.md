@@ -10,7 +10,7 @@
 These principles guide how the CLI is built. If you're contributing changes, maintain them:
 
 - **`--plain` output must be stable and parseable.** Agents depend on flat JSON. Don't change the shape of `--plain` output without a migration path.
-- **`--if-not-exists` for idempotency.** Any create command should support this flag so agents can retry safely.
+- **`--if-not-exists` for idempotency, where a safe natural key exists.** Create commands support this flag when there's a stable identity to retry against. A command that lacks one omits the flag deliberately and documents why (see [Customer Profiles](#customer-profiles)) rather than risk a retry silently reusing the wrong resource.
 - **`--wait` for async operations.** Agents can't poll — give them a way to block until the operation completes.
 - **Structured exit codes.** Agents use exit codes for control flow, not string parsing. See [Exit Codes](#exit-codes).
 - **Update this file.** If you add, remove, or change a command, update this file alongside the README.
@@ -906,6 +906,12 @@ Keys come back alphabetical because the payload is a Go map — don't expect a
 `list` excludes soft-deleted profiles; `get` still returns them, reporting
 `softDeleted: true`. Without `--all`, a truncated page warns on stderr.
 
+**`create` deliberately has no `--if-not-exists`** (see the [Design
+Principles](#design-principles) exception). A profile has no safe natural key
+to match on, and it's strictly 1:1 with a brand — a retry that silently reused
+an existing profile could link an old brand's profile to a new brand's data.
+Each brand needs its own freshly created profile; a retry must create, not reuse.
+
 ### Update is read-modify-write
 
 The API replaces the whole record, so `update` reads the profile first and
@@ -931,6 +937,12 @@ band customer-profile delete 622t7KB9oZkl9kQob0b8el --confirm --plain
 # → {"deleted":true,"id":"622t7KB9oZkl9kQob0b8el","restore":"band customer-profile restore 622t7KB9oZkl9kQob0b8el"}
 band customer-profile restore 622t7KB9oZkl9kQob0b8el --plain
 ```
+
+Note these are two different fields on two different resources, not a typo of
+each other: `deleted: true` is the delete command's own receipt, confirming the
+204 completed synchronously. `softDeleted: true` is a field on the profile
+itself, seen when you `get` it afterward — there is no `deleted` field on the
+profile, and no `softDeleted` field on the receipt.
 
 ### Version history
 
