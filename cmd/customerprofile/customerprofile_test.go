@@ -12,9 +12,12 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 	cpsvc "github.com/Bandwidth/cli/internal/customerprofile"
 	"github.com/Bandwidth/cli/internal/testutil"
 )
+
+func exitCodeOf(err error) int { return cmdutil.ExitCodeForError(err) }
 
 // testRoot is a single fake root, built once via testutil.NewTestRoot and
 // reused by every runCmd call in this package, with Cmd as its only child.
