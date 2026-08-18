@@ -1,0 +1,122 @@
+name: Bug report
+description: Something in band isn't working the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you paste anything:** redact credentials, client secrets, account IDs, and customer phone numbers. Issues here are public.
+
+        Found a security vulnerability? Don't open an issue — follow [SECURITY.md](https://github.com/Bandwidth/cli/blob/main/SECURITY.md) instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: band version
+      description: Output of `band version`
+      placeholder: band version 1.4.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: command-group
+    attributes:
+      label: Command group
+      description: Which command group is affected?
+      options:
+        - account
+        - app
+        - auth
+        - bxml
+        - call
+        - location
+        - message
+        - number
+        - portin
+        - quickstart
+        - recording
+        - shortcode
+        - sip
+        - site
+        - tendlc
+        - tfv
+        - tnoption
+        - transcription
+        - vcp
+        - Not sure / affects everything
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install band?
+      options:
+        - Homebrew
+        - go install
+        - Downloaded binary from Releases
+        - Docker
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: account-type
+    attributes:
+      label: Account type
+      description: Build accounts are voice-only. Messaging, number ordering, sub-accounts, VCPs, 10DLC, and toll-free verification fail with exit code 4 on Build — that's expected, not a bug.
+      options:
+        - Full Bandwidth account
+        - Build (voice-only trial)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      description: The exact command, with secrets and customer numbers redacted.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Full output, plus the exit code from `echo $?`.
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials, account IDs, and customer phone numbers from everything above
+          required: true
+        - label: I searched existing issues for this problem
+          required: true
+        - label: I'm on the latest released version, or I've explained why I can't upgrade
+          required: true
