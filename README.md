@@ -257,6 +257,18 @@ The CLI checks three things before every send:
 | **Callback URL** | App has a real callback URL (not `example.com`, `localhost`, etc.) | Send blocked — tells you to run `band app update --callback-url` |
 | **Number registration** | 10DLC numbers are on an approved campaign; toll-free numbers have TFV approval | Send blocked — tells you what's missing |
 
+### Customer profiles (10DLC prerequisite)
+
+Registering a 10DLC brand starts with a customer profile — and a profile backs exactly one brand, so create a fresh one for each brand you register.
+
+```sh
+band customer-profile create --name "Acme Corp" --plain
+band customer-profile list --plain
+band customer-profile get <id> --plain
+```
+
+Brand and campaign registration still happen in the Bandwidth App. See [AGENTS.md](AGENTS.md) for the full command reference, including update, delete/restore, and version history.
+
 ### 10DLC campaigns (local numbers)
 
 If you're sending from a standard 10-digit local number, it must be assigned to an approved 10DLC campaign. Without this, carriers will block your messages. The CLI detects this and blocks the send with a diagnostic message.

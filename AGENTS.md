@@ -880,6 +880,71 @@ band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
 
 **If `band tendlc` returns 403:** Don't retry — escalate. Tell the user: "Your credential may not have the Campaign Management role, or your account may not have the Registration Center feature enabled. Contact your Bandwidth account manager to check your configuration."
 
+## Customer Profiles
+
+A customer profile is required to register a 10DLC brand, and **a profile backs
+exactly one brand** — reusing a profile ID on a second brand fails with
+`cannot be assigned to another brand`. Create a fresh profile per brand. The
+prerequisite chain is **customer profile → brand → campaign**; brand and
+campaign registration still happen in the Bandwidth App, not the CLI.
+
+Requires the **Customer Profiles Access role** — check with `band auth status --plain`.
+
+### Create, list, and get
+
+```bash
+band customer-profile create --name "Acme Corp" --plain
+# → {"accountId":"9901287","addressId":null,"contact":null,"createdDate":"...","id":"622t7KB9oZkl9kQob0b8el","modifiedDate":"...","name":"Acme Corp","softDeleted":false,"totalCampaigns":0,"version":0,"website":null}
+
+band customer-profile list --all --plain    # walks every page; cannot combine with --offset
+band customer-profile get 622t7KB9oZkl9kQob0b8el --plain
+```
+
+Keys come back alphabetical because the payload is a Go map — don't expect a
+"nicer" ordering; the docs match reality, not a prettified version of it.
+
+`list` excludes soft-deleted profiles; `get` still returns them, reporting
+`softDeleted: true`. Without `--all`, a truncated page warns on stderr.
+
+### Update is read-modify-write
+
+The API replaces the whole record, so `update` reads the profile first and
+re-sends it with your changes applied. Fields you do not pass are preserved.
+**Passing a flag with an empty value clears that field** — it sends JSON
+`null`, not an empty string, because the API rejects empty strings. A
+concurrent edit between the read and the write is caught by the API's version
+check and exits **4** — retry the command.
+
+```bash
+band customer-profile update 622t7KB9oZkl9kQob0b8el --name "New Name" --plain
+band customer-profile update 622t7KB9oZkl9kQob0b8el --website "" --plain   # clears the website
+```
+
+### Delete is a soft delete
+
+`delete` requires `--confirm`. That's a flag, never a prompt, so agents and
+humans share one contract. The record leaves listings but stays retrievable by
+ID with `softDeleted: true`, and `restore` brings it back — no confirm needed.
+
+```bash
+band customer-profile delete 622t7KB9oZkl9kQob0b8el --confirm --plain
+# → {"deleted":true,"id":"622t7KB9oZkl9kQob0b8el","restore":"band customer-profile restore 622t7KB9oZkl9kQob0b8el"}
+band customer-profile restore 622t7KB9oZkl9kQob0b8el --plain
+```
+
+### Version history
+
+`history list` and `history get` return a `{data, metadata}` envelope, newest
+first — the profile snapshot lives under `data`, and `version`, `operation`,
+`userName`, `createdDate` live under `metadata`. So the version is at
+`metadata.version`, NOT top-level the way it is on `customer-profile get`.
+Observed `metadata.operation` values: `CREATED`, `UPDATED`, `DELETED`.
+
+```bash
+band customer-profile history list 622t7KB9oZkl9kQob0b8el --plain
+band customer-profile history get 622t7KB9oZkl9kQob0b8el 1 --plain
+```
+
 ## Toll-Free Verification (TFV)
 
 These commands manage toll-free number verification via the Athena v2 API. A 403 means the TFV role isn't enabled on the credential — contact your Bandwidth account manager to enable it.
