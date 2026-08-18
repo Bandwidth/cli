@@ -140,6 +140,60 @@ func TestBuildUpdateRequestRequiresVersion(t *testing.T) {
 	}
 }
 
+// BuildUpdateRequest must not hand back a body that shares nested mutable
+// structure with current — current may be a cached resource the command
+// layer reuses, and callers that mutate the returned body in place (rather
+// than going through overlayIfChanged) must not corrupt it.
+func TestBuildUpdateRequestDoesNotAliasNestedMaps(t *testing.T) {
+	contact := map[string]any{"name": "Ops", "email": "ops@acme.com"}
+	current := map[string]any{"name": "Acme", "version": float64(1), "contact": contact}
+
+	got, err := BuildUpdateRequest(current, UpdateOptions{}, map[string]bool{})
+	if err != nil {
+		t.Fatalf("BuildUpdateRequest: %v", err)
+	}
+
+	gotContact, ok := got["contact"].(map[string]any)
+	if !ok {
+		t.Fatalf("contact = %#v, want a nested object", got["contact"])
+	}
+	gotContact["email"] = "mutated@acme.com"
+
+	if contact["email"] != "ops@acme.com" {
+		t.Errorf("mutating the returned body's contact changed current's contact: %#v", contact)
+	}
+}
+
+// Partial contact updates must preserve the fields not being changed — this
+// is the exact path Finding 1 touches, since the surviving contact fields
+// come from a copy of current's nested contact map.
+func TestBuildUpdateRequestPreservesUnchangedContactFields(t *testing.T) {
+	current := map[string]any{
+		"name":    "Acme",
+		"version": float64(1),
+		"contact": map[string]any{"name": "Ops", "phoneNumber": "+15555550100"},
+	}
+	got, err := BuildUpdateRequest(current, UpdateOptions{ContactEmail: "new@acme.com"},
+		map[string]bool{"contact-email": true})
+	if err != nil {
+		t.Fatalf("BuildUpdateRequest: %v", err)
+	}
+
+	c, ok := got["contact"].(map[string]any)
+	if !ok {
+		t.Fatalf("contact = %#v, want a nested object", got["contact"])
+	}
+	if c["name"] != "Ops" {
+		t.Errorf("contact name = %v, want it preserved from current", c["name"])
+	}
+	if c["phoneNumber"] != "+15555550100" {
+		t.Errorf("contact phoneNumber = %v, want it preserved from current", c["phoneNumber"])
+	}
+	if c["email"] != "new@acme.com" {
+		t.Errorf("contact email = %v, want the newly set value", c["email"])
+	}
+}
+
 func TestBuildRestoreRequestClearsSoftDeleted(t *testing.T) {
 	current := map[string]any{"name": "Acme", "version": float64(3), "softDeleted": true, "id": "abc"}
 	got, err := BuildRestoreRequest(current)

@@ -86,10 +86,7 @@ func BuildUpdateRequest(current map[string]any, o UpdateOptions, changed map[str
 		return nil, fmt.Errorf("current resource has no version; the API rejects updates without it")
 	}
 
-	body := make(map[string]any, len(current))
-	for k, v := range current {
-		body[k] = v
-	}
+	body := deepCopyMap(current)
 	for _, ro := range readOnlyFields {
 		delete(body, ro)
 	}
@@ -140,5 +137,35 @@ func setIf(m map[string]any, key, val string) {
 func overlayIfChanged(m map[string]any, changed map[string]bool, flagName, field, val string) {
 	if changed[flagName] {
 		m[field] = val
+	}
+}
+
+// deepCopyMap copies m so the result shares no mutable structure with it.
+// current is read from an api.Envelope the caller may reuse or cache, so a
+// shallow copy would leave nested maps (e.g. "contact") aliased between the
+// outgoing body and the caller's data — any in-place mutation of one would
+// silently corrupt the other. Nested map[string]any values, and []any slices
+// that may themselves contain maps, are copied recursively; other values
+// (strings, float64, bool, nil) are immutable in Go and safe to share.
+func deepCopyMap(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+func deepCopyValue(v any) any {
+	switch vv := v.(type) {
+	case map[string]any:
+		return deepCopyMap(vv)
+	case []any:
+		out := make([]any, len(vv))
+		for i, e := range vv {
+			out[i] = deepCopyValue(e)
+		}
+		return out
+	default:
+		return v
 	}
 }
