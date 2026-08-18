@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 )
@@ -106,4 +108,23 @@ func filterNumbers(data interface{}, status, campaignID string) interface{} {
 func isNotFound(err error) bool {
 	var apiErr *api.APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == 404
+}
+
+// requireConfirm enforces a --confirm gate before any HTTP request is made.
+// The message must name the specific consequence — a generic "pass --confirm"
+// tells an operator nothing about what they are agreeing to.
+func requireConfirm(confirm bool, message string) error {
+	if confirm {
+		return nil
+	}
+	return cmdutil.NewFlagError(message)
+}
+
+// warnIfTruncated tells the caller on stderr when more records exist than the
+// page just returned. stdout stays clean so a pipeline sees only data.
+func warnIfTruncated(cmd *cobra.Command, env *api.Envelope, offset, returned int, noun string) {
+	if env.Page != nil && env.Page.Truncated(offset+returned) {
+		cmd.PrintErrf("showing %d of %d %s; pass --all to fetch every page\n",
+			returned, env.Page.TotalElements, noun)
+	}
 }
