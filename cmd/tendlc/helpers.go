@@ -120,6 +120,18 @@ func requireConfirm(confirm bool, message string) error {
 	return cmdutil.NewFlagError(message)
 }
 
+// flagList renders flag names as a "--a, --b, --c" list for error messages.
+func flagList(names []string) string {
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += ", "
+		}
+		out += "--" + n
+	}
+	return out
+}
+
 // warnIfTruncated tells the caller on stderr when more records exist than the
 // page just returned. stdout stays clean so a pipeline sees only data.
 func warnIfTruncated(cmd *cobra.Command, env *api.Envelope, offset, returned int, noun string) {
