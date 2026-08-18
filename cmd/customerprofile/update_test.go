@@ -60,6 +60,35 @@ func TestUpdateReadsBeforeWriting(t *testing.T) {
 	}
 }
 
+// The API rejects an empty string on website ("size must be between 1 and
+// 500") but accepts and applies JSON null, measured against production
+// (account 9901287). The documented way to clear a field is passing the flag
+// with an empty value, so that must reach the server as null, not "". This
+// asserts on the JSON the server received in the PUT, not on what was passed
+// in — the same standard as TestUpdatePreservesUnmodeledFields.
+func TestUpdateClearFieldSendsNull(t *testing.T) {
+	var putBody map[string]any
+	_, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"data":{"id":"abc","name":"Acme","website":"https://acme.com","version":1}}`))
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &putBody)
+		_, _ = w.Write([]byte(`{"data":{"id":"abc","version":2}}`))
+	}, "update", "abc", "--website", "", "--plain")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	val, present := putBody["website"]
+	if !present {
+		t.Fatal("website key missing from PUT body, want it present with a null value")
+	}
+	if val != nil {
+		t.Errorf("website = %v, want explicit null so the API clears the field", val)
+	}
+}
+
 func TestUpdateWithNoFlagsIsAnError(t *testing.T) {
 	_, err := runCmd(t, nil, "update", "abc")
 	if err == nil {

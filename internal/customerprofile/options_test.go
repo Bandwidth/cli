@@ -121,6 +121,14 @@ func TestBuildUpdateRequestIgnoresUnchangedFlags(t *testing.T) {
 }
 
 // Explicitly clearing a field is different from not passing it.
+// The API rejects an empty string on website ("size must be between 1 and
+// 500") but accepts and applies JSON null, measured against production. So an
+// explicitly-passed empty flag must overlay as null, not "" — and the key
+// must still be PRESENT in the body (not omitted): under a full-replacement
+// PUT, an omitted key is nulled server-side too, but for the wrong reason,
+// and that behavior is not guaranteed to hold if the API ever changes to a
+// patch-style semantic. Presence is asserted with the two-value map lookup so
+// this test would fail if a future change switched to `delete(body, field)`.
 func TestBuildUpdateRequestAllowsExplicitClear(t *testing.T) {
 	current := map[string]any{"name": "Acme", "website": "https://acme.com", "version": float64(1)}
 	got, err := BuildUpdateRequest(current, UpdateOptions{Website: ""},
@@ -128,8 +136,12 @@ func TestBuildUpdateRequestAllowsExplicitClear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildUpdateRequest: %v", err)
 	}
-	if got["website"] != "" {
-		t.Errorf("website = %v, want an explicit empty string", got["website"])
+	val, present := got["website"]
+	if !present {
+		t.Fatal("website key missing from body, want it present with a null value")
+	}
+	if val != nil {
+		t.Errorf("website = %v, want explicit null", val)
 	}
 }
 

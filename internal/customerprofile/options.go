@@ -134,10 +134,21 @@ func setIf(m map[string]any, key, val string) {
 
 // overlayIfChanged writes val only when the caller explicitly set that flag.
 // flagName is the CLI flag; field is the JSON key.
+//
+// An explicitly empty value is written as JSON null, not "". The API rejects
+// an empty string on at least website ("size must be between 1 and 500"),
+// measured against production, but accepts null and clears the field. Since
+// the CLI's documented way to clear a field is passing the flag with an empty
+// value, that value must become null on the wire.
 func overlayIfChanged(m map[string]any, changed map[string]bool, flagName, field, val string) {
-	if changed[flagName] {
-		m[field] = val
+	if !changed[flagName] {
+		return
 	}
+	if val == "" {
+		m[field] = nil
+		return
+	}
+	m[field] = val
 }
 
 // deepCopyMap copies m so the result shares no mutable structure with it.
