@@ -13,10 +13,11 @@ import (
 // captured records what the stub server saw, so tests assert on the request
 // the service actually sent rather than on a mock's expectations.
 type captured struct {
-	method string
-	path   string
-	query  string
-	body   map[string]any
+	method      string
+	path        string
+	escapedPath string
+	query       string
+	body        map[string]any
 }
 
 func stubService(t *testing.T, status int, respBody string, got *captured) *Service {
@@ -24,6 +25,7 @@ func stubService(t *testing.T, status int, respBody string, got *captured) *Serv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.method = r.Method
 		got.path = r.URL.Path
+		got.escapedPath = r.URL.EscapedPath()
 		got.query = r.URL.RawQuery
 		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
 			_ = json.Unmarshal(b, &got.body)
@@ -231,7 +233,7 @@ func TestBrandIDIsPathEscaped(t *testing.T) {
 	if _, err := s.BrandHistory("a/b c", 10, 0); err != nil {
 		t.Fatalf("BrandHistory: %v", err)
 	}
-	if want := "/api/v2/accounts/9901287/tendlc/brands/a/b c/history"; got.path != want {
-		t.Errorf("path = %q, want %q (url.PathEscape then server-side decode)", got.path, want)
+	if want := "/api/v2/accounts/9901287/tendlc/brands/a%2Fb%20c/history"; got.escapedPath != want {
+		t.Errorf("escaped path = %q, want %q", got.escapedPath, want)
 	}
 }
