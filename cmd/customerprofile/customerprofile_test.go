@@ -1,0 +1,234 @@
+package customerprofile
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/Bandwidth/cli/internal/api"
+	cpsvc "github.com/Bandwidth/cli/internal/customerprofile"
+)
+
+// Every test in this file (and in Tasks 5-7's create/list/get command tests)
+// runs Cmd itself directly with Cmd.Execute() rather than wrapping a leaf
+// command in a fresh fake root (testutil.NewTestRoot's pattern elsewhere in
+// this repo). That means Cmd IS its own root for the lifetime of this test
+// binary: cmd.Root() resolves to Cmd, never to the real cmd.rootCmd, because
+// `go test ./cmd/customerprofile` never links cmd/root.go at all.
+//
+// cmdutil.OutputFlags / cmdutil.AccountIDFlag read --format/--plain/
+// --account-id via cmd.Root().Flag(...), so Cmd needs those three flags
+// registered directly on itself for standalone execution to parse them.
+//
+// This registration deliberately lives here, in a _test.go file, and NOT in
+// customerprofile.go: production Cmd is mounted under the real rootCmd
+// (cmd/root.go's rootCmd.AddCommand(customerprofile.Cmd)), which already owns
+// --format/--plain/--account-id as persistent flags. If Cmd ALSO declared its
+// own copies, cobra's flag merge would let Cmd's copy shadow root's for any
+// customer-profile subcommand's actual parse (closest ancestor wins on a
+// name collision), while cmd.Root().Flag("plain") still reads the REAL root's
+// untouched flag object — silently reporting --plain as never set in
+// production. Confirmed with a minimal cobra repro before writing this.
+// Keeping the flags test-only avoids that regression entirely: the real
+// `band` binary never compiles this file, so production Cmd never carries
+// them.
+func init() {
+	Cmd.PersistentFlags().String("format", "json", "")
+	Cmd.PersistentFlags().Bool("plain", false, "")
+	Cmd.PersistentFlags().String("account-id", "", "")
+}
+
+// resetFlags restores every flag on cmd and all its descendants to its
+// default value and clears the Changed bit.
+//
+// Cmd is a package-level cobra command, and cobra records flag state
+// (including Changed) on it permanently. Within one test binary, every
+// Cmd.Execute() call in this package shares that state: a flag set by an
+// earlier test (e.g. --name from a create test) would otherwise leak into a
+// later run, and cmd.Flags().Changed("offset") would stay true for the rest
+// of the process once any test passes --offset — silently breaking
+// TestListRejectsAllWithExplicitOffset or making it pass for the wrong
+// reason. resetFlags is walked recursively (rather than listing flag names
+// per command) so it does not need updating as later tasks add more
+// commands and flags to this tree.
+func resetFlags(cmd *cobra.Command) {
+	reset := func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	}
+	cmd.Flags().VisitAll(reset)
+	cmd.PersistentFlags().VisitAll(reset)
+	for _, sub := range cmd.Commands() {
+		resetFlags(sub)
+	}
+}
+
+func TestCommandsRegistered(t *testing.T) {
+	for _, name := range []string{"create", "list", "get"} {
+		c, _, err := Cmd.Find([]string{name})
+		if err != nil || c.Name() != name {
+			t.Errorf("Find(%q) = %v, err %v", name, c, err)
+		}
+	}
+}
+
+func TestCreateRequiresName(t *testing.T) {
+	out, err := runCmd(t, nil, "create")
+	if err == nil {
+		t.Fatal("expected an error when --name is missing")
+	}
+	if !strings.Contains(err.Error(), "missing required flags") ||
+		!strings.Contains(err.Error(), "--name") {
+		t.Errorf("error = %q, want it to name the missing flag", err.Error())
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing written on a flag error", out)
+	}
+}
+
+func TestCreateEmitsReceipt(t *testing.T) {
+	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"id":"abc","name":"Acme","version":0}}`))
+	}, "create", "--name", "Acme", "--plain")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %q", out)
+	}
+	if got["id"] != "abc" {
+		t.Errorf("stdout id = %v, want abc", got["id"])
+	}
+}
+
+func TestListReturnsArrayEvenForOneResult(t *testing.T) {
+	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"abc"}],"page":{"pageSize":50,"totalElements":1}}`))
+	}, "list", "--plain")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out), "[") {
+		t.Errorf("stdout = %q, want a JSON array", out)
+	}
+}
+
+func TestListAllWalksEveryPage(t *testing.T) {
+	var offsets []string
+	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		offsets = append(offsets, r.URL.Query().Get("offset"))
+		if r.URL.Query().Get("offset") == "" || r.URL.Query().Get("offset") == "0" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"a"}],"page":{"pageSize":1,"totalElements":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"b"}],"page":{"pageSize":1,"totalElements":2}}`))
+	}, "list", "--all", "--limit", "1", "--plain")
+	if err != nil {
+		t.Fatalf("list --all: %v", err)
+	}
+	if !strings.Contains(out, `"a"`) || !strings.Contains(out, `"b"`) {
+		t.Errorf("stdout = %q, want items from both pages", out)
+	}
+}
+
+func TestListRejectsAllWithExplicitOffset(t *testing.T) {
+	_, err := runCmd(t, nil, "list", "--all", "--offset", "0")
+	if err == nil {
+		t.Fatal("expected an error: --all with an explicit --offset is contradictory")
+	}
+}
+
+func TestGetReturnsObjectNotArray(t *testing.T) {
+	out, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"id":"abc","softDeleted":false}}`))
+	}, "get", "abc", "--plain")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out), "{") {
+		t.Errorf("stdout = %q, want a JSON object", out)
+	}
+}
+
+func TestGetRequiresID(t *testing.T) {
+	if _, err := runCmd(t, nil, "get"); err == nil {
+		t.Fatal("expected an error when no ID is given")
+	}
+}
+
+func TestFilterFlagUsesDeepObjectEncoding(t *testing.T) {
+	var rawQuery string
+	_, err := runCmd(t, func(w http.ResponseWriter, r *http.Request) {
+		rawQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"data":[],"page":{"pageSize":50,"totalElements":0}}`))
+	}, "list", "--name-contains", "Acme", "--plain")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(rawQuery, "name%5Bcontains%5D=Acme") {
+		t.Errorf("query = %q, want deepObject form name[contains]=Acme", rawQuery)
+	}
+}
+
+// runCmd executes one command against a stub server and returns stdout.
+// Every command test in this package goes through it, so the seam is
+// swapped in exactly one place.
+func runCmd(t *testing.T, h http.HandlerFunc, args ...string) (string, error) {
+	t.Helper()
+
+	resetFlags(Cmd)
+
+	var srvURL string
+	if h != nil {
+		srv := httptest.NewServer(h)
+		t.Cleanup(srv.Close)
+		srvURL = srv.URL
+	}
+
+	orig := service
+	service = func(cmd *cobra.Command) (*cpsvc.Service, error) {
+		if srvURL == "" {
+			t.Fatal("command made a request but no stub server was provided")
+		}
+		return cpsvc.NewService(api.NewClientNoAuth(srvURL), "9901287"), nil
+	}
+	t.Cleanup(func() { service = orig })
+
+	stdout := captureStdout(t)
+	Cmd.SetArgs(args)
+	Cmd.SetOut(io.Discard)
+	Cmd.SetErr(io.Discard)
+	err := Cmd.Execute()
+	return stdout(), err
+}
+
+// captureStdout redirects os.Stdout for the duration of a test and returns a
+// func that yields what was written. Commands print structured output with
+// fmt.Print rather than to cobra's writer, so cobra's SetOut is not enough.
+func captureStdout(t *testing.T) func() string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() { _, _ = io.Copy(&buf, r); close(done) }()
+	t.Cleanup(func() { os.Stdout = orig })
+	return func() string {
+		_ = w.Close()
+		<-done
+		return buf.String()
+	}
+}
