@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -99,4 +100,10 @@ func filterNumbers(data interface{}, status, campaignID string) interface{} {
 		return []interface{}{}
 	}
 	return filtered
+}
+
+// isNotFound reports whether err is an API 404.
+func isNotFound(err error) bool {
+	var apiErr *api.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == 404
 }
