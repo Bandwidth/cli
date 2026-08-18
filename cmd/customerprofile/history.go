@@ -31,11 +31,17 @@ var historyCmd = &cobra.Command{
 }
 
 var historyListCmd = &cobra.Command{
-	Use:     "list <profile-id>",
-	Short:   "List a customer profile's versions",
-	Long:    "Lists every recorded version of a customer profile, newest first. Always returns an array.",
-	Example: `  band customer-profile history list 3IIzIFnRRQBE3AMzPpMTNo --plain`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "list <profile-id>",
+	Short: "List a customer profile's versions",
+	Long: `Lists every recorded version of a customer profile, newest first. Always returns an array.
+
+Each entry nests the profile snapshot under "data" and audit fields under
+"metadata" — the version number is at metadata.version, not top-level the way
+it is on 'customer-profile get'. Observed metadata.operation values are
+CREATED, UPDATED, and DELETED.`,
+	Example: `  band customer-profile history list 3IIzIFnRRQBE3AMzPpMTNo --plain
+  # [{"data":{"id":"...","name":"Acme"},"metadata":{"version":2,"operation":"UPDATED","userName":"...","createdDate":"..."}}, ...]`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if historyAll && cmd.Flags().Changed("offset") {
 			return cmdutil.NewFlagError("--all fetches every page, so it cannot be combined with --offset")
@@ -55,6 +61,7 @@ var historyListCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			warnIfHistoryTruncated(cmd, env, len(items))
 			return output.StdoutPlainList(format, plain, items)
 		}
 
@@ -80,10 +87,15 @@ var historyGetCmd = &cobra.Command{
 	Short: "Get one version of a customer profile",
 	Long: `Shows a single historical version of a customer profile.
 
+The response nests the profile snapshot under "data" and audit fields under
+"metadata" — the version number is at metadata.version, not top-level the way
+it is on 'customer-profile get'.
+
 Separate from 'history list' so the --plain shape never depends on argument
 count: list always returns an array, get always returns an object.`,
-	Example: `  band customer-profile history get 3IIzIFnRRQBE3AMzPpMTNo 2 --plain`,
-	Args:    cobra.ExactArgs(2),
+	Example: `  band customer-profile history get 3IIzIFnRRQBE3AMzPpMTNo 2 --plain
+  # {"data":{"id":"...","name":"Acme"},"metadata":{"version":2,"operation":"UPDATED","userName":"...","createdDate":"..."}}`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := service(cmd)
 		if err != nil {
@@ -100,4 +112,14 @@ count: list always returns an array, get always returns an object.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 		return output.StdoutAuto(format, plain, obj)
 	},
+}
+
+// warnIfHistoryTruncated tells the caller on stderr when more versions exist
+// than a single page returned. Mirrors list.go's warnIfTruncated: stdout
+// stays clean so a pipeline sees only data.
+func warnIfHistoryTruncated(cmd *cobra.Command, env *api.Envelope, returned int) {
+	if env.Page != nil && env.Page.Truncated(historyOffset+returned) {
+		cmd.PrintErrf("showing %d of %d versions; pass --all to fetch every page\n",
+			returned, env.Page.TotalElements)
+	}
 }
