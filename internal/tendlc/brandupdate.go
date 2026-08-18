@@ -186,6 +186,13 @@ func BuildBrandUpdateRequest(current map[string]any, o BrandUpdateOptions, chang
 // Only the fields production requires for EVERY brand type are checked. The
 // per-type tier is deliberately left to the API: it is layered behind a
 // brandType check server-side, and SOLE_PROPRIETOR's rules are unobservable.
+//
+// brandType also gets the same enum check ValidateBrandCreate runs via
+// validBrandType: without it, a --brand-type typo exits 6 on create but
+// reaches the API and comes back as a raw 400 on update. As in
+// ValidateBrandCreate, an invalid brand type does not short-circuit — it is
+// aggregated with any cleared required fields into one error, the way the API
+// reports every violation in one 400.
 func ValidateBrandUpdate(body map[string]any) error {
 	required := [][2]string{
 		{"brand-type", "brandType"},
@@ -199,11 +206,27 @@ func ValidateBrandUpdate(body map[string]any) error {
 		{"email", "email"},
 	}
 	var cleared []string
+	var invalidBrandType bool
 	for _, p := range required {
-		if s, ok := body[p[1]].(string); !ok || s == "" {
+		s, ok := body[p[1]].(string)
+		if !ok || s == "" {
 			cleared = append(cleared, p[0])
+			continue
+		}
+		if p[1] == "brandType" && !validBrandType(s) {
+			invalidBrandType = true
 		}
 	}
+
+	if invalidBrandType {
+		enumMsg := "--brand-type must be one of: " + strings.Join(BrandTypes, ", ")
+		if len(cleared) > 0 {
+			return cmdutil.NewFlagError(enumMsg + "; these fields are required on every brand and cannot be cleared: --" +
+				strings.Join(cleared, ", --"))
+		}
+		return cmdutil.NewFlagError(enumMsg)
+	}
+
 	if len(cleared) > 0 {
 		return cmdutil.NewFlagError("these fields are required on every brand and cannot be cleared: --" +
 			strings.Join(cleared, ", --"))

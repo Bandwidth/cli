@@ -51,6 +51,24 @@ func liveBrand() map[string]any {
 		"website":                          "https://bandwidth.com",
 		// A field the CLI does not model at all. It must survive the round trip.
 		"someFutureField": "keep me",
+		// These nested structures represent future API fields that the CLI does not
+		// model. They are not in brandReadOnlyFields, so they survive the strip step.
+		// deepCopyBrandValue must recursively copy them, or mutations in body will
+		// corrupt current — this is why deep copy is critical for this component.
+		"nestedMetadata": map[string]any{
+			"key1": "value1",
+			"key2": 42,
+		},
+		"nestedEntries": []any{
+			map[string]any{
+				"id":    "entry1",
+				"count": 10,
+			},
+			map[string]any{
+				"id":    "entry2",
+				"count": 20,
+			},
+		},
 	}
 }
 
@@ -140,10 +158,51 @@ func TestBuildBrandUpdateRequestDeepCopiesNestedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildBrandUpdateRequest: %v", err)
 	}
-	body["displayName"] = "mutated"
-	if current["displayName"] != "Bandwidth Acceptance Test" {
-		t.Error("mutating the body changed the caller's map")
+
+	// Mutate the nested map in body and verify current is unaffected.
+	// This would fail under a shallow copy because nestedMetadata is not in
+	// brandReadOnlyFields so it survives the strip step. The type assertions
+	// are unconditional: a missing or wrongly-typed key must fail the test
+	// loudly, not silently skip the mutation and the assertion that depends
+	// on it.
+	nestedMap, ok := body["nestedMetadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("body[%q] = %#v (%T), want map[string]any", "nestedMetadata", body["nestedMetadata"], body["nestedMetadata"])
 	}
+	nestedMap["key1"] = "mutated"
+
+	currentNested, ok := current["nestedMetadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("current[%q] = %#v (%T), want map[string]any", "nestedMetadata", current["nestedMetadata"], current["nestedMetadata"])
+	}
+	if currentNested["key1"] != "value1" {
+		t.Error("mutating nested map in body changed the caller's nested map")
+	}
+
+	// Mutate a nested entry in the nested array and verify current is unaffected.
+	// This exercises the []any recursion path.
+	nestedArray, ok := body["nestedEntries"].([]any)
+	if !ok || len(nestedArray) == 0 {
+		t.Fatalf("body[%q] = %#v, want a non-empty []any", "nestedEntries", body["nestedEntries"])
+	}
+	nestedEntry, ok := nestedArray[0].(map[string]any)
+	if !ok {
+		t.Fatalf("body[%q][0] = %#v (%T), want map[string]any", "nestedEntries", nestedArray[0], nestedArray[0])
+	}
+	nestedEntry["count"] = 999
+
+	currentArray, ok := current["nestedEntries"].([]any)
+	if !ok || len(currentArray) == 0 {
+		t.Fatalf("current[%q] = %#v, want a non-empty []any", "nestedEntries", current["nestedEntries"])
+	}
+	currentEntry, ok := currentArray[0].(map[string]any)
+	if !ok {
+		t.Fatalf("current[%q][0] = %#v (%T), want map[string]any", "nestedEntries", currentArray[0], currentArray[0])
+	}
+	if currentEntry["count"] != 10 {
+		t.Error("mutating nested array entry in body changed the caller's nested array")
+	}
+
 	// The read map must also be untouched by the strip step.
 	if _, present := current["bandwidthId"]; !present {
 		t.Error("stripping read-only fields mutated the caller's map")
@@ -168,6 +227,46 @@ func TestBuildBrandUpdateRequestValidatesCompletedBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "display-name") {
 		t.Errorf("error should name the flag, got: %s", err.Error())
+	}
+}
+
+// ValidateBrandCreate rejects a brand-type typo against BrandTypes via
+// validBrandType, so the same typo must not slip through on update just
+// because the string is non-empty — that asymmetry would turn a local
+// exit-6 FlagError into a raw 400 from the API.
+func TestBuildBrandUpdateRequestRejectsInvalidBrandType(t *testing.T) {
+	_, err := BuildBrandUpdateRequest(liveBrand(),
+		BrandUpdateOptions{BrandType: "NOT_A_REAL_TYPE"},
+		map[string]bool{"brand-type": true})
+	if err == nil {
+		t.Fatal("want an error for an invalid --brand-type value")
+	}
+	if !strings.Contains(err.Error(), "brand-type") {
+		t.Errorf("error should name the flag, got: %s", err.Error())
+	}
+	for _, bt := range BrandTypes {
+		if !strings.Contains(err.Error(), bt) {
+			t.Errorf("error should list valid brand types (missing %q), got: %s", bt, err.Error())
+		}
+	}
+}
+
+// Task 2 of this plan shipped an early return that discarded already-collected
+// violations when brand-type was invalid. ValidateBrandUpdate must aggregate:
+// an invalid brand-type value and a cleared required field must both surface
+// in the same error, not have one hide the other.
+func TestBuildBrandUpdateRequestAggregatesInvalidBrandTypeWithClearedFields(t *testing.T) {
+	_, err := BuildBrandUpdateRequest(liveBrand(),
+		BrandUpdateOptions{BrandType: "NOT_A_REAL_TYPE", DisplayName: ""},
+		map[string]bool{"brand-type": true, "display-name": true})
+	if err == nil {
+		t.Fatal("want an error for an invalid --brand-type value combined with a cleared required field")
+	}
+	if !strings.Contains(err.Error(), "brand-type") {
+		t.Errorf("error should name brand-type, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "display-name") {
+		t.Errorf("error should also name display-name (must not short-circuit), got: %s", err.Error())
 	}
 }
 
