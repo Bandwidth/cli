@@ -12,19 +12,19 @@ import (
 // types, so each test can knock out exactly one thing.
 func commonValid() BrandCreateOptions {
 	return BrandCreateOptions{
-		CustomerProfileID: "2H6qSHb8yLCm76Dw7TAA9W",
-		BrandType:         "PRIVATE_PROFIT",
-		DisplayName:       "Acme Corp",
-		Street:            "1000 Bandwidth Way",
-		City:              "Raleigh",
-		State:             "NC",
-		PostalCode:        "27606",
-		CountryCodeA3:     "USA",
-		Phone:             "+19195551234",
-		Email:             "ops@acme.com",
-		CompanyName:       "Acme Corporation Inc",
-		Vertical:          "TECHNOLOGY",
-		EIN:               "562242657",
+		CustomerProfileID:       "2H6qSHb8yLCm76Dw7TAA9W",
+		BrandType:               "PRIVATE_PROFIT",
+		DisplayName:             "Acme Corp",
+		Street:                  "1000 Bandwidth Way",
+		City:                    "Raleigh",
+		State:                   "NC",
+		PostalCode:              "27606",
+		CountryCodeA3:           "USA",
+		Phone:                   "+19195551234",
+		Email:                   "ops@acme.com",
+		CompanyName:             "Acme Corporation Inc",
+		Vertical:                "TECHNOLOGY",
+		EIN:                     "562242657",
 		EINIssuingCountryCodeA3: "USA",
 	}
 }
@@ -92,7 +92,15 @@ func TestValidateBrandCreatePerTypeRequirements(t *testing.T) {
 			wantFlags: []string{"--company-name", "--vertical", "--ein", "--ein-issuing-country-code-a3"},
 		},
 		{
-			name: "GOVERNMENT has the same extra requirements and does NOT need website",
+			name: "GOVERNMENT requires company-name, vertical, ein, ein-issuing-country-code-a3",
+			mutate: func(o *BrandCreateOptions) {
+				o.BrandType = "GOVERNMENT"
+				o.CompanyName, o.Vertical, o.EIN, o.EINIssuingCountryCodeA3 = "", "", "", ""
+			},
+			wantFlags: []string{"--company-name", "--vertical", "--ein", "--ein-issuing-country-code-a3"},
+		},
+		{
+			name: "GOVERNMENT does not require website",
 			mutate: func(o *BrandCreateOptions) {
 				o.BrandType = "GOVERNMENT"
 				o.Website = ""
@@ -169,6 +177,27 @@ func TestValidateBrandCreateRequiresBrandType(t *testing.T) {
 	err := ValidateBrandCreate(o)
 	if err == nil || !strings.Contains(err.Error(), "--brand-type") {
 		t.Fatalf("want a --brand-type error, got %v", err)
+	}
+}
+
+// Regression test: invalid brand type must not suppress other missing-field violations.
+// BrandCreateOptions{BrandType: "PRIVATE"} (a typo) should report the invalid type
+// AND the missing common fields in a single error.
+func TestValidateBrandCreateAggregatesViolationsWithInvalidBrandType(t *testing.T) {
+	o := BrandCreateOptions{BrandType: "PRIVATE"}
+	err := ValidateBrandCreate(o)
+	if err == nil {
+		t.Fatal("want an error for invalid brand type and missing fields")
+	}
+	// Should mention the invalid brand type and list valid options
+	if !strings.Contains(err.Error(), "PRIVATE_PROFIT") {
+		t.Errorf("error should list valid types, got: %s", err.Error())
+	}
+	// Should also mention at least some missing common fields
+	for _, want := range []string{"--customer-profile-id", "--display-name"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %s: %s", want, err.Error())
+		}
 	}
 }
 

@@ -89,6 +89,7 @@ func (o BrandCreateOptions) publicProfitRequired() [][2]string {
 // past, and inventing them would reject requests the API would accept.
 func ValidateBrandCreate(o BrandCreateOptions) error {
 	var missing []string
+	var invalidBrandType bool
 	collect := func(pairs [][2]string) {
 		for _, p := range pairs {
 			if p[1] == "" {
@@ -102,15 +103,30 @@ func ValidateBrandCreate(o BrandCreateOptions) error {
 	if o.BrandType == "" {
 		missing = append(missing, "brand-type")
 	} else if !validBrandType(o.BrandType) {
-		return cmdutil.NewFlagError("--brand-type must be one of: " + strings.Join(BrandTypes, ", "))
+		invalidBrandType = true
+	} else {
+		// Only collect per-type requirements if BrandType is valid
+		switch o.BrandType {
+		case "PRIVATE_PROFIT", "NON_PROFIT", "GOVERNMENT":
+			collect(o.registeredEntityRequired())
+		case "PUBLIC_PROFIT":
+			collect(o.registeredEntityRequired())
+			collect(o.publicProfitRequired())
+		}
 	}
 
-	switch o.BrandType {
-	case "PRIVATE_PROFIT", "NON_PROFIT", "GOVERNMENT":
-		collect(o.registeredEntityRequired())
-	case "PUBLIC_PROFIT":
-		collect(o.registeredEntityRequired())
-		collect(o.publicProfitRequired())
+	// If brand type is invalid, combine the enum error with any missing flags
+	if invalidBrandType {
+		enumMsg := "--brand-type must be one of: " + strings.Join(BrandTypes, ", ")
+		if len(missing) > 0 {
+			// Prepend -- to each missing flag name for the message
+			prefixedMissing := make([]string, len(missing))
+			for i, f := range missing {
+				prefixedMissing[i] = "--" + f
+			}
+			return cmdutil.NewFlagError(enumMsg + "; missing required flags: " + strings.Join(prefixedMissing, ", "))
+		}
+		return cmdutil.NewFlagError(enumMsg)
 	}
 
 	if len(missing) > 0 {
