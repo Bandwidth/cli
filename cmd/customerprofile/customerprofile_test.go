@@ -171,6 +171,46 @@ func TestFilterFlagUsesDeepObjectEncoding(t *testing.T) {
 	}
 }
 
+// TestRunCmdRootFlagsSurviveAcrossCalls guards runCmd's shared testRoot
+// design. cobra caches a command's merged ancestor flags (parentsPflags) the
+// first time it parses, and never refreshes that cache for a different root
+// object later (confirmed against the cobra v1.8.1 source: updateParentsPflags
+// only allocates parentsPflags once, and pflag.FlagSet.AddFlagSet skips any
+// flag already present by name). Cmd/createCmd/listCmd/getCmd are
+// package-level, so if runCmd is ever "simplified" back to building a fresh
+// testutil.NewTestRoot(Cmd) on every call, only the FIRST call in the whole
+// test binary actually gets that root's flags — every --plain/--format/
+// --account-id after that silently parses into the first call's discarded
+// root object, while cmd.Root().Flag(...) keeps reading the new, untouched
+// root. None of the other tests in this file would catch that: create/list/
+// get's payloads are already flat by the time they reach output.StdoutAuto/
+// StdoutPlainList, so plain=true and plain=false render identical bytes for
+// them. --format table is used here instead, specifically because table
+// output is visibly not JSON — this is the one assertion in the file that
+// actually depends on the second call's root flags having taken effect.
+func TestRunCmdRootFlagsSurviveAcrossCalls(t *testing.T) {
+	stub := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"id":"abc","name":"Acme"}}`))
+	}
+
+	// Call 1: ordinary, default (json) output — exercises whatever ancestor-
+	// flag cache cobra builds the first time getCmd parses.
+	if _, err := runCmd(t, stub, "get", "abc"); err != nil {
+		t.Fatalf("get (default json): %v", err)
+	}
+
+	// Call 2: explicit --format table. If the second call's root flags were
+	// lost, this silently renders as JSON instead of a table.
+	out, err := runCmd(t, stub, "get", "abc", "--format", "table")
+	if err != nil {
+		t.Fatalf("get --format table: %v", err)
+	}
+	trimmed := strings.TrimSpace(out)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		t.Errorf("stdout = %q, want table output — --format table on the second runCmd call was silently dropped", out)
+	}
+}
+
 // runCmd executes one command against a stub server and returns stdout.
 // Every command test in this package goes through it, so the seam is
 // swapped in exactly one place.
