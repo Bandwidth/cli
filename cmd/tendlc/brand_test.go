@@ -104,6 +104,42 @@ func stubBrandHistory(t *testing.T) *httptest.Server {
 	})
 }
 
+// stubBrandListTwoPages serves genuinely different items on page one
+// (offset 0) versus page two (offset 1), keyed off the request's offset
+// query param — the same shape as
+// cmd/customerprofile/customerprofile_test.go's TestListAllWalksEveryPage
+// stub. totalElements=2 with pageSize=1 forces api.ForEachPage to fetch both
+// pages under --all --limit 1.
+func stubBrandListTwoPages(t *testing.T) *httptest.Server {
+	return newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		offset := r.URL.Query().Get("offset")
+		if offset == "" || offset == "0" {
+			_, _ = w.Write([]byte(`{"data":[{"bandwidthId":"PAGE-A"}],` +
+				`"page":{"pageNumber":0,"pageSize":1,"totalElements":2,"totalPages":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"bandwidthId":"PAGE-B"}],` +
+			`"page":{"pageNumber":1,"pageSize":1,"totalElements":2,"totalPages":2}}`))
+	})
+}
+
+// stubBrandHistoryTwoPages is stubBrandListTwoPages's twin for the history
+// endpoint: distinct messages per page, keyed off the offset query param.
+func stubBrandHistoryTwoPages(t *testing.T) *httptest.Server {
+	return newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		offset := r.URL.Query().Get("offset")
+		if offset == "" || offset == "0" {
+			_, _ = w.Write([]byte(`{"data":[{"createdDate":"2026-01-02T00:00:00Z",` +
+				`"message":"page one message"}],` +
+				`"page":{"pageNumber":0,"pageSize":1,"totalElements":2,"totalPages":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"createdDate":"2026-01-01T00:00:00Z",` +
+			`"message":"page two message"}],` +
+			`"page":{"pageNumber":1,"pageSize":1,"totalElements":2,"totalPages":2}}`))
+	})
+}
+
 // stubBrandErr answers every request with the given status code and body,
 // for exercising roleGateError and other failure paths.
 func stubBrandErr(t *testing.T, code int, body string) *httptest.Server {
@@ -183,6 +219,28 @@ func TestBrandListWarnsOnTruncationViaStderrOnly(t *testing.T) {
 	}
 }
 
+// TestBrandListAllWalksEveryPage exercises the ForEachPage accumulation
+// branch, mirroring cmd/customerprofile/customerprofile_test.go's
+// TestListAllWalksEveryPage: the stub serves distinct items per page, and the
+// assertion requires BOTH pages' items in stdout, not just a count — an
+// implementation that fetched page one twice (or dropped a page) would fail
+// this even though len(all) might coincidentally match.
+func TestBrandListAllWalksEveryPage(t *testing.T) {
+	out, errOut, err := runBrandCmd(t, stubBrandListTwoPages(t), "brand", "list", "--all", "--limit", "1", "--plain")
+	if err != nil {
+		t.Fatalf("brand list --all: %v", err)
+	}
+	if !strings.Contains(out, "PAGE-A") || !strings.Contains(out, "PAGE-B") {
+		t.Errorf("stdout = %q, want items from both pages", out)
+	}
+	// --all walks every page, so nothing was left un-fetched. A truncation
+	// warning here would be a lie: it would tell the caller records remain
+	// when the command just fetched all of them.
+	if strings.Contains(errOut, "pass --all") {
+		t.Errorf("stderr = %q, want no truncation warning when --all already walked every page", errOut)
+	}
+}
+
 func TestBrandGetAcceptsEitherIdentifier(t *testing.T) {
 	srv, paths := stubBrandGetCapturing(t)
 	for _, id := range []string{"BGJR2BA", "WET8JUY8H0"} {
@@ -223,6 +281,22 @@ func TestBrandHistoryReturnsMessageLog(t *testing.T) {
 	}
 	if !strings.Contains(out, "Successfully updated brand") {
 		t.Errorf("stdout should carry history messages, got %q", out)
+	}
+}
+
+// TestBrandHistoryAllWalksEveryPage is TestBrandListAllWalksEveryPage's twin
+// for `brand history --all`.
+func TestBrandHistoryAllWalksEveryPage(t *testing.T) {
+	out, errOut, err := runBrandCmd(t, stubBrandHistoryTwoPages(t), "brand", "history", "BGJR2BA",
+		"--all", "--limit", "1", "--plain")
+	if err != nil {
+		t.Fatalf("brand history --all: %v", err)
+	}
+	if !strings.Contains(out, "page one message") || !strings.Contains(out, "page two message") {
+		t.Errorf("stdout = %q, want messages from both pages", out)
+	}
+	if strings.Contains(errOut, "pass --all") {
+		t.Errorf("stderr = %q, want no truncation warning when --all already walked every page", errOut)
 	}
 }
 
