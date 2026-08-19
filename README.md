@@ -267,7 +267,7 @@ band customer-profile list --plain
 band customer-profile get <id> --plain
 ```
 
-Brand and campaign registration still happen in the Bandwidth App. See [AGENTS.md](AGENTS.md) for the full command reference, including update, delete/restore, and version history.
+If you register directly with TCR (not through import), brand registration now happens in the CLI too — see `band tendlc brand create` above. Campaign registration still happens in the Bandwidth App either way. See [AGENTS.md](AGENTS.md#customer-profiles) for the full customer-profile command reference, including update, delete/restore, and version history.
 
 ### 10DLC campaigns (local numbers)
 
@@ -280,7 +280,7 @@ band tendlc number +19195551234 --plain    # check a specific number
 band tendlc campaigns --plain              # list campaigns on your account
 ```
 
-Campaign and brand registration happen in the Bandwidth App — see [dev.bandwidth.com](https://dev.bandwidth.com/docs/messaging/campaign-management/) for the full guide. Once you have a campaign, assign numbers to it with `band tnoption assign`.
+These two commands are for **import** customers (accounts that register campaigns through TCR and import them to Bandwidth) — campaign registration for them still happens in the Bandwidth App; see [dev.bandwidth.com](https://dev.bandwidth.com/docs/messaging/campaign-management/) for the full guide. **Direct** customers register brands via `band tendlc brand create` (above); campaign registration for direct customers isn't in the CLI yet. Once you have a campaign either way, assign numbers to it with `band tnoption assign`.
 
 ### Toll-free verification (toll-free numbers)
 
@@ -476,6 +476,25 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption assign <number...>` | Assign phone numbers to a 10DLC campaign |
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
+
+### 10DLC brands and vettings (direct customers)
+
+`band tendlc brand` and `band tendlc vetting` register and manage 10DLC brands for accounts that register directly with TCR (not through import). Requires the Registration Center feature and Campaign Management role — check with `band tendlc status --plain`. A brand needs a customer profile first (`band customer-profile create`); see [AGENTS.md](AGENTS.md#10dlc-brands) for the full flag matrix, `--wait` semantics, and exit codes.
+
+| Command | What it does |
+|---------|-------------|
+| `band tendlc brand create --customer-profile-id <id> --brand-type <type> ...` | Register a brand (required flags vary by `--brand-type`; `--wait` blocks until VERIFIED/VETTED_VERIFIED) |
+| `band tendlc brand list` | List brands (filter by `--customer-profile-id`, `--brand-id`, `--identity-status`, `--brand-type`, name substrings) |
+| `band tendlc brand get <id>` | Get one brand — accepts either the `bandwidthId` or the TCR `brandId` |
+| `band tendlc brand history <id>` | Show a brand's activity log |
+| `band tendlc brand update <id>` | Update a brand (read-modify-write; `--confirm` required when an identity-affecting field changes) |
+| `band tendlc brand delete <id>` | Permanently delete a brand (`--confirm` required; does not delete the backing customer profile) |
+| `band tendlc brand reverify <id>` | Resubmit a brand for identity verification ($4 fee; `--confirm` required) |
+| `band tendlc brand resend-2fa <id>` | Re-send the Auth+ business 2FA verification email |
+| `band tendlc brand refresh <id>` | Re-pull a brand's current state from TCR |
+| `band tendlc vetting list <brand-id>` | List the external vettings recorded against a brand |
+| `band tendlc vetting request <brand-id> --evp <evp> --class <class>` | Order a new external vetting (billable; `--confirm` required) |
+| `band tendlc vetting import <brand-id> <vetting-id> --evp <evp>` | Record a vetting already performed outside Bandwidth (not billable, no `--confirm`) |
 
 ### SIP trunk authentication
 
