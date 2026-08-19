@@ -83,12 +83,18 @@ func TestAwaitTerminalSuccessPrintsFinalResource(t *testing.T) {
 
 // A business failure is exit 4, and the resource still reaches stdout —
 // the caller needs to see which state it settled in.
+//
+// This uses ERROR, not UNVERIFIED: ERROR is the only brandIdentityStatus that
+// still classifies as StateFailure. UNVERIFIED moved to StatePending because
+// production reports it for both "still registering" and "rejected" alike
+// (see ClassifyBrandIdentity's comment) — it now polls to timeout instead of
+// landing here.
 func TestAwaitTerminalBusinessFailureExitsFourWithResource(t *testing.T) {
 	cmd, errBuf := asyncTestCmd()
 	target := pollTarget{
 		Noun: "brand",
 		Fetch: func() (map[string]any, bool, error) {
-			return map[string]any{"bandwidthId": "WABC", "brandIdentityStatus": "UNVERIFIED"}, true, nil
+			return map[string]any{"bandwidthId": "WABC", "brandIdentityStatus": "ERROR"}, true, nil
 		},
 		Classify: func(o map[string]any) tendlcsvc.StateClass {
 			s, _ := o["brandIdentityStatus"].(string)
@@ -110,7 +116,7 @@ func TestAwaitTerminalBusinessFailureExitsFourWithResource(t *testing.T) {
 	if got["bandwidthId"] != "WABC" {
 		t.Errorf("stdout must still carry the resource, got %v", got)
 	}
-	if !strings.Contains(errBuf.String(), "reverify") {
+	if !strings.Contains(errBuf.String(), "refresh") {
 		t.Errorf("stderr should carry state-specific remediation, got %q", errBuf.String())
 	}
 }
@@ -139,6 +145,47 @@ func TestAwaitTerminalTimeoutStillEmitsReceipt(t *testing.T) {
 	}
 	if got["resume"] != "band tendlc brand get WABC" {
 		t.Errorf("timeout receipt must carry a resume command, got %v", got)
+	}
+	// This target sets no LastSeenStatus func — the field must be optional
+	// and absent, not empty-stringed in, so a delete poll (which has no
+	// status to report) never gets a bogus lastSeenStatus:"" in its receipt.
+	if _, ok := got["lastSeenStatus"]; ok {
+		t.Errorf("a target with no LastSeenStatus must not add the field, got %v", got)
+	}
+}
+
+// The whole reason UNVERIFIED now polls to timeout instead of failing fast:
+// the timeout receipt must say what was last observed, so an agent that
+// times out can tell "still might verify" from "definitely broken" instead
+// of reading a receipt that was frozen at call time and says nothing about
+// the brand's actual state.
+func TestAwaitTerminalTimeoutIncludesLastSeenStatus(t *testing.T) {
+	cmd, _ := asyncTestCmd()
+	target := pollTarget{
+		Noun: "brand",
+		Fetch: func() (map[string]any, bool, error) {
+			return map[string]any{"bandwidthId": "WABC", "brandIdentityStatus": "UNVERIFIED"}, true, nil
+		},
+		Classify: func(o map[string]any) tendlcsvc.StateClass {
+			s, _ := o["brandIdentityStatus"].(string)
+			return tendlcsvc.ClassifyBrandIdentity(s)
+		},
+		LastSeenStatus: func(o map[string]any) string {
+			s, _ := o["brandIdentityStatus"].(string)
+			return s
+		},
+	}
+	receipt := map[string]any{"bandwidthId": "WABC", "resume": "band tendlc brand get WABC"}
+	out, err := runAwait(t, cmd, target, receipt, 20*time.Millisecond, time.Millisecond)
+	if code := cmdutil.ExitCodeForError(err); code != cmdutil.ExitTimeout {
+		t.Errorf("exit code = %d, want %d (timeout)", code, cmdutil.ExitTimeout)
+	}
+	got := decodeReceipt(t, out)
+	if got["bandwidthId"] != "WABC" {
+		t.Fatalf("timeout must still print the ID, got %v", got)
+	}
+	if got["lastSeenStatus"] != "UNVERIFIED" {
+		t.Fatalf("timeout receipt must carry the last observed status, got %v", got)
 	}
 }
 

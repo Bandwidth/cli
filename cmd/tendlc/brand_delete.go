@@ -28,9 +28,16 @@ var brandDeleteCmd = &cobra.Command{
 	Short: "Permanently delete a 10DLC brand",
 	Long: `Permanently deletes a 10DLC brand. This cannot be undone.
 
-Deleting a brand also deletes its associated customer profile, deletes the
-brand in TCR for direct accounts, and requires every campaign on the brand to
-be deactivated first — the API rejects the delete otherwise.
+Deleting a brand deletes the brand in TCR for direct accounts, and requires
+every campaign on the brand to be deactivated first — the API rejects the
+delete otherwise.
+
+The endpoint docs say this cascades to delete the backing customer profile.
+Measured on production: it does not. After deleting two test brands, both
+backing profiles remained retrievable with softDeleted:false. The profile is
+NOT deleted by this command — if you no longer need it, remove it separately
+with 'band customer-profile delete <id>'. A profile backs exactly one brand,
+so an orphaned one left behind after a brand delete cannot be reused.
 
 Requires --confirm. With --wait, this polls until the brand is gone: a 404 on
 the follow-up read IS success here, the only place in this command set where
@@ -40,9 +47,11 @@ that is true.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requireConfirm(brandDeleteConfirm,
-			"this permanently deletes brand "+args[0]+" AND its associated customer profile. "+
-				"It cannot be undone, it deletes the brand in TCR for direct accounts, and it "+
-				"requires every campaign on the brand to be deactivated first. Pass --confirm to proceed."); err != nil {
+			"this permanently deletes brand "+args[0]+". It cannot be undone, it deletes the brand in TCR "+
+				"for direct accounts, and it requires every campaign on the brand to be deactivated first. "+
+				"It does NOT delete the associated customer profile (measured against production — the "+
+				"documented cascade does not happen); remove that separately with "+
+				"'band customer-profile delete <id>' if you no longer need it. Pass --confirm to proceed."); err != nil {
 			return err
 		}
 

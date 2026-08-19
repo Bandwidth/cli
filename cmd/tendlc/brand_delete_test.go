@@ -43,8 +43,19 @@ func TestBrandDeleteWithoutConfirmMakesNoRequests(t *testing.T) {
 	if !strings.Contains(err.Error(), "cannot be undone") {
 		t.Errorf("error = %q, want it to say the delete cannot be undone", err.Error())
 	}
-	if !strings.Contains(err.Error(), "customer profile") {
-		t.Errorf("error = %q, want it to mention the associated customer profile", err.Error())
+	// The endpoint docs claim the delete cascades to the customer profile.
+	// Measured against production: it does not — both test brands' backing
+	// profiles remained retrievable (softDeleted:false) after the brand was
+	// deleted. The refusal message must not repeat that false claim, and
+	// must instead tell the caller to remove the profile separately.
+	if strings.Contains(err.Error(), "also deletes") || strings.Contains(err.Error(), "AND its associated") {
+		t.Errorf("error = %q, must not claim the delete cascades to the customer profile", err.Error())
+	}
+	if !strings.Contains(err.Error(), "does NOT delete the associated customer profile") {
+		t.Errorf("error = %q, want it to state the profile is NOT deleted", err.Error())
+	}
+	if !strings.Contains(err.Error(), "customer-profile delete") {
+		t.Errorf("error = %q, want it to point at 'band customer-profile delete' to remove the profile separately", err.Error())
 	}
 }
 

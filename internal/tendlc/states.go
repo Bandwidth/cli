@@ -15,13 +15,39 @@ const (
 )
 
 // ClassifyBrandIdentity maps brandIdentityStatus to a polling outcome.
-// Derived from statuses observed live across 10 brands, not from the enum.
+//
+// UNVERIFIED classifies as StatePending, not StateFailure — this looks wrong
+// against enumBrandIdentityStatus, which documents REGISTERING as the
+// in-progress state. It is not wrong. Measured on production, 2026-08-19:
+// production never returns REGISTERING on the read path at all. Two brands
+// submitted with byte-identical payloads both read UNVERIFIED within ~3s of
+// their 202. WOVNQBAVI2 flipped to VERIFIED at t≈46s. WAR2FRJPVQ was still
+// UNVERIFIED at t≈275s, with no TCR response in its history at all. So
+// UNVERIFIED means either "TCR hasn't answered yet" or "TCR rejected it", and
+// the status alone cannot say which — polling GET .../history for the
+// free-text BRAND_IDENTITY_STATUS_UPDATE entry was considered and rejected,
+// since that message is undocumented and unversioned and coupling poll
+// control flow to its wording would be worse than the latency. Classifying
+// UNVERIFIED as a failure made 'brand create --wait' exit 4 within seconds of
+// every create, including brands that went on to verify — a false failure on
+// the flagship async path, on every single run. Do not "correct" this back
+// to StateFailure to match the published enum: the enum is aspirational,
+// this is what production actually does. The accepted tradeoff is that a
+// brand that really did fail now polls to timeout instead of failing fast;
+// awaitTerminal's last-seen-status mechanism exists so that timeout receipt
+// still tells the caller what was last observed.
 func ClassifyBrandIdentity(status string) StateClass {
 	switch status {
 	case "VERIFIED", "VETTED_VERIFIED", "SELF_DECLARED":
 		return StateSuccess
-	case "UNVERIFIED", "ERROR":
+	case "ERROR":
 		return StateFailure
+	case "UNVERIFIED":
+		// Explicit rather than falling through to default: this is the one
+		// value most likely to be "corrected" back to StateFailure by a
+		// future reader who only checks it against the enum. See the
+		// evidence above.
+		return StatePending
 	default:
 		return StatePending
 	}
@@ -44,12 +70,17 @@ func ClassifyVetting(status string) StateClass {
 
 // BrandRemediation returns what to do about a brand that settled into a
 // business-failure state, or "" for any state that is not one.
+//
+// UNVERIFIED is deliberately absent: ClassifyBrandIdentity no longer treats
+// it as a business failure (see its comment), so awaitTerminal never calls
+// this with "UNVERIFIED" on the failure path. It also has no single
+// remediation to give — it means either "still registering" or "rejected",
+// and advising a paid reverify for a brand that may simply not have finished
+// yet would be actively wrong. A brand stuck at UNVERIFIED past --wait's
+// timeout is surfaced instead via the timeout receipt's lastSeenStatus and
+// note, pointing at 'band tendlc brand get' / 'brand history' to check.
 func BrandRemediation(status string) string {
 	switch status {
-	case "UNVERIFIED":
-		return "identity could not be confirmed — most often the legal company name does not match the EIN. " +
-			"Correct the details with 'band tendlc brand update' then 'band tendlc brand reverify' (incurs a $4 fee), " +
-			"or request external vetting with 'band tendlc vetting request'."
 	case "ERROR":
 		return "the registry reported an error on this brand. Re-pull its current state from TCR with " +
 			"'band tendlc brand refresh', and contact your Bandwidth account manager if it persists."

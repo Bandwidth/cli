@@ -24,6 +24,19 @@ type pollTarget struct {
 	// Remediate returns operator-facing next steps for a business-failure
 	// state. Optional; "" prints nothing.
 	Remediate func(obj map[string]any) string
+	// LastSeenStatus extracts a short status string from a fetched object,
+	// for inclusion in the timeout/error receipt (see awaitTerminal). This is
+	// what lets a caller who times out see what was last observed instead of
+	// a receipt frozen at call time.
+	//
+	// Optional; nil for polls with nothing meaningful to report — a delete
+	// poll (GoneIsDone) never reaches this, since a found object there is a
+	// still-existing resource, not a status to describe. Leave it nil rather
+	// than returning "": an empty string is treated as "nothing observed
+	// yet" and is omitted from the receipt, so a real empty status and "not
+	// wired up" must not be conflated by supplying one where there's nothing
+	// to say.
+	LastSeenStatus func(obj map[string]any) string
 	// GoneIsDone makes a 404 the success condition, for delete polls.
 	GoneIsDone bool
 }
@@ -54,7 +67,19 @@ func awaitTerminal(cmd *cobra.Command, t pollTarget, receipt map[string]any, tim
 	// its bare value — a receipt of just {"bandwidthId": "WABC"} would print
 	// as the bare string "WABC" instead of a JSON object, which is exactly
 	// the "no structured receipt" failure this function exists to prevent.
+
+	// lastStatus holds the most recent status LastSeenStatus reported, so a
+	// timeout or mid-poll transport failure can say what was last observed
+	// instead of printing a receipt frozen at call time. It stays "" for
+	// targets with no LastSeenStatus (or that never got a successful,
+	// classifiable fetch), and emitReceipt below leaves it out of the
+	// receipt entirely in that case rather than adding an empty field.
+	var lastStatus string
+
 	emitReceipt := func() {
+		if lastStatus != "" {
+			receipt["lastSeenStatus"] = lastStatus
+		}
 		_ = output.Stdout(format, receipt)
 	}
 
@@ -73,6 +98,11 @@ func awaitTerminal(cmd *cobra.Command, t pollTarget, receipt map[string]any, tim
 			}
 			if t.GoneIsDone {
 				return false, nil, nil
+			}
+			if t.LastSeenStatus != nil {
+				if s := t.LastSeenStatus(obj); s != "" {
+					lastStatus = s
+				}
 			}
 			switch t.Classify(obj) {
 			case tendlcsvc.StateSuccess, tendlcsvc.StateFailure:

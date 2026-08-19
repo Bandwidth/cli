@@ -209,25 +209,35 @@ func TestBrandCreateWaitPollsToVerified(t *testing.T) {
 	}
 }
 
-// Test 5: --wait on a brand that settles UNVERIFIED exits 4, still prints
-// the resource, and puts remediation on stderr.
-func TestBrandCreateWaitUnverifiedExitsConflictWithRemediation(t *testing.T) {
+// Test 5: --wait on a brand stuck at UNVERIFIED does NOT exit 4 — measured
+// on production, UNVERIFIED is what a brand reports both while still
+// registering and when genuinely rejected, and the two are indistinguishable
+// from this field alone (see ClassifyBrandIdentity). So it polls to timeout
+// (exit 5) instead of failing fast, and the timeout receipt carries the
+// last-seen status plus a note pointing at 'brand get'/'brand history' —
+// that receipt is now the only way a UNVERIFIED brand's outcome surfaces.
+// --timeout 0 makes the deadline already past by the first poll, so this
+// doesn't wait out the real 5s poll interval.
+func TestBrandCreateWaitUnverifiedTimesOutWithLastSeenStatusAndNote(t *testing.T) {
 	stubProfileService(t, stubProfileServer(t, http.StatusOK, `{"data":{"id":"CP123"}}`))
 	srv := stubBrandCreateThenPoll(t, "WNEW1", "UNVERIFIED")
 
-	out, errOut, err := runBrandCmd(t, srv, validPrivateProfitArgs("--wait", "--timeout", "5")...)
+	out, _, err := runBrandCmd(t, srv, validPrivateProfitArgs("--wait", "--timeout", "0")...)
 	if err == nil {
-		t.Fatal("want an error for a brand that settles UNVERIFIED")
+		t.Fatal("want a timeout error for a brand stuck at UNVERIFIED")
 	}
-	if code := cmdutil.ExitCodeForError(err); code != cmdutil.ExitConflict {
-		t.Errorf("exit code = %d, want %d", code, cmdutil.ExitConflict)
+	if code := cmdutil.ExitCodeForError(err); code != cmdutil.ExitTimeout {
+		t.Errorf("exit code = %d, want %d (timeout, not conflict)", code, cmdutil.ExitTimeout)
 	}
 	got := decodeStdout(t, out)
-	if got["brandIdentityStatus"] != "UNVERIFIED" {
-		t.Errorf("stdout = %v, want the UNVERIFIED resource still printed", got)
+	if got["bandwidthId"] != "WNEW1" {
+		t.Fatalf("timeout must still print the ID, got %v", got)
 	}
-	if !strings.Contains(errOut, "reverify") {
-		t.Errorf("stderr should carry UNVERIFIED remediation, got %q", errOut)
+	if got["lastSeenStatus"] != "UNVERIFIED" {
+		t.Errorf("timeout receipt must carry the last-seen status, got %v", got)
+	}
+	if note, _ := got["note"].(string); !strings.Contains(note, "brand get") || !strings.Contains(note, "brand history") {
+		t.Errorf("timeout receipt note must point at both 'brand get' and 'brand history', got %v", got["note"])
 	}
 }
 
@@ -252,6 +262,31 @@ func TestBrandCreateWaitTimeoutStillEmitsReceipt(t *testing.T) {
 	}
 	if got["resume"] != "band tendlc brand get WNEW1" {
 		t.Errorf("timeout receipt must carry a resume command, got %v", got)
+	}
+}
+
+// Test 6b: --wait on a brand that settles ERROR still exits 4 (business
+// failure) with remediation on stderr — ERROR is the one brandIdentityStatus
+// that stayed StateFailure when UNVERIFIED moved to StatePending (see
+// ClassifyBrandIdentity), so this is the only cmd-level coverage left of
+// that path now that UNVERIFIED no longer takes it.
+func TestBrandCreateWaitErrorExitsConflictWithRemediation(t *testing.T) {
+	stubProfileService(t, stubProfileServer(t, http.StatusOK, `{"data":{"id":"CP123"}}`))
+	srv := stubBrandCreateThenPoll(t, "WNEW1", "ERROR")
+
+	out, errOut, err := runBrandCmd(t, srv, validPrivateProfitArgs("--wait", "--timeout", "5")...)
+	if err == nil {
+		t.Fatal("want an error for a brand that settles ERROR")
+	}
+	if code := cmdutil.ExitCodeForError(err); code != cmdutil.ExitConflict {
+		t.Errorf("exit code = %d, want %d", code, cmdutil.ExitConflict)
+	}
+	got := decodeStdout(t, out)
+	if got["brandIdentityStatus"] != "ERROR" {
+		t.Errorf("stdout = %v, want the ERROR resource still printed", got)
+	}
+	if !strings.Contains(errOut, "refresh") {
+		t.Errorf("stderr should carry ERROR remediation, got %q", errOut)
 	}
 }
 

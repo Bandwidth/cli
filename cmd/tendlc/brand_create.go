@@ -148,7 +148,21 @@ first. Retrying blind risks a second brand against the same profile.`,
 				status, _ := o["brandIdentityStatus"].(string)
 				return tendlcsvc.BrandRemediation(status)
 			},
+			LastSeenStatus: func(o map[string]any) string {
+				status, _ := o["brandIdentityStatus"].(string)
+				return status
+			},
 		}
+		// UNVERIFIED now polls to timeout instead of failing fast (see
+		// ClassifyBrandIdentity), which makes a timeout the normal way a
+		// truly-failed registration surfaces. The receipt has to carry that
+		// weight, so a note is added directly to it here — advisory only,
+		// and it never reaches the success or business-failure (ERROR) output
+		// paths, only the timeout/transport-error receipt (see awaitTerminal's
+		// emitReceipt).
+		receipt["note"] = "if this timed out at UNVERIFIED, the brand may still be registering with TCR " +
+			"rather than having failed. Check 'band tendlc brand get " + bandwidthID +
+			"' for its current status, or 'band tendlc brand history " + bandwidthID + "' for the full history."
 		return awaitTerminal(cmd, target, receipt, time.Duration(brandCreateTimeout)*time.Second, brandCreatePollInterval)
 	},
 }
