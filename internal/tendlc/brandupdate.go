@@ -190,16 +190,29 @@ func BuildBrandUpdateRequest(current map[string]any, o BrandUpdateOptions, chang
 // here makes the failure a local, zero-request FlagError (exit 6) rather than
 // a raw 400 from the API.
 //
-// Only the fields production requires for EVERY brand type are checked. The
-// per-type tier is deliberately left to the API: it is layered behind a
-// brandType check server-side, and SOLE_PROPRIETOR's rules are unobservable.
+// The universal fields (required on every brand type) are checked first. On
+// top of those, the same per-type tier ValidateBrandCreate enforces
+// (registeredEntityRequiredFlags for every type except SOLE_PROPRIETOR;
+// registeredEntityRequiredFlags + publicProfitRequiredFlags for
+// PUBLIC_PROFIT, both from brandoptions.go, reused rather than duplicated)
+// applies here too — clearing --vertical on a PRIVATE_PROFIT brand or
+// --website on a PUBLIC_PROFIT one is exactly the mistake ValidateBrandCreate
+// already catches on create, and update must catch it the same way rather
+// than letting it reach the API as a raw 400. brandType is read from the
+// completed BODY, not from the options struct: the consequence attaches to
+// what the brand IS right now, the same reasoning IdentityFieldsChanged uses.
+// SOLE_PROPRIETOR still skips the per-type tier — its rules are
+// account-gated and unobservable on any account we have, and inventing them
+// would reject requests production accepts. The tier is also skipped
+// whenever brandType is itself missing or invalid: which tier would apply
+// isn't known.
 //
 // brandType also gets the same enum check ValidateBrandCreate runs via
 // validBrandType: without it, a --brand-type typo exits 6 on create but
 // reaches the API and comes back as a raw 400 on update. As in
 // ValidateBrandCreate, an invalid brand type does not short-circuit — it is
-// aggregated with any cleared required fields into one error, the way the API
-// reports every violation in one 400.
+// aggregated with any cleared required fields (universal AND per-type) into
+// one error, the way the API reports every violation in one 400.
 func ValidateBrandUpdate(body map[string]any) error {
 	required := [][2]string{
 		{"brand-type", "brandType"},
@@ -214,14 +227,33 @@ func ValidateBrandUpdate(body map[string]any) error {
 	}
 	var cleared []string
 	var invalidBrandType bool
+	brandTypeMissing := false
+	brandType := ""
 	for _, p := range required {
 		s, ok := body[p[1]].(string)
 		if !ok || s == "" {
 			cleared = append(cleared, p[0])
+			if p[1] == "brandType" {
+				brandTypeMissing = true
+			}
 			continue
 		}
-		if p[1] == "brandType" && !validBrandType(s) {
-			invalidBrandType = true
+		if p[1] == "brandType" {
+			brandType = s
+			if !validBrandType(s) {
+				invalidBrandType = true
+			}
+		}
+	}
+
+	if !brandTypeMissing && !invalidBrandType {
+		switch brandType {
+		case "PRIVATE_PROFIT", "NON_PROFIT", "GOVERNMENT":
+			cleared = append(cleared, clearedTierFields(body, registeredEntityRequiredFlags)...)
+		case "PUBLIC_PROFIT":
+			cleared = append(cleared, clearedTierFields(body, registeredEntityRequiredFlags)...)
+			cleared = append(cleared, clearedTierFields(body, publicProfitRequiredFlags)...)
+			// SOLE_PROPRIETOR (and any other valid type): no per-type tier to check.
 		}
 	}
 
@@ -239,6 +271,21 @@ func ValidateBrandUpdate(body map[string]any) error {
 			strings.Join(cleared, ", --"))
 	}
 	return nil
+}
+
+// clearedTierFields returns the flags in tier (a per-type requirement list
+// from brandoptions.go) whose backing field is missing or empty in body —
+// i.e. would clear a field production requires for the brand's current type
+// on this full-replacement PUT.
+func clearedTierFields(body map[string]any, tier []string) []string {
+	var out []string
+	for _, flag := range tier {
+		s, ok := body[brandFlagToField[flag]].(string)
+		if !ok || s == "" {
+			out = append(out, flag)
+		}
+	}
+	return out
 }
 
 // identityFlags are the flags whose change can trigger a $4 fee, reset the

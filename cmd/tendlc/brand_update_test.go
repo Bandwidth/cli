@@ -34,7 +34,10 @@ func liveBrandForUpdate(brandType, businessContactEmail string) map[string]any {
 		"email":                   "npatel@bandwidth.com",
 		"ein":                     "562242657",
 		"einIssuingCountryCodeA3": "USA",
+		"vertical":                "PROFESSIONAL",
 		"website":                 "https://bandwidth.com",
+		"stockSymbol":             "BAND",
+		"stockExchange":           "NASDAQ",
 		"businessContactEmail":    businessContactEmail,
 		"someFutureField":         "keep me",
 	}

@@ -58,26 +58,61 @@ func (o BrandCreateOptions) commonRequired() [][2]string {
 	}
 }
 
+// registeredEntityRequiredFlags are additionally required for every brand
+// type except SOLE_PROPRIETOR, whose rules are unobservable on any account we
+// have. Shared with ValidateBrandUpdate (brandupdate.go) so the per-type tier
+// is defined exactly once for both create and update.
+var registeredEntityRequiredFlags = []string{"company-name", "vertical", "ein", "ein-issuing-country-code-a3"}
+
+// publicProfitRequiredFlags are the four fields the schema marks optional but
+// that production requires for PUBLIC_PROFIT, layered on top of
+// registeredEntityRequiredFlags. Shared with ValidateBrandUpdate for the same
+// reason as registeredEntityRequiredFlags.
+var publicProfitRequiredFlags = []string{"stock-symbol", "stock-exchange", "website", "business-contact-email"}
+
+// value returns the option value for a CLI flag name understood by the
+// per-type requirement tiers above. Mirrors BrandUpdateOptions.value in
+// brandupdate.go.
+func (o BrandCreateOptions) value(flag string) string {
+	switch flag {
+	case "company-name":
+		return o.CompanyName
+	case "vertical":
+		return o.Vertical
+	case "ein":
+		return o.EIN
+	case "ein-issuing-country-code-a3":
+		return o.EINIssuingCountryCodeA3
+	case "stock-symbol":
+		return o.StockSymbol
+	case "stock-exchange":
+		return o.StockExchange
+	case "website":
+		return o.Website
+	case "business-contact-email":
+		return o.BusinessContactEmail
+	}
+	return ""
+}
+
 // registeredEntityRequired are additionally required for every type except
 // SOLE_PROPRIETOR, whose rules are unobservable on any account we have.
 func (o BrandCreateOptions) registeredEntityRequired() [][2]string {
-	return [][2]string{
-		{"company-name", o.CompanyName},
-		{"vertical", o.Vertical},
-		{"ein", o.EIN},
-		{"ein-issuing-country-code-a3", o.EINIssuingCountryCodeA3},
+	pairs := make([][2]string, len(registeredEntityRequiredFlags))
+	for i, f := range registeredEntityRequiredFlags {
+		pairs[i] = [2]string{f, o.value(f)}
 	}
+	return pairs
 }
 
 // publicProfitRequired are the four fields the schema marks optional but that
 // production requires for PUBLIC_PROFIT.
 func (o BrandCreateOptions) publicProfitRequired() [][2]string {
-	return [][2]string{
-		{"stock-symbol", o.StockSymbol},
-		{"stock-exchange", o.StockExchange},
-		{"website", o.Website},
-		{"business-contact-email", o.BusinessContactEmail},
+	pairs := make([][2]string, len(publicProfitRequiredFlags))
+	for i, f := range publicProfitRequiredFlags {
+		pairs[i] = [2]string{f, o.value(f)}
 	}
+	return pairs
 }
 
 // ValidateBrandCreate reports every missing required flag in one error, the

@@ -248,7 +248,7 @@ func TestBrandGetAcceptsEitherIdentifier(t *testing.T) {
 			t.Fatalf("brand get %s: %v", id, err)
 		}
 	}
-	if len(*paths) != 2 || !strings.HasSuffix((*paths)[1], "/brands/WET8JUY8H0") {
+	if len(*paths) != 2 || !strings.HasSuffix((*paths)[0], "/brands/BGJR2BA") || !strings.HasSuffix((*paths)[1], "/brands/WET8JUY8H0") {
 		t.Errorf("paths = %v; get must pass the ID through unchanged", *paths)
 	}
 }

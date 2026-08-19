@@ -214,6 +214,17 @@ band transcription create <call-id> <rec-id> --wait             # blocks until t
 
 All `--wait` commands support `--timeout <seconds>`. Exit code 5 on timeout.
 
+**`--timeout` bounds when polling stops, not wall-clock duration.** The
+underlying poll loop (`internal/cmdutil/poll.go`) checks the deadline
+*between* poll attempts, not during one, and always sleeps the full
+`--interval` rather than whatever time remains before the deadline. So a
+call can run past `--timeout` by up to one poll interval plus one in-flight
+request — and if that late attempt happens to succeed, the command exits
+**0**, not 5, seconds after the timeout you asked for. Concretely: a 5s
+poll interval with `--timeout 1` can still succeed at t≈5s. Do not treat
+`--timeout` as a precise deadline; treat it as a lower bound on how long the
+CLI will keep trying.
+
 ## Output
 
 **Always use `--plain` when parsing CLI output.** Default JSON reflects Bandwidth's API structure with deep nesting. `--plain` flattens it:
@@ -1144,6 +1155,19 @@ still-pending.
 **The receipt guarantee.** On every path that reaches a 202 accept, stdout
 carries `bandwidthId` somewhere in valid JSON — that ID is the one thing that
 cannot be recovered any other way if the command exits without printing it.
+
+**This guarantee covers every path the command itself takes — it does not
+cover an interrupt.** `cmd/root.go`'s `Execute()` runs with no context, and
+the CLI does not install a `SIGINT` handler anywhere (no `signal.Notify` /
+`signal.NotifyContext` in the codebase), so the cancellation branch in
+`awaitTerminal` that exists specifically to emit this receipt can never
+actually fire from a real Ctrl-C. Press Ctrl-C during `--wait` after the 202
+has landed and the process dies immediately with no `bandwidthId` on stdout.
+If that happens, recover with `band tendlc brand list --customer-profile-id
+<id>` to find the brand that was accepted. This applies CLI-wide, not just to
+`tendlc` — it is a pre-existing, repo-wide gap, tracked separately from this
+PR.
+
 Without `--wait`, or on a timeout/transport failure with `--wait`, that's the
 literal synthetic receipt: `{"bandwidthId": "...", "status": "accepted",
 "resume": "band tendlc brand get <id>", "brandId": "..." (if already known)}`
@@ -1228,12 +1252,32 @@ profiles remained retrievable afterward with `softDeleted: false`. Delete the
 profile separately with `band customer-profile delete <id>` if you don't need
 it — otherwise it's an orphan that can never back another brand (a profile
 is 1:1 with a brand for life). Also note: deletion takes roughly **40
-seconds** to be reflected in `brand list`; `delete --wait` polls until the
-brand is actually gone (the one poll in this whole command set where a 404
-on the follow-up read means success, not "not ready yet").
+seconds** to be reflected in `brand list`/`brand get`; `delete --wait` polls
+until the brand is actually gone (the one poll in this whole command set
+where a 404 on the follow-up read means success, not "not ready yet").
+
+**The receipt's `deleted` field is honest, not optimistic.** The DELETE call
+only ACCEPTS the request — it does not confirm the brand is actually gone.
+So `deleted` starts `false` and stays `false` until a 404 on the follow-up
+read proves it. Without `--wait`, that's every invocation:
 
 ```
 $ band tendlc brand delete WOVNQBAVI2 --confirm --plain
+{
+  "deleted": false,
+  "id": "WOVNQBAVI2",
+  "note": "delete accepted but not yet confirmed: production takes roughly 40s to actually remove the brand, so it may still appear in 'brand list' or 'brand get' until then. Confirm with 'band tendlc brand get WOVNQBAVI2' — a 404 means it is gone.",
+  "status": "accepted"
+}
+$ echo $?
+0
+```
+
+With `--wait`, `deleted` flips to `true` (and `note` is dropped) only once
+the follow-up read actually 404s:
+
+```
+$ band tendlc brand delete WOVNQBAVI2 --confirm --wait --plain
 {
   "deleted": true,
   "id": "WOVNQBAVI2",
@@ -1242,6 +1286,12 @@ $ band tendlc brand delete WOVNQBAVI2 --confirm --plain
 $ echo $?
 0
 ```
+
+A `--wait` timeout (exit **5**) prints the identical unconfirmed receipt as
+the no-`--wait` case above — `deleted: false`, the `note`, exit 5 — never
+`deleted: true`. A receipt that claims completion while the exit code says
+"gave up waiting" would be worse than no receipt at all: an agent branching
+on `deleted` must not be able to see `true` paired with a non-zero exit.
 
 ### `update` is read-modify-write, with no version field
 

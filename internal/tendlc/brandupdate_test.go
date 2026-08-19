@@ -72,6 +72,29 @@ func liveBrand() map[string]any {
 	}
 }
 
+// livePublicProfitBrand is liveBrand with brandType switched to PUBLIC_PROFIT
+// and the two extra fields production requires only for that type
+// (stockSymbol, stockExchange) filled in, so a test can clear one PUBLIC_PROFIT
+// -specific field at a time without the other three already being "cleared"
+// by omission.
+func livePublicProfitBrand() map[string]any {
+	b := liveBrand()
+	b["brandType"] = "PUBLIC_PROFIT"
+	b["stockSymbol"] = "BAND"
+	b["stockExchange"] = "NASDAQ"
+	return b
+}
+
+// liveSoleProprietorBrand is liveBrand with brandType switched to
+// SOLE_PROPRIETOR — the one type ValidateBrandUpdate must never apply the
+// registeredEntityRequiredFlags tier to, since those rules are account-gated
+// and unobservable on any account available for testing.
+func liveSoleProprietorBrand() map[string]any {
+	b := liveBrand()
+	b["brandType"] = "SOLE_PROPRIETOR"
+	return b
+}
+
 // The defining property: changing one field must not disturb any other,
 // including fields the CLI has never heard of.
 func TestBuildBrandUpdateRequestIsLossless(t *testing.T) {
@@ -267,6 +290,72 @@ func TestBuildBrandUpdateRequestAggregatesInvalidBrandTypeWithClearedFields(t *t
 	}
 	if !strings.Contains(err.Error(), "display-name") {
 		t.Errorf("error should also name display-name (must not short-circuit), got: %s", err.Error())
+	}
+}
+
+// ValidateBrandCreate requires --vertical for every brand type except
+// SOLE_PROPRIETOR. Update must catch the same mistake: clearing --vertical on
+// a PRIVATE_PROFIT brand must fail locally (zero-request FlagError) rather
+// than reach the API as a raw 400 on the full-replacement PUT.
+func TestBuildBrandUpdateRequestRejectsClearedVerticalOnPrivateProfit(t *testing.T) {
+	_, err := BuildBrandUpdateRequest(liveBrand(),
+		BrandUpdateOptions{Vertical: ""},
+		map[string]bool{"vertical": true})
+	if err == nil {
+		t.Fatal("want an error when clearing --vertical on a PRIVATE_PROFIT brand")
+	}
+	if !strings.Contains(err.Error(), "vertical") {
+		t.Errorf("error should name vertical, got: %s", err.Error())
+	}
+}
+
+// Same asymmetry, the PUBLIC_PROFIT-only tier: ValidateBrandCreate requires
+// --website (plus stock-symbol, stock-exchange, business-contact-email) on
+// PUBLIC_PROFIT specifically. brandType is read from the CURRENT brand, not
+// from the options struct — livePublicProfitBrand supplies it.
+func TestBuildBrandUpdateRequestRejectsClearedWebsiteOnPublicProfit(t *testing.T) {
+	_, err := BuildBrandUpdateRequest(livePublicProfitBrand(),
+		BrandUpdateOptions{Website: ""},
+		map[string]bool{"website": true})
+	if err == nil {
+		t.Fatal("want an error when clearing --website on a PUBLIC_PROFIT brand")
+	}
+	if !strings.Contains(err.Error(), "website") {
+		t.Errorf("error should name website, got: %s", err.Error())
+	}
+}
+
+// SOLE_PROPRIETOR is deliberately exempt from the per-type tier: its field
+// rules are account-gated and unobservable on any account available for
+// testing, and inventing them would reject requests production accepts.
+// Clearing --vertical on a SOLE_PROPRIETOR brand must NOT be treated as
+// clearing a required field.
+func TestBuildBrandUpdateRequestSkipsPerTypeTierForSoleProprietor(t *testing.T) {
+	_, err := BuildBrandUpdateRequest(liveSoleProprietorBrand(),
+		BrandUpdateOptions{Vertical: ""},
+		map[string]bool{"vertical": true})
+	if err != nil {
+		t.Fatalf("SOLE_PROPRIETOR must skip the per-type tier, got an error: %v", err)
+	}
+}
+
+// Per-type violations must aggregate with universal-field violations into one
+// error, the same way an invalid brand-type aggregates with cleared required
+// fields (TestBuildBrandUpdateRequestAggregatesInvalidBrandTypeWithClearedFields
+// above) — not have the universal check short-circuit before the per-type
+// tier ever runs.
+func TestBuildBrandUpdateRequestAggregatesUniversalAndPerTypeClearedFields(t *testing.T) {
+	_, err := BuildBrandUpdateRequest(liveBrand(),
+		BrandUpdateOptions{DisplayName: "", Vertical: ""},
+		map[string]bool{"display-name": true, "vertical": true})
+	if err == nil {
+		t.Fatal("want an error combining a cleared universal field with a cleared per-type field")
+	}
+	if !strings.Contains(err.Error(), "display-name") {
+		t.Errorf("error should name display-name, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "vertical") {
+		t.Errorf("error should also name vertical (must aggregate, not short-circuit), got: %s", err.Error())
 	}
 }
 
