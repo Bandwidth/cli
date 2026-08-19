@@ -386,3 +386,35 @@ func TestBrandRefreshHasNoWaitFlag(t *testing.T) {
 		t.Errorf("brandRefreshCmd has a --wait flag, want none: %+v", f)
 	}
 }
+
+// Test 12: THE load-bearing regression test for buildAcceptedReceipt's
+// no-bandwidthId fallback. This is the exact shape production sends for an
+// orphan brand (see brandCreateCmd's Long): a single-key body,
+// {"accounts":[...]}, with no bandwidthId anywhere. Before the fallback was
+// switched from output.StdoutAuto to output.Stdout, --plain would run this
+// through FlattenResponse, which unwraps ANY single-key map — silently
+// dropping the "accounts" key and printing a bare array instead of the
+// object it came from.
+func TestBrandCreateNoBandwidthIDPrintsBodyWithKeyPreserved(t *testing.T) {
+	stubProfileService(t, stubProfileServer(t, http.StatusOK, `{"data":{"id":"CP123"}}`))
+	srv := newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"data":{"accounts":[{"accountId":"9901287"}]}}`))
+	})
+
+	out, _, err := runBrandCmd(t, srv, validPrivateProfitArgs("--plain")...)
+	if err == nil {
+		t.Fatal("want an error when the response carries no bandwidthId")
+	}
+	if !strings.Contains(err.Error(), "bandwidthId") {
+		t.Errorf("error = %q, want it to name the missing bandwidthId", err.Error())
+	}
+	got := decodeStdout(t, out)
+	accounts, ok := got["accounts"]
+	if !ok {
+		t.Fatalf("stdout = %q, want the \"accounts\" key preserved, not unwrapped to a bare array", out)
+	}
+	if arr, ok := accounts.([]any); !ok || len(arr) != 1 {
+		t.Errorf("stdout accounts = %v, want a one-element array", accounts)
+	}
+}

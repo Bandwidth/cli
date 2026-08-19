@@ -237,3 +237,23 @@ func TestBrandIDIsPathEscaped(t *testing.T) {
 		t.Errorf("escaped path = %q, want %q", got.escapedPath, want)
 	}
 }
+
+// A vetting ID is an externally-supplied provider value, not one Bandwidth
+// assigns — so it must be escaped in the URL just like a brand ID.
+// TestImportVettingPutsToVettingPath above asserts on got.path, which
+// net/url DECODES, so it would pass identically whether
+// url.PathEscape(vettingID) was called or not (this is the same "regression
+// guard that guards nothing" class Task 1's brandPath test hit — see the
+// escapedPath field's own history). This test asserts on got.escapedPath
+// instead, so it actually catches the escape being dropped.
+func TestVettingIDIsPathEscaped(t *testing.T) {
+	var got captured
+	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
+
+	if _, err := s.ImportVetting("BGJR2BA", "v/1 2", map[string]any{"evpId": "AEGIS"}); err != nil {
+		t.Fatalf("ImportVetting: %v", err)
+	}
+	if want := "/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/vettings/v%2F1%202"; got.escapedPath != want {
+		t.Errorf("escaped path = %q, want %q", got.escapedPath, want)
+	}
+}

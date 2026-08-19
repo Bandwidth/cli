@@ -148,6 +148,28 @@ func TestVettingRequestRejectsInvalidEvp(t *testing.T) {
 	}
 }
 
+// Test 4b: a missing --evp combined with an invalid --class combines into
+// one error naming both. This is validateVettingRequest's one-missing/
+// one-invalid aggregation branch — the same defect class Tasks 2 and 3 both
+// shipped and both got a regression guard for; this was the one instance
+// left unguarded at the final whole-branch review (item C3).
+func TestVettingRequestAggregatesOneMissingOneInvalidFlag(t *testing.T) {
+	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BGJR2BA",
+		"--class", "NOT_A_CLASS", "--confirm")
+	if err == nil {
+		t.Fatal("want an error for a missing --evp combined with an invalid --class")
+	}
+	if code := cmdutil.ExitCodeForError(err); code != cmdutil.ExitFlagError {
+		t.Errorf("exit code = %d, want %d", code, cmdutil.ExitFlagError)
+	}
+	if !strings.Contains(err.Error(), "STANDARD") {
+		t.Errorf("error = %q, want it to list the valid classes (the invalid --class violation)", err.Error())
+	}
+	if !strings.Contains(err.Error(), "--evp") {
+		t.Errorf("error = %q, want it to also name the missing --evp flag", err.Error())
+	}
+}
+
 // Test 5: vetting request without --confirm exits 6, makes ZERO HTTP
 // requests, and the message mentions the order is billable.
 func TestVettingRequestWithoutConfirmMakesNoRequests(t *testing.T) {
@@ -358,5 +380,38 @@ func TestVettingRoleGate403MapsToExitFour(t *testing.T) {
 				t.Errorf("exit code = %d, want %d", code, cmdutil.ExitConflict)
 			}
 		})
+	}
+}
+
+// THE load-bearing regression test for buildVettingReceipt's no-vetting-ID
+// fallback — the equivalent, in this file, of brand_create_test.go's
+// TestBrandCreateNoBandwidthIDPrintsBodyWithKeyPreserved. A response carrying
+// neither bandwidthId nor vettingBandwidthId must still print the real body
+// as an OBJECT, preserving its single key — not unwrap it to a bare array.
+// Before the fallback was switched from output.StdoutAuto to output.Stdout,
+// --plain would run this through FlattenResponse, which unwraps ANY
+// single-key map, silently dropping the "orders" key and printing a bare
+// array instead of the object it came from.
+func TestVettingRequestNoVettingIDPrintsBodyWithKeyPreserved(t *testing.T) {
+	srv := newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"data":{"orders":[{"orderId":"O1"}]}}`))
+	})
+
+	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BGJR2BA",
+		"--evp", "AEGIS", "--class", "STANDARD", "--confirm", "--plain")
+	if err == nil {
+		t.Fatal("want an error when the response carries no vetting ID")
+	}
+	if !strings.Contains(err.Error(), "vetting ID") {
+		t.Errorf("error = %q, want it to name the missing vetting ID", err.Error())
+	}
+	got := decodeStdout(t, out)
+	orders, ok := got["orders"]
+	if !ok {
+		t.Fatalf("stdout = %q, want the \"orders\" key preserved, not unwrapped to a bare array", out)
+	}
+	if arr, ok := orders.([]any); !ok || len(arr) != 1 {
+		t.Errorf("stdout orders = %v, want a one-element array", orders)
 	}
 }

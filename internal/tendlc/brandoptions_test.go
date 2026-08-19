@@ -201,6 +201,40 @@ func TestValidateBrandCreateAggregatesViolationsWithInvalidBrandType(t *testing.
 	}
 }
 
+// Regression test: the combined "invalid brand type + missing flags" error
+// must render its missing-flag list in the same sorted order
+// cmdutil.NewMissingFlagsError uses for the valid-type case — AGENTS.md
+// documents the sorted rendering, and the same set of missing flags must not
+// change order depending only on whether the brand type also happened to be
+// invalid.
+func TestValidateBrandCreateSortsMissingFlagsEvenWithInvalidBrandType(t *testing.T) {
+	err := ValidateBrandCreate(BrandCreateOptions{BrandType: "PRIVATE"})
+	if err == nil {
+		t.Fatal("want an error for invalid brand type and missing fields")
+	}
+	msg := err.Error()
+	// commonRequired's flags, sorted alphabetically: city, country-code-a3,
+	// customer-profile-id, display-name, email, phone, postal-code, state,
+	// street. Assert each one's position is strictly increasing left to
+	// right — an implementation that reverted to collection order (the
+	// struct field order above) would fail this.
+	sortedFlags := []string{
+		"--city", "--country-code-a3", "--customer-profile-id", "--display-name",
+		"--email", "--phone", "--postal-code", "--state", "--street",
+	}
+	prevIdx := -1
+	for _, flag := range sortedFlags {
+		idx := strings.Index(msg, flag)
+		if idx == -1 {
+			t.Fatalf("error = %q, want it to contain %q", msg, flag)
+		}
+		if idx < prevIdx {
+			t.Errorf("error = %q, want %q sorted after the previous flag (not in struct/collection order)", msg, flag)
+		}
+		prevIdx = idx
+	}
+}
+
 func TestBuildBrandCreateRequestOmitsUnsetOptionalFields(t *testing.T) {
 	body := BuildBrandCreateRequest(commonValid())
 

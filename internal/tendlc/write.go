@@ -37,9 +37,12 @@ func (s *Service) UpdateBrand(brandID string, body map[string]any) (*api.Envelop
 	return api.ParseEnvelope(raw)
 }
 
-// DeleteBrand permanently deletes a brand. This cascades to the associated
-// customer profile and, for direct accounts, deletes the brand in TCR. All
-// campaigns must be deactivated first.
+// DeleteBrand permanently deletes a brand. For direct accounts this also
+// deletes the brand in TCR, and all campaigns must be deactivated first. It
+// does NOT cascade to the associated customer profile — the endpoint docs
+// claim it does, but measured against production, both test profiles
+// survived with softDeleted: false. Delete the profile separately if it is
+// no longer needed.
 func (s *Service) DeleteBrand(brandID string) error {
 	if brandID == "" {
 		return fmt.Errorf("brand ID is required")
@@ -48,7 +51,9 @@ func (s *Service) DeleteBrand(brandID string) error {
 }
 
 // ReverifyBrand resubmits the brand for identity verification. This incurs a
-// $4 fee and resets brandIdentityStatus to REGISTERING. Returns 204.
+// $4 fee and resets brandIdentityStatus toward re-registration — documented
+// as REGISTERING, but production reads it back as UNVERIFIED until TCR
+// responds. Returns 204.
 func (s *Service) ReverifyBrand(brandID string) error {
 	if brandID == "" {
 		return fmt.Errorf("brand ID is required")

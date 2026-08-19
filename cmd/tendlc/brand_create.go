@@ -220,24 +220,27 @@ func preflightCustomerProfile(cmd *cobra.Command, profileID string) error {
 	return nil
 }
 
-// buildAcceptedReceipt turns a POST /brands 202 response into the receipt
-// shape both create and refresh print: {bandwidthId, brandId (if present),
-// status, resume}. bandwidthId exists immediately; brandId is assigned by
-// TCR and is commonly absent until registration completes, so it is omitted
-// entirely rather than sent as null.
+// buildAcceptedReceipt turns a brand-write acceptance response — the POST
+// /brands 202 that both create and refresh get, or the PUT /brands/{id}
+// response update gets — into the receipt shape all three print:
+// {bandwidthId, brandId (if present), status, resume}. bandwidthId exists
+// immediately; brandId is assigned by TCR and is commonly absent until
+// registration completes, so it is omitted entirely rather than sent as null.
 //
 // If the response carries no bandwidthId, there is no ID to poll or resume
 // with, so the caller must not proceed. This prints whatever the body
-// actually was (via StdoutAuto — this is real API data, not a synthetic
-// receipt, so it does not have FlattenResponse's single-key-map problem; see
-// async.go's emitReceipt for why receipts print differently) and returns an
-// error.
+// actually was via output.Stdout, not StdoutAuto: env.Data is real API data,
+// not a synthetic receipt, but it can still be a single-key map (the orphan
+// brand's {"accounts":[...]} body is exactly one), and FlattenResponse
+// unwraps any single-key map — under --plain that would drop the key and
+// print a bare array instead of the object it came from. See async.go's
+// emitReceipt for the same reasoning applied to synthetic receipts.
 func buildAcceptedReceipt(cmd *cobra.Command, env *api.Envelope) (receipt map[string]any, bandwidthID string, err error) {
 	obj, objErr := env.Object()
 	bandwidthID, _ = obj["bandwidthId"].(string)
 	if objErr != nil || bandwidthID == "" {
-		format, plain := cmdutil.OutputFlags(cmd)
-		if writeErr := output.StdoutAuto(format, plain, env.Data); writeErr != nil {
+		format, _ := cmdutil.OutputFlags(cmd)
+		if writeErr := output.Stdout(format, env.Data); writeErr != nil {
 			cmd.PrintErrln(fmt.Sprintf("writing response: %v", writeErr))
 		}
 		return nil, "", fmt.Errorf("brand response did not include a bandwidthId")

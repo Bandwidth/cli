@@ -57,17 +57,27 @@ first and sends it back with your changes applied. Fields you do not pass are
 preserved; passing a flag with an empty value clears that field (a field
 required on every brand cannot be cleared this way).
 
+This command prints an acceptance receipt, not the updated brand: measured
+against production, the PUT here returns a bare {bandwidthId, brandId}
+acceptance, and the change itself takes roughly 5 minutes to be reflected in
+'brand get' or 'brand history' — modifiedDate and the activity log both lag
+behind. Re-check after a few minutes to confirm the change actually applied.
+
 No --wait: unlike 'brand create', this write lands against a brand that is
 usually already in a terminal identity state, so polling for one here would
-return immediately and report success before the change actually took effect.
+return immediately and report success before the change actually took
+effect. The ~5 minute apply-latency above confirms this rather than merely
+motivating it: a --wait here would poll a brand still holding its
+pre-update state and report success before anything actually changed.
 
 Some changes need --confirm: changing company-name, brand-type, ein, or
 ein-issuing-country-code-a3 resubmits the brand for identity verification
-(may incur a $4 fee, resets brandIdentityStatus to REGISTERING, and is
-rejected outright if the brand has an active campaign or an active
-Standard/Enhanced/Political vetting). Changing mobile-phone sets identity
-status to UNVERIFIED. Changing business-contact-email on a PUBLIC_PROFIT
-brand revokes Auth+ compliance.`,
+(may incur a $4 fee, resets brandIdentityStatus toward re-registration —
+documented as REGISTERING, but it reads back as UNVERIFIED until TCR
+responds — and is rejected outright if the brand has an active campaign or
+an active Standard/Enhanced/Political vetting). Changing mobile-phone sets
+identity status to UNVERIFIED. Changing business-contact-email on a
+PUBLIC_PROFIT brand revokes Auth+ compliance.`,
 	Example: `  band tendlc brand update BGJR2BA --website "https://acme.example" --plain
   band tendlc brand update BGJR2BA --company-name "Acme Corp 2" --confirm --plain`,
 	Args: cobra.ExactArgs(1),
@@ -126,12 +136,27 @@ brand revokes Auth+ compliance.`,
 		if err != nil {
 			return brandUpdateConflictHint(args[0], err)
 		}
-		obj, err := updated.Object()
+
+		// PUT /brands/{id} returns an ACCEPTANCE, not the updated resource —
+		// measured against production: the body is a bare {bandwidthId,
+		// brandId}, and the change itself takes roughly 5 minutes to be
+		// reflected in a follow-up 'brand get' or 'brand history'. Printing
+		// updated.Object() here would hand back that 2-key acceptance as
+		// though it were the brand, with nothing telling the caller a change
+		// is still pending — so this reuses buildAcceptedReceipt (the same
+		// shape 'brand create'/'brand refresh' print) and adds a note naming
+		// the latency, rather than printing the raw response as the result.
+		receipt, bandwidthID, err := buildAcceptedReceipt(cmd, updated)
 		if err != nil {
 			return err
 		}
-		format, plain := cmdutil.OutputFlags(cmd)
-		return output.StdoutAuto(format, plain, obj)
+		receipt["note"] = "this is an acceptance, not the updated brand: production takes about 5 " +
+			"minutes to apply the change (modifiedDate and the history log lag behind), so an " +
+			"immediate 'brand get' may still show the pre-update value. Check 'band tendlc brand get " +
+			bandwidthID + "' again shortly, or 'band tendlc brand history " + bandwidthID +
+			"' for confirmation."
+		format, _ := cmdutil.OutputFlags(cmd)
+		return output.Stdout(format, receipt)
 	},
 }
 
@@ -167,7 +192,7 @@ func identityConfirmMessage(brandID string, fields []string) string {
 	var parts []string
 	if len(verification) > 0 {
 		parts = append(parts, fmt.Sprintf(
-			"changing %s on brand %s resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus to REGISTERING. If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright.",
+			"changing %s on brand %s resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus toward re-registration (it reads back as UNVERIFIED until TCR responds). If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright.",
 			strings.Join(verification, ", "), brandID))
 	}
 	if mobileChanged {

@@ -16,6 +16,13 @@ import (
 // server-assigned value back is meaningless, and a field that is ignored today
 // may be honored tomorrow.
 //
+// The strip list was also confirmed safe against the opposite failure mode:
+// a live `brand update --website` on a real brand was diffed key-by-key
+// before and after. All 46 keys were present both times, zero were dropped,
+// zero were nulled, and only `website` changed — the server regenerates every
+// derived/read-only field itself. So stripping this list does not risk
+// silently nulling a caller-supplied field on this full-replacement PUT.
+//
 // country and einIssuingCountry are here because they are DERIVED from their
 // …CodeA3 counterparts, not because the API rejects them.
 //

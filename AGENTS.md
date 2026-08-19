@@ -899,7 +899,7 @@ exactly one brand** — reusing a profile ID on a second brand fails with
 `cannot be assigned to another brand`. Create a fresh profile per brand. The
 prerequisite chain is **customer profile → brand → campaign**: brand
 registration now happens in the CLI via [`band tendlc brand create`](#10dlc-brands);
-campaign registration still happens in the Bandwidth App (or a later CLI PR).
+campaign registration still happens in the Bandwidth App.
 
 Requires the **Customer Profiles Access role** — check with `band auth status --plain`.
 
@@ -1175,6 +1175,16 @@ contract. Missing it is exit **6** (`FlagError`) with **zero write
 requests** — but `brand update` is a partial exception: see the callout
 below the table.
 
+**`brand create` is billable but deliberately has no `--confirm`.** Measured
+against production: the brand fee (`A2PLC-NRC-BRANDFEE`) is billed about six
+seconds after the 202, before verification resolves, and is charged even for
+a brand that never ends up verifying — see the fee note in
+[10DLC Brands](#10dlc-brands). Every other billable or destructive write here
+gates behind `--confirm`; `create` does not, because it requires roughly a
+dozen explicit required flags and cannot be triggered by accident the way a
+bare `<id> --confirm` command can. This is a deliberate product call, not an
+oversight — do not read the omission as one.
+
 | Command | Cost / consequence |
 |---|---|
 | `brand delete <id> --confirm` | Permanent. Requires every campaign on the brand to be deactivated first. See the cascade correction below. |
@@ -1202,10 +1212,10 @@ $ band tendlc brand delete BGJR2BA --plain
 Error: this permanently deletes brand BGJR2BA. It cannot be undone, it deletes the brand in TCR for direct accounts, and it requires every campaign on the brand to be deactivated first. It does NOT delete the associated customer profile (measured against production — the documented cascade does not happen); remove that separately with 'band customer-profile delete <id>' if you no longer need it. Pass --confirm to proceed.
 
 $ band tendlc brand reverify BGJR2BA --plain
-Error: reverifying brand BGJR2BA incurs a $4 fee and resets brandIdentityStatus to REGISTERING. Pass --confirm to proceed.
+Error: reverifying brand BGJR2BA incurs a $4 fee and resets brandIdentityStatus toward re-registration; it reads back as UNVERIFIED until TCR responds. Pass --confirm to proceed.
 
 $ band tendlc brand update BGJR2BA --company-name "New Name" --plain
-Error: changing company-name on brand BGJR2BA resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus to REGISTERING. If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright. Pass --confirm to proceed.
+Error: changing company-name on brand BGJR2BA resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus toward re-registration (it reads back as UNVERIFIED until TCR responds). If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright. Pass --confirm to proceed.
 ```
 
 `brand resend-2fa` and `brand refresh` take no `--confirm` — neither is
@@ -1242,9 +1252,33 @@ token at all**: there is no version check on the PUT. A concurrent edit that
 lands between the CLI's read and its write is silently lost — whichever
 write reaches the API last wins, with no conflict error to catch it.
 
+**`update` prints an acceptance receipt, not the updated brand.** Measured
+against production: `PUT /brands/{brandId}` returns a bare `{bandwidthId,
+brandId}` acceptance, not the resource, and the change itself takes roughly
+**5 minutes** to be reflected — a `website` change submitted at ~14:55 was
+still absent from the brand at t+48s and only showed up in `modifiedDate`
+and the activity log at 15:00:37. So `brand update` prints the same
+`{bandwidthId, brandId, status: "accepted", resume}` receipt shape
+`create`/`refresh` use, plus a `note` naming the latency:
+
 ```bash
 band tendlc brand update BGJR2BA --website "https://acme.example" --plain
 ```
+
+```json
+{
+  "bandwidthId": "WET8JUY8H0",
+  "brandId": "BGJR2BA",
+  "status": "accepted",
+  "resume": "band tendlc brand get WET8JUY8H0",
+  "note": "this is an acceptance, not the updated brand: production takes about 5 minutes to apply the change (modifiedDate and the history log lag behind), so an immediate 'brand get' may still show the pre-update value. Check 'band tendlc brand get WET8JUY8H0' again shortly, or 'band tendlc brand history WET8JUY8H0' for confirmation."
+}
+```
+
+This is also why `update` has no `--wait`: this measurement confirms that
+decision rather than merely motivating it — a poll here would hit a brand
+still holding its pre-update state and report success before the change
+actually took effect.
 
 ### `list` vs `get`: projection, not nullability
 
@@ -1660,7 +1694,7 @@ Every error in this table exits **4**, regardless of the HTTP status the API use
 - **No real-time call control.** The CLI can initiate calls and query state, but cannot receive or respond to mid-call callbacks. Dynamic call control requires a separate callback-handling server.
 - **No message delivery confirmation.** The CLI verifies your setup is correct before sending (app-location link, callback URL, campaign), but it cannot confirm whether a message was actually delivered. Delivery status (`message-delivered`, `message-failed`) arrives via webhooks on your callback server. The CLI's `message get` and `message list` return metadata only — not delivery status.
 - **No message content retrieval.** Bandwidth does not store message bodies. After sending, the message text is gone forever. `message get` and `message list` return timestamps, direction, and segment counts only.
-- **10DLC: read + assign only.** The CLI can list campaigns, check number registration status, diagnose failures (`band tendlc`), and assign numbers to campaigns (`band tnoption assign`). It cannot create campaigns or register brands — those require the Bandwidth App. The CLI checks that a number is on a campaign and blocks sends if it's not.
+- **10DLC: brand and vetting registration, campaigns are read + assign only.** The CLI can register and manage brands (`band tendlc brand`) and order/record vettings (`band tendlc vetting`) for direct customers. For campaigns, it can list them, check number registration status, diagnose failures (`band tendlc`), and assign numbers to campaigns (`band tnoption assign`) — but it cannot create campaigns; that still requires the Bandwidth App. The CLI checks that a number is on a campaign and blocks sends if it's not.
 - **TFV is check-and-submit.** The CLI can check toll-free verification status and submit new requests (`band tfv`), but cannot approve or expedite reviews — those happen on the carrier side.
 - **Porting is port-IN only.** `band portin` covers the six end-to-end flows that complete via the public API: TF validation, on-net domestic, automated off-net (Level 3), TF Phase 1 (gated), bulk, and lifecycle ops (notes, supp, cancel, history, doc upload). Out of scope: port-out (no public API), manual TF, internal TF, NASC manual override, and international ports — these need ops or the Dashboard. `band portin create` exits 4 if the account doesn't have `TOLL_FREE_AUTOMATION_PHASE_1` for a TF order. `band portin supp` defends against the documented Bandwidth API behavior where a supp returns 200 on PUT but error code 7300 on the next GET (Neustar never received it) — exits 1 with a clear message rather than silently succeeding.
 - **10DLC, TFV, and short code commands are role-gated.** A 403 can mean the credential lacks the required role (Campaign Management, TFV), the account doesn't have the Registration Center feature, or messaging isn't enabled. The CLI provides a diagnostic message — if it says "access denied," escalate to the Bandwidth account manager rather than retrying.

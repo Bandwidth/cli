@@ -21,18 +21,19 @@ var brandReverifyCmd = &cobra.Command{
 	Short: "Resubmit a brand for identity verification",
 	Long: `Resubmits a brand for identity verification.
 
-This incurs a $4 fee and resets brandIdentityStatus to REGISTERING. The
+This incurs a $4 fee and resets brandIdentityStatus toward re-registration.
+Production documents this as REGISTERING, but the field reads back as
+UNVERIFIED until TCR responds — see 'band tendlc brand get <brand-id>'. The
 endpoint returns 204 with no body — there is no ID or resource to poll, so
-there is no --wait here. The brand's own status is the signal; use
-'band tendlc brand get <brand-id>' to read it.
+there is no --wait here. The brand's own status is the signal.
 
 Requires --confirm.`,
 	Example: `  band tendlc brand reverify BGJR2BA --confirm --plain`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requireConfirm(brandReverifyConfirm,
-			"reverifying brand "+args[0]+" incurs a $4 fee and resets brandIdentityStatus to "+
-				"REGISTERING. Pass --confirm to proceed."); err != nil {
+			"reverifying brand "+args[0]+" incurs a $4 fee and resets brandIdentityStatus toward "+
+				"re-registration; it reads back as UNVERIFIED until TCR responds. Pass --confirm to proceed."); err != nil {
 			return err
 		}
 

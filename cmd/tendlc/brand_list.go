@@ -27,7 +27,7 @@ func init() {
 	f.BoolVar(&brandListAll, "all", false, "Fetch every page (cannot be combined with --offset)")
 	f.StringVar(&brandListCustomerProfileID, "customer-profile-id", "", "Filter to the brand backed by this customer profile")
 	f.StringVar(&brandListBrandID, "brand-id", "", "Filter by TCR brand ID")
-	f.StringVar(&brandListIdentityStatus, "identity-status", "", "Filter by brandIdentityStatus (REGISTERING, VERIFIED, VETTED_VERIFIED, UNVERIFIED, ERROR)")
+	f.StringVar(&brandListIdentityStatus, "identity-status", "", "Filter by brandIdentityStatus (VERIFIED, VETTED_VERIFIED, UNVERIFIED, ERROR; REGISTERING is documented but never observed on the read path, so filtering on it returns nothing)")
 	f.StringVar(&brandListBrandType, "brand-type", "", "Filter by brand type")
 	f.StringVar(&brandListCompanyNameContains, "company-name-contains", "", "Filter by legal company name substring")
 	f.StringVar(&brandListDisplayNameContains, "display-name-contains", "", "Filter by display name substring")
@@ -39,7 +39,7 @@ var brandListCmd = &cobra.Command{
 	Short: "List 10DLC brands",
 	Long: `Lists brands on the account.
 
-This is a summary projection — 13 keys per brand, versus the 46 keys 'brand
+This is a summary projection — 12 keys per brand, versus the 46 keys 'brand
 get' returns. A field that is missing here may simply not be part of the
 listing projection, not null on the brand; use 'brand get <id>' for the full
 resource.

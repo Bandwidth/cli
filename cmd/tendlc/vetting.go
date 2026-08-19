@@ -112,19 +112,23 @@ func validateVettingRequest(evp, class string) error {
 // 202, or a PUT .../vettings/{id} response) into the receipt this command set
 // prints: {<idField>: id, brandId, status, check}.
 //
-// idField is whichever of vettingIDKeys was actually present on the response
-// — bandwidthId or vettingBandwidthId. It is preserved under its own name
-// rather than normalized: normalizing would be tidier and would be wrong, since
-// it would misreport which field the API actually sent.
+// idField (found internally, not returned — see below) is whichever of
+// vettingIDKeys was actually present on the response: bandwidthId or
+// vettingBandwidthId. It is preserved under its own name rather than
+// normalized: normalizing would be tidier and would be wrong, since it would
+// misreport which field the API actually sent.
 //
 // If the response carries neither key, there is no ID to poll or look up
 // against the vettings list, so the caller must not proceed. This prints
-// whatever the body actually was (via StdoutAuto — this is real API data, not
-// a synthetic receipt, so FlattenResponse's single-key-map unwrap does not
-// apply; see async.go's emitReceipt for why receipts print differently) and
-// returns an error.
-func buildVettingReceipt(cmd *cobra.Command, env *api.Envelope, brandID string) (receipt map[string]any, vettingID, idField string, err error) {
+// whatever the body actually was via output.Stdout, not StdoutAuto: env.Data
+// is real API data, not a synthetic receipt, but it can still be a
+// single-key map, and FlattenResponse unwraps any single-key map — under
+// --plain that would drop the key and print a bare value instead of the
+// object it came from. See async.go's emitReceipt for the same reasoning
+// applied to synthetic receipts.
+func buildVettingReceipt(cmd *cobra.Command, env *api.Envelope, brandID string) (receipt map[string]any, vettingID string, err error) {
 	obj, objErr := env.Object()
+	var idField string
 	for _, key := range vettingIDKeys {
 		if v, ok := obj[key].(string); ok && v != "" {
 			idField, vettingID = key, v
@@ -132,11 +136,11 @@ func buildVettingReceipt(cmd *cobra.Command, env *api.Envelope, brandID string) 
 		}
 	}
 	if objErr != nil || vettingID == "" {
-		format, plain := cmdutil.OutputFlags(cmd)
-		if writeErr := output.StdoutAuto(format, plain, env.Data); writeErr != nil {
+		format, _ := cmdutil.OutputFlags(cmd)
+		if writeErr := output.Stdout(format, env.Data); writeErr != nil {
 			cmd.PrintErrln(fmt.Sprintf("writing response: %v", writeErr))
 		}
-		return nil, "", "", fmt.Errorf("vetting response did not include a vetting ID")
+		return nil, "", fmt.Errorf("vetting response did not include a vetting ID")
 	}
 
 	receipt = map[string]any{
@@ -145,7 +149,7 @@ func buildVettingReceipt(cmd *cobra.Command, env *api.Envelope, brandID string) 
 		"status":  "accepted",
 		"check":   "band tendlc vetting list " + brandID,
 	}
-	return receipt, vettingID, idField, nil
+	return receipt, vettingID, nil
 }
 
 // fetchVetting adapts a ListVettings call into pollTarget.Fetch. There is no
@@ -324,7 +328,7 @@ This places a billable order with an external vetting provider, so
 			return roleGateError(err, "Campaign Management")
 		}
 
-		receipt, vettingID, _, err := buildVettingReceipt(cmd, env, brandID)
+		receipt, vettingID, err := buildVettingReceipt(cmd, env, brandID)
 		if err != nil {
 			return err
 		}
@@ -396,16 +400,15 @@ request' this takes no --confirm.`,
 			return roleGateError(err, "Campaign Management")
 		}
 
-		receipt, respVettingID, _, err := buildVettingReceipt(cmd, env, brandID)
+		receipt, respVettingID, err := buildVettingReceipt(cmd, env, brandID)
 		if err != nil {
 			return err
 		}
 		// The response's own ID may differ in name from what the caller passed
 		// (bandwidthId vs vettingBandwidthId), so the response's value — not the
-		// positional — is what --wait polls for.
-		if respVettingID == "" {
-			respVettingID = vettingID
-		}
+		// positional — is what --wait polls for. respVettingID is always
+		// non-empty here: buildVettingReceipt errors (and this function has
+		// already returned) whenever it would otherwise come back empty.
 
 		if !vettingImportWait {
 			format, _ := cmdutil.OutputFlags(cmd)

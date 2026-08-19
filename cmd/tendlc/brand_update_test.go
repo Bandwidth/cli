@@ -42,14 +42,28 @@ func liveBrandForUpdate(brandType, businessContactEmail string) map[string]any {
 
 // stubBrandUpdateServer answers GET /brands/{id} with getBody wrapped in the
 // standard envelope, and PUT with either putStatus's error body (if
-// putStatus != 200) or an echo of exactly what was sent, also enveloped. It
-// records every PUT body's raw JSON so a test can assert on the request the
-// CLI actually sent, not just on whether the command succeeded.
+// putStatus != 200) or the measured production acceptance shape — a bare
+// {bandwidthId, brandId}, carrying getBody's own IDs, NOT an echo of the sent
+// body. Measured against production: PUT /brands/{id} returns only an
+// acceptance receipt, never the updated resource, so echoing the request
+// back would misrepresent the real API and hide the bug this stub exists to
+// catch. It still records every PUT body's raw JSON so a test can assert on
+// the request the CLI actually sent, independent of what the response looks
+// like.
 func stubBrandUpdateServer(t *testing.T, getBody map[string]any, putStatus int) (*httptest.Server, *[]string) {
 	t.Helper()
 	getJSON, err := json.Marshal(map[string]any{"data": getBody})
 	if err != nil {
 		t.Fatalf("marshaling GET fixture: %v", err)
+	}
+	acceptJSON, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"bandwidthId": getBody["bandwidthId"],
+			"brandId":     getBody["brandId"],
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshaling PUT acceptance fixture: %v", err)
 	}
 	var putBodies []string
 	srv := newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
@@ -64,15 +78,7 @@ func stubBrandUpdateServer(t *testing.T, getBody map[string]any, putStatus int) 
 			_, _ = w.Write([]byte(`{"errors":[{"description":"conflict"}]}`))
 			return
 		}
-		var sent map[string]any
-		if err := json.Unmarshal(b, &sent); err != nil {
-			t.Fatalf("PUT body is not JSON: %v", err)
-		}
-		resp, err := json.Marshal(map[string]any{"data": sent})
-		if err != nil {
-			t.Fatalf("marshaling PUT echo: %v", err)
-		}
-		_, _ = w.Write(resp)
+		_, _ = w.Write(acceptJSON)
 	})
 	return srv, &putBodies
 }
@@ -271,5 +277,42 @@ func TestBrandUpdateConflictOnPutMapsToTCRHint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "brand refresh") {
 		t.Errorf("error = %q, want it to suggest brand refresh", err.Error())
+	}
+}
+
+// Test 10: THE load-bearing regression test for A5. Production measured:
+// PUT /brands/{id} returns only a bare {bandwidthId, brandId} acceptance,
+// and the change itself takes roughly 5 minutes to apply. A successful
+// update must print an acceptance receipt carrying both IDs, status
+// "accepted", and a note naming the apply latency — not the raw PUT
+// response as though it were the updated brand. This stub's PUT response
+// deliberately does NOT echo the sent body (see stubBrandUpdateServer), so
+// if the command reverted to printing updated.Object(), this test would fail
+// on the missing "status"/"note" fields; and even against an echoing stub,
+// the explicit check that "website" is absent from the receipt would still
+// catch a regression back to printing the raw response body.
+func TestBrandUpdatePrintsAcceptanceReceiptWithIDsAndLatencyNote(t *testing.T) {
+	srv, _ := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
+
+	out, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--website", "https://acme.example", "--plain")
+	if err != nil {
+		t.Fatalf("brand update: %v", err)
+	}
+	got := decodeStdout(t, out)
+	if got["bandwidthId"] != "WET8JUY8H0" {
+		t.Errorf("stdout = %v, want bandwidthId WET8JUY8H0", got)
+	}
+	if got["brandId"] != "BGJR2BA" {
+		t.Errorf("stdout = %v, want brandId BGJR2BA", got)
+	}
+	if got["status"] != "accepted" {
+		t.Errorf("stdout = %v, want status accepted", got)
+	}
+	note, _ := got["note"].(string)
+	if !strings.Contains(note, "5") || !strings.Contains(note, "brand get") {
+		t.Errorf("stdout note = %q, want it to mention the ~5 minute apply latency and 'brand get'", note)
+	}
+	if _, ok := got["website"]; ok {
+		t.Errorf("stdout = %v, must not print the raw PUT body as though it were the updated brand", got)
 	}
 }

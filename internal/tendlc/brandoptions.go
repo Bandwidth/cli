@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/Bandwidth/cli/internal/cmdutil"
@@ -115,13 +116,17 @@ func ValidateBrandCreate(o BrandCreateOptions) error {
 		}
 	}
 
-	// If brand type is invalid, combine the enum error with any missing flags
+	// If brand type is invalid, combine the enum error with any missing flags.
+	// Sorted the same way cmdutil.NewMissingFlagsError sorts its own list, so
+	// the rendering of the same missing flags doesn't depend on whether the
+	// brand type also happened to be invalid.
 	if invalidBrandType {
 		enumMsg := "--brand-type must be one of: " + strings.Join(BrandTypes, ", ")
 		if len(missing) > 0 {
-			// Prepend -- to each missing flag name for the message
-			prefixedMissing := make([]string, len(missing))
-			for i, f := range missing {
+			sorted := append([]string(nil), missing...)
+			sort.Strings(sorted)
+			prefixedMissing := make([]string, len(sorted))
+			for i, f := range sorted {
 				prefixedMissing[i] = "--" + f
 			}
 			return cmdutil.NewFlagError(enumMsg + "; missing required flags: " + strings.Join(prefixedMissing, ", "))
@@ -185,6 +190,13 @@ func BuildBrandCreateRequest(o BrandCreateOptions) map[string]any {
 // BuildBrandRefreshRequest re-pulls an existing brand from TCR. It is the same
 // POST /brands endpoint as create; a body carrying only brandId is what makes
 // it a refresh, so nothing else may be added here.
+//
+// brandID is sent in the BODY, not the path — the one command in this
+// package that puts an identifier there instead of in the URL. Measured
+// against production: `brand refresh WET8JUY8H0` (a bandwidthId, not a TCR
+// brandId) resolved correctly and returned {bandwidthId: WET8JUY8H0, brandId:
+// BGJR2BA}, so the "every command accepts either ID" claim holds here too —
+// it was previously assumed, not verified, for this one command.
 func BuildBrandRefreshRequest(brandID string) map[string]any {
 	return map[string]any{"brandId": brandID}
 }
