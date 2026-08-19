@@ -451,7 +451,7 @@ create in a race, error 23022 surfaces instead — see the errors table below.)
 account + auth (Registration Center feature + Campaign Management role)
   └─→ customer-profile create          (one profile per brand — 1:1, not reusable)
         └─→ tendlc brand create --wait  (must reach VERIFIED or VETTED_VERIFIED)
-              └─→ tendlc campaign create        (PR 4 — not yet in the CLI)
+              └─→ tendlc campaign create        (not yet in the CLI)
 ```
 
 See [10DLC Brands](#10dlc-brands) for `brand create`'s flag matrix, `--wait`
@@ -840,7 +840,7 @@ These commands query the Registration Center API for 10DLC campaign and phone nu
 
 **Important:** These commands are for **import customers** — accounts that register campaigns through TCR and import them to Bandwidth. They require the **Campaign Management role** on your API credential and the **Registration Center feature** on your account.
 
-**Direct customers** (accounts that register campaigns directly through Bandwidth) are not supported by the commands on this page — those remain import-only. Direct customers register brands and order vettings through the CLI via [`band tendlc brand`](#10dlc-brands) and [`band tendlc vetting`](#10dlc-vettings). Campaign registration for direct customers is not yet in the CLI (planned for a later PR); in the meantime, use the Bandwidth App or the existing Campaign Management API for that step.
+**Direct customers** (accounts that register campaigns directly through Bandwidth) are not supported by the commands on this page — those remain import-only. Direct customers register brands and order vettings through the CLI via [`band tendlc brand`](#10dlc-brands) and [`band tendlc vetting`](#10dlc-vettings). Campaign registration for direct customers is not yet in the CLI; in the meantime, use the Bandwidth App or the existing Campaign Management API for that step.
 
 A 403 from `band tendlc` can mean: credential lacks the Campaign Management role, account doesn't have Registration Center, account is a direct customer, or messaging isn't enabled. The CLI parses the API response and gives a specific message for each case.
 
@@ -1152,7 +1152,11 @@ for a brand parked at `UNVERIFIED`) and `"lastSeenStatus"` (if a status was
 ever successfully read). On success or business failure (`ERROR`), stdout
 instead carries the **real, full brand object** returned by the API — not
 the synthetic receipt — but `bandwidthId` is still one of its keys either
-way. An example timeout receipt:
+way. **This is a reconstruction, not a captured run** — forcing a real
+timeout would mean paying for another brand creation just to let it sit
+unverified, so no live timeout receipt was captured. The shape below is
+assembled field-by-field from what `buildAcceptedReceipt` and `awaitTerminal`
+actually emit, not copied from a real invocation:
 
 ```json
 {
@@ -1167,7 +1171,9 @@ way. An example timeout receipt:
 ### `--confirm`-gated writes, and what each costs
 
 `--confirm` is a flag, never a prompt — agents and humans share one
-contract. Missing it is exit **6** (`FlagError`) with **zero** HTTP requests.
+contract. Missing it is exit **6** (`FlagError`) with **zero write
+requests** — but `brand update` is a partial exception: see the callout
+below the table.
 
 | Command | Cost / consequence |
 |---|---|
@@ -1176,7 +1182,20 @@ contract. Missing it is exit **6** (`FlagError`) with **zero** HTTP requests.
 | `brand update <id> --confirm ...` | Only required when an identity-affecting field changes: `--company-name`, `--brand-type`, `--ein`, or `--ein-issuing-country-code-a3` (possible $4 fee + reset to re-registration, and rejected outright if the brand has an active campaign or an active Standard/Enhanced/Political vetting), `--mobile-phone` (sets identity status to `UNVERIFIED`), or `--business-contact-email` on a `PUBLIC_PROFIT` brand (revokes Auth+ compliance — regaining it needs a new `AUTHPLUS` vetting and another 2FA email round-trip). |
 | `vetting request <brand-id> --confirm` | Billable order placed with an external vetting provider (see [10DLC Vettings](#10dlc-vettings)). |
 
-Example refusals, all exit 6, all zero requests:
+**`brand update`'s refusal is not zero-request — it costs one GET.** Unlike
+every other confirm gate here, `update` performs a real `GetBrand` call
+*before* it can even decide whether `--confirm` is required: the
+business-contact-email/PUBLIC_PROFIT condition in
+`IdentityFieldsChanged` needs the brand's current type, which is only known
+once that GET returns (see the source comment on this in
+`cmd/tendlc/brand_update.go` — it deliberately warns against moving the
+check earlier to "fix" this). So an unconfirmed `brand update` on an
+identity-affecting field still makes one live GET against your account's
+shared rate-limit budget; it is only the **write** (the PUT) that never
+happens without `--confirm`. Do not treat it as a free dry-run.
+
+Example refusals — `delete` and `reverify` make zero requests; `update`
+makes the one GET described above, but never the write:
 
 ```
 $ band tendlc brand delete BGJR2BA --plain
@@ -1229,7 +1248,7 @@ band tendlc brand update BGJR2BA --website "https://acme.example" --plain
 
 ### `list` vs `get`: projection, not nullability
 
-`brand list` returns a **13-key summary projection**; `brand get` returns
+`brand list` returns a **12-key summary projection**; `brand get` returns
 **46 keys**. A field missing from `list` output is not null on the brand —
 it's simply outside the listing projection. Use `get` for the full resource.
 
