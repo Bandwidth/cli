@@ -127,7 +127,7 @@ If direct-vs-import was not given to you in the task, stop and ask the operator.
 When multiple accounts or profiles are active, commands write a hint to stderr so you know which account is being targeted:
 
 ```
-[account: 9901287 | profile: admin | env: test]
+[account: 9900000 | profile: admin | env: test]
 ```
 
 The environment is included in the hint only when credentials span multiple environments or the active environment is non-default. Single-environment users (e.g. customers on prod only) won't see it.
@@ -859,7 +859,7 @@ A 403 from `band tendlc` can mean: credential lacks the Campaign Management role
 
 ```bash
 band tendlc number +19195551234 --plain
-# → { "phoneNumber": "+19195551234", "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "B1DER2J", ... }
+# → { "phoneNumber": "+19195551234", "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }
 ```
 
 Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (registration failed).
@@ -868,7 +868,7 @@ Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (reg
 
 ```bash
 band tendlc campaigns --plain
-# → [{ "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "B1DER2J", ... }, ...]
+# → [{ "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }, ...]
 ```
 
 ### List all registered numbers (with filters)
@@ -1038,8 +1038,8 @@ misfire on every brand still mid-registration — `bandwidthId` is the only ID
 guaranteed to exist immediately.
 
 ```bash
-band tendlc brand get BGJR2BA --plain       # TCR brandId
-band tendlc brand get WET8JUY8H0 --plain    # bandwidthId — same brand
+band tendlc brand get BEXMPL1 --plain       # TCR brandId
+band tendlc brand get WEXAMPLE01 --plain    # bandwidthId — same brand
 ```
 
 Both return the same 46-key object, including `bandwidthId`, `brandId`,
@@ -1134,8 +1134,8 @@ it" — so the CLI keeps polling on `UNVERIFIED` rather than treating it as a
 failure, and only surfaces it at timeout, with the last-seen status attached.
 Two brands submitted with byte-identical payloads measured very differently:
 
-- `WOVNQBAVI2`: read `UNVERIFIED` at t=3s, flipped to `VERIFIED` at t=46s
-- `WAR2FRJPVQ`: read `UNVERIFIED` at t=3s, still `UNVERIFIED` at t=275s, no TCR response in its history at all
+- `WEXAMPLE02`: read `UNVERIFIED` at t=3s, flipped to `VERIFIED` at t=46s
+- `WEXAMPLE03`: read `UNVERIFIED` at t=3s, still `UNVERIFIED` at t=275s, no TCR response in its history at all
 
 **A timeout (exit 5) is not a failure.** Tell the caller plainly: re-check
 with `band tendlc brand get <id>` (or `brand history <id>` for the raw TCR
@@ -1184,10 +1184,10 @@ actually emit, not copied from a real invocation:
 
 ```json
 {
-  "bandwidthId": "WAR2FRJPVQ",
+  "bandwidthId": "WEXAMPLE03",
   "status": "accepted",
-  "resume": "band tendlc brand get WAR2FRJPVQ",
-  "note": "if this timed out at UNVERIFIED, the brand may still be registering with TCR rather than having failed. Check 'band tendlc brand get WAR2FRJPVQ' for its current status, or 'band tendlc brand history WAR2FRJPVQ' for the full history.",
+  "resume": "band tendlc brand get WEXAMPLE03",
+  "note": "if this timed out at UNVERIFIED, the brand may still be registering with TCR rather than having failed. Check 'band tendlc brand get WEXAMPLE03' for its current status, or 'band tendlc brand history WEXAMPLE03' for the full history.",
   "lastSeenStatus": "UNVERIFIED"
 }
 ```
@@ -1200,7 +1200,7 @@ requests** — but `brand update` is a partial exception: see the callout
 below the table.
 
 **`brand create` is billable but deliberately has no `--confirm`.** Measured
-against production: the brand fee (`A2PLC-NRC-BRANDFEE`) is billed about six
+against production: the brand registration fee is billed about six
 seconds after the 202, before verification resolves, and is charged even for
 a brand that never ends up verifying — see the fee note in
 [10DLC Brands](#10dlc-brands). Every other billable or destructive write here
@@ -1232,14 +1232,14 @@ Example refusals — `delete` and `reverify` make zero requests; `update`
 makes the one GET described above, but never the write:
 
 ```
-$ band tendlc brand delete BGJR2BA --plain
-Error: this permanently deletes brand BGJR2BA. It cannot be undone, it deletes the brand in TCR for direct accounts, and it requires every campaign on the brand to be deactivated first. It does NOT delete the associated customer profile (measured against production — the documented cascade does not happen); remove that separately with 'band customer-profile delete <id>' if you no longer need it. Pass --confirm to proceed.
+$ band tendlc brand delete BEXMPL1 --plain
+Error: this permanently deletes brand BEXMPL1. It cannot be undone, it deletes the brand in TCR for direct accounts, and it requires every campaign on the brand to be deactivated first. It does NOT delete the associated customer profile (measured against production — the documented cascade does not happen); remove that separately with 'band customer-profile delete <id>' if you no longer need it. Pass --confirm to proceed.
 
-$ band tendlc brand reverify BGJR2BA --plain
-Error: reverifying brand BGJR2BA incurs a $4 fee and resets brandIdentityStatus toward re-registration; it reads back as UNVERIFIED until TCR responds. Pass --confirm to proceed.
+$ band tendlc brand reverify BEXMPL1 --plain
+Error: reverifying brand BEXMPL1 incurs a $4 fee and resets brandIdentityStatus toward re-registration; it reads back as UNVERIFIED until TCR responds. Pass --confirm to proceed.
 
-$ band tendlc brand update BGJR2BA --company-name "New Name" --plain
-Error: changing company-name on brand BGJR2BA resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus toward re-registration (it reads back as UNVERIFIED until TCR responds). If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright. Pass --confirm to proceed.
+$ band tendlc brand update BEXMPL1 --company-name "New Name" --plain
+Error: changing company-name on brand BEXMPL1 resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus toward re-registration (it reads back as UNVERIFIED until TCR responds). If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright. Pass --confirm to proceed.
 ```
 
 `brand resend-2fa` and `brand refresh` take no `--confirm` — neither is
@@ -1262,11 +1262,11 @@ So `deleted` starts `false` and stays `false` until a 404 on the follow-up
 read proves it. Without `--wait`, that's every invocation:
 
 ```
-$ band tendlc brand delete WOVNQBAVI2 --confirm --plain
+$ band tendlc brand delete WEXAMPLE02 --confirm --plain
 {
   "deleted": false,
-  "id": "WOVNQBAVI2",
-  "note": "delete accepted but not yet confirmed: production takes roughly 40s to actually remove the brand, so it may still appear in 'brand list' or 'brand get' until then. Confirm with 'band tendlc brand get WOVNQBAVI2' — a 404 means it is gone.",
+  "id": "WEXAMPLE02",
+  "note": "delete accepted but not yet confirmed: production takes roughly 40s to actually remove the brand, so it may still appear in 'brand list' or 'brand get' until then. Confirm with 'band tendlc brand get WEXAMPLE02' — a 404 means it is gone.",
   "status": "accepted"
 }
 $ echo $?
@@ -1277,10 +1277,10 @@ With `--wait`, `deleted` flips to `true` (and `note` is dropped) only once
 the follow-up read actually 404s:
 
 ```
-$ band tendlc brand delete WOVNQBAVI2 --confirm --wait --plain
+$ band tendlc brand delete WEXAMPLE02 --confirm --wait --plain
 {
   "deleted": true,
-  "id": "WOVNQBAVI2",
+  "id": "WEXAMPLE02",
   "status": "accepted"
 }
 $ echo $?
@@ -1312,16 +1312,16 @@ and the activity log at 15:00:37. So `brand update` prints the same
 `create`/`refresh` use, plus a `note` naming the latency:
 
 ```bash
-band tendlc brand update BGJR2BA --website "https://acme.example" --plain
+band tendlc brand update BEXMPL1 --website "https://acme.example" --plain
 ```
 
 ```json
 {
-  "bandwidthId": "WET8JUY8H0",
-  "brandId": "BGJR2BA",
+  "bandwidthId": "WEXAMPLE01",
+  "brandId": "BEXMPL1",
   "status": "accepted",
-  "resume": "band tendlc brand get WET8JUY8H0",
-  "note": "this is an acceptance, not the updated brand: production takes about 5 minutes to apply the change (modifiedDate and the history log lag behind), so an immediate 'brand get' may still show the pre-update value. Check 'band tendlc brand get WET8JUY8H0' again shortly, or 'band tendlc brand history WET8JUY8H0' for confirmation."
+  "resume": "band tendlc brand get WEXAMPLE01",
+  "note": "this is an acceptance, not the updated brand: production takes about 5 minutes to apply the change (modifiedDate and the history log lag behind), so an immediate 'brand get' may still show the pre-update value. Check 'band tendlc brand get WEXAMPLE01' again shortly, or 'band tendlc brand history WEXAMPLE01' for confirmation."
 }
 ```
 
@@ -1341,13 +1341,13 @@ $ band tendlc brand list --plain --limit 2
 showing 2 of 10 brands; pass --all to fetch every page      # <- stderr
 [
   {
-    "accounts": [{"accountId": "9901287", "customerProfileId": "59eZSI61xzcW5j1LSAxfPM"}],
+    "accounts": [{"accountId": "9900000", "customerProfileId": "ExampleProfileId000001"}],
     "authenticationStatus": "ACTIVE",
-    "bandwidthId": "WGVL458T5W",
-    "brandId": "BLLIGLJ",
+    "bandwidthId": "WEXAMPLE04",
+    "brandId": "BEXMPL4",
     "brandIdentityStatus": "VERIFIED",
     "brandType": "PUBLIC_PROFIT",
-    "businessContactEmail": "kshah@bandwidth.com",
+    "businessContactEmail": "ops@example.com",
     "companyName": "Bandwidth",
     "createdDate": "2026-05-28T21:00:16.048Z",
     "displayName": "Another Auth+ Test, Bandwidth",
@@ -1367,10 +1367,10 @@ fetch one directly instead.
 version-per-entry the way customer profiles have:
 
 ```
-$ band tendlc brand history BGJR2BA --plain --limit 2
+$ band tendlc brand history BEXMPL1 --plain --limit 2
 showing 2 of 7 history entries; pass --all to fetch every page      # <- stderr
 [
-  {"createdDate": "2026-06-17T19:37:16.927Z", "message": "Successfully updated brand BGJR2BA for account 9901287"},
+  {"createdDate": "2026-06-17T19:37:16.927Z", "message": "Successfully updated brand BEXMPL1 for account 9900000"},
   {"createdDate": "2026-06-17T18:10:48.526Z", "message": "BRAND_IDENTITY_STATUS_UPDATE received from TCR with new status UNVERIFIED"}
 ]
 ```
@@ -1379,9 +1379,9 @@ A real registration timeline, from live testing, newest first:
 
 ```
 {"createdDate": "2026-08-19T13:39:04.542Z", "message": "BRAND_IDENTITY_STATUS_UPDATE received from TCR with new status VERIFIED"}
-{"createdDate": "2026-08-19T13:38:24.988Z", "message": "Brand billed for account 9901287 brandId B5XBU3K sku A2PLC-NRC-BRANDFEE"}
-{"createdDate": "2026-08-19T13:38:18.725Z", "message": "Successfully created brand B5XBU3K for account 9901287 and bandwidthId WOVNQBAVI2"}
-{"createdDate": "2026-08-19T13:38:17.589Z", "message": "Registering brand for account 9901287 bandwidthId WOVNQBAVI2"}
+{"createdDate": "2026-08-19T13:38:24.988Z", "message": "Brand billed for account 9900000 brandId BEXMPL3 sku BRAND-FEE-EXAMPLE"}
+{"createdDate": "2026-08-19T13:38:18.725Z", "message": "Successfully created brand BEXMPL3 for account 9900000 and bandwidthId WEXAMPLE02"}
+{"createdDate": "2026-08-19T13:38:17.589Z", "message": "Registering brand for account 9900000 bandwidthId WEXAMPLE02"}
 ```
 
 Note the fee lands ~6 seconds after creation — long before verification
@@ -1405,24 +1405,24 @@ different, separate future command (`nudge`), not covered here.
 ### `list`
 
 ```
-$ band tendlc vetting list B53K4I0 --plain
+$ band tendlc vetting list BEXMPL2 --plain
 [
   {
-    "bandwidthId": "WE4DHNXJZ9",
+    "bandwidthId": "WEXAMPLE05",
     "createdDate": "2026-06-17T17:55:13Z",
     "evpId": "AEGIS",
     "reasons": [
       "Submitted Address Line 1 cannot be verified against government or business sources.",
       "Submitted Postal Code cannot be verified against government or business sources.",
-      "Relevant liens against the submitted company were reported."
+      "Submitted company name does not match state business registration records."
     ],
     "vettedDate": "2026-06-17T17:55:13Z",
     "vettingClass": "STANDARD",
     "vettingDetails": {},
-    "vettingId": "978de74a-7191-4656-e1a7-08dec82125d2",
+    "vettingId": "00000000-1111-2222-3333-444444444444",
     "vettingScore": 88,
     "vettingStatus": "ACTIVE",
-    "vettingToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+    "vettingToken": "eyJ...redacted..."
   }
 ]
 ```
@@ -1443,8 +1443,8 @@ field — so when you read a vetting receipt, check for both key names.
 ### `request` — billable, `--confirm`-gated
 
 ```bash
-band tendlc vetting request BGJR2BA --evp AEGIS --class STANDARD --confirm --plain
-band tendlc vetting request BGJR2BA --evp AEGIS --class STANDARD --confirm --wait --plain
+band tendlc vetting request BEXMPL1 --evp AEGIS --class STANDARD --confirm --plain
+band tendlc vetting request BEXMPL1 --evp AEGIS --class STANDARD --confirm --wait --plain
 ```
 
 `--evp` accepts `AEGIS`, `CV`, `WMC` — a small, stable, fully documented enum.
@@ -1459,8 +1459,8 @@ This places a real, billable order with an external vetting provider, so
 `--confirm` is required — missing it is exit 6, zero requests:
 
 ```
-$ band tendlc vetting request BGJR2BA --evp AEGIS --class STANDARD --plain
-Error: requesting a STANDARD vetting from AEGIS for brand BGJR2BA is a billable order placed with an external vetting provider. Pass --confirm to proceed.
+$ band tendlc vetting request BEXMPL1 --evp AEGIS --class STANDARD --plain
+Error: requesting a STANDARD vetting from AEGIS for brand BEXMPL1 is a billable order placed with an external vetting provider. Pass --confirm to proceed.
 ```
 
 With `--wait`, the receipt is `{<idField>: id, "brandId": ..., "status":
@@ -1474,8 +1474,8 @@ rather than showing you the last status inline.
 ### `import` — not billable, no `--confirm`
 
 ```bash
-band tendlc vetting import BGJR2BA V123 --evp AEGIS --plain
-band tendlc vetting import BGJR2BA V123 --evp AEGIS --vetting-token TOK123 --plain
+band tendlc vetting import BEXMPL1 V123 --evp AEGIS --plain
+band tendlc vetting import BEXMPL1 V123 --evp AEGIS --vetting-token TOK123 --plain
 ```
 
 Recording a vetting that was already performed outside Bandwidth costs

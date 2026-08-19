@@ -49,7 +49,7 @@ That's it. The CLI validates your credentials, figures out which accounts you ca
 ```sh
 band auth status          # see which account is active and what else is available
 band auth switch          # pick a different account interactively
-band auth switch 9901287  # or jump straight to one by ID
+band auth switch 9900000  # or jump straight to one by ID
 ```
 
 You can also pass `--account-id` to any command to override the active account for a single call.
