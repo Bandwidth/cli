@@ -179,3 +179,23 @@ func fetchBrand(svc *tendlcsvc.Service, brandID string) func() (map[string]any, 
 		return obj, true, nil
 	}
 }
+
+// fetchCampaign adapts a campaign read into pollTarget.Fetch, translating a
+// 404 into found=false rather than an error. fetchBrand's twin, for
+// 'campaign create --wait'.
+func fetchCampaign(svc *tendlcsvc.Service, campaignID string) func() (map[string]any, bool, error) {
+	return func() (map[string]any, bool, error) {
+		env, err := svc.GetCampaign(campaignID)
+		if err != nil {
+			if isNotFound(err) {
+				return nil, false, nil
+			}
+			return nil, false, err
+		}
+		obj, err := env.Object()
+		if err != nil {
+			return nil, false, err
+		}
+		return obj, true, nil
+	}
+}

@@ -112,7 +112,7 @@ func BrandRemediation(status string) string {
 	switch status {
 	case "ERROR":
 		return "the registry reported an error on this brand. Re-pull its current state from TCR with " +
-			"'band tendlc brand refresh', and contact your Bandwidth account manager if it persists."
+			"'band tendlc brand refresh <brand-id>', and contact your Bandwidth account manager if it persists."
 	default:
 		return ""
 	}
