@@ -196,13 +196,83 @@ func TestBrandListEncodesFiltersAsDeepObject(t *testing.T) {
 		t.Fatalf("brand list: %v", err)
 	}
 	q := (*queries)[0]
-	// Plain form (identityStatus=VERIFIED) is silently ignored by the server,
-	// so the deepObject form is not cosmetic.
-	if !strings.Contains(q, "brandIdentityStatus%5Beq%5D=VERIFIED") {
-		t.Errorf("query %q missing deepObject eq filter", q)
+	// eq is silently ignored by the server on every field tested (see the
+	// measurement recorded in brand_list.go), so every filter -- including
+	// the enum-valued ones -- goes over the wire as contains, not eq.
+	if !strings.Contains(q, "brandIdentityStatus%5Bcontains%5D=VERIFIED") {
+		t.Errorf("query %q missing deepObject contains filter for brandIdentityStatus", q)
 	}
 	if !strings.Contains(q, "companyName%5Bcontains%5D=Acme") {
 		t.Errorf("query %q missing deepObject contains filter", q)
+	}
+	if strings.Contains(q, "%5Beq%5D") {
+		t.Errorf("query %q uses eq, which the API silently ignores", q)
+	}
+}
+
+// TestBrandListAllFiltersSendContains covers the four flags that switched
+// from eq to contains: brandId, customerProfileId, brandType, and
+// brandIdentityStatus (identity status is exercised above). eq is accepted
+// and silently dropped by the server on all of them -- see the measurement
+// in brand_list.go -- so this locks in that none of them regress back to
+// eq, which "looks" more correct but returns every brand on the account.
+func TestBrandListAllFiltersSendContains(t *testing.T) {
+	srv, queries := stubBrandListCapturing(t)
+	if _, _, err := runBrandCmd(t, srv, "brand", "list",
+		"--brand-id-contains", "BEXMPL1",
+		"--customer-profile-id-contains", "9900000",
+		"--brand-type", "PRIVATE_PROFIT"); err != nil {
+		t.Fatalf("brand list: %v", err)
+	}
+	q := (*queries)[0]
+	for _, want := range []string{
+		"brandId%5Bcontains%5D=BEXMPL1",
+		"customerProfileId%5Bcontains%5D=9900000",
+		"brandType%5Bcontains%5D=PRIVATE_PROFIT",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query %q missing %q", q, want)
+		}
+	}
+}
+
+// stubBrandListIdentityStatusTrap serves three brands whose
+// brandIdentityStatus values all contain the substring "VERIFIED":
+// VERIFIED, VETTED_VERIFIED, and UNVERIFIED. It stands in for the
+// production measurement in brand_list.go's RunE comment --
+// brandIdentityStatus[contains]=VERIFIED matched all three on a real
+// account -- so tests can assert on the CLI's response to that trap without
+// a live account.
+func stubBrandListIdentityStatusTrap(t *testing.T) *httptest.Server {
+	return newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"bandwidthId":"W1","brandId":"B1","brandIdentityStatus":"VERIFIED"},
+			{"bandwidthId":"W2","brandId":"B2","brandIdentityStatus":"VETTED_VERIFIED"},
+			{"bandwidthId":"W3","brandId":"B3","brandIdentityStatus":"UNVERIFIED"}
+		],"page":{"pageNumber":0,"pageSize":50,"totalElements":3,"totalPages":1}}`))
+	})
+}
+
+// TestBrandListIdentityStatusExcludesSubstringMatches proves the
+// VERIFIED-matches-three-statuses trap is handled: the server's contains
+// filter would return all three brands above (VERIFIED, VETTED_VERIFIED,
+// and -- the dangerous one -- UNVERIFIED, the exact opposite of what was
+// asked for), but the CLI must narrow that down to only the brand whose
+// status is exactly "VERIFIED".
+func TestBrandListIdentityStatusExcludesSubstringMatches(t *testing.T) {
+	out, _, err := runBrandCmd(t, stubBrandListIdentityStatusTrap(t), "brand", "list",
+		"--identity-status", "VERIFIED", "--plain")
+	if err != nil {
+		t.Fatalf("brand list: %v", err)
+	}
+	if !strings.Contains(out, `"B1"`) {
+		t.Errorf("stdout = %q, want the exact VERIFIED brand B1", out)
+	}
+	if strings.Contains(out, `"B2"`) {
+		t.Errorf("stdout = %q, must not include VETTED_VERIFIED brand B2 (contains-only match)", out)
+	}
+	if strings.Contains(out, `"B3"`) {
+		t.Errorf("stdout = %q, must not include UNVERIFIED brand B3 -- the exact opposite of the requested status", out)
 	}
 }
 

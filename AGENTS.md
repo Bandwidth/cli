@@ -1163,7 +1163,7 @@ the CLI does not install a `SIGINT` handler anywhere (no `signal.Notify` /
 `awaitTerminal` that exists specifically to emit this receipt can never
 actually fire from a real Ctrl-C. Press Ctrl-C during `--wait` after the 202
 has landed and the process dies immediately with no `bandwidthId` on stdout.
-If that happens, recover with `band tendlc brand list --customer-profile-id
+If that happens, recover with `band tendlc brand list --customer-profile-id-contains
 <id>` to find the brand that was accepted. This applies CLI-wide, not just to
 `tendlc` — it is a pre-existing, repo-wide gap, tracked separately from this
 PR.
@@ -1362,6 +1362,24 @@ production: the API accepts a `bandwidthId[eq]` filter and silently ignores
 it, returning every brand rather than filtering — so the CLI doesn't expose
 a flag that would lie about filtering. Use `brand get <bandwidth-id>` to
 fetch one directly instead.
+
+**None of `brand list`'s filters use `eq` on the wire, even the ones that
+look like exact-match flags.** Measured against a 10-brand test account:
+`eq` is accepted and silently dropped on every field tried —
+`brandId[eq]`, `customerProfileId[eq]`, `brandIdentityStatus[eq]`, and
+`brandType[eq]` all returned all 10 brands, the same failure documented
+above for `bandwidthId`. `contains` is the only operator that actually
+filters, so:
+
+- `--brand-id-contains` and `--customer-profile-id-contains` are named for
+  what they do — a substring match. `--brand-id-contains BEXMPL1` also
+  matches `BEXMPL12`; use `brand get <id>` when you need exactly one brand.
+- `--identity-status` and `--brand-type` filter on closed enums, where a bare
+  substring match has a sharper trap: `brandIdentityStatus[contains]=VERIFIED`
+  matches `VERIFIED`, `VETTED_VERIFIED`, **and** `UNVERIFIED` — the opposite
+  of what was asked for. The CLI sends `contains` to the server and then
+  filters the response client-side for an exact match, so these two flags
+  keep exact-match semantics despite the API having no `eq` that works.
 
 `brand history <id>` is a free-text activity log, newest first, with no
 version-per-entry the way customer profiles have:
