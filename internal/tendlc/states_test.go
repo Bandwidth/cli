@@ -89,3 +89,82 @@ func TestBrandRemediationIsSpecificPerState(t *testing.T) {
 		t.Error("a success state has no remediation")
 	}
 }
+
+func TestClassifyCampaignStatus(t *testing.T) {
+	tests := []struct {
+		status string
+		want   StateClass
+	}{
+		{"REGISTERED", StateSuccess},
+		{"DECLINED", StateFailure},
+		{"EXPIRED", StateFailure},
+		{"SUSPENDED", StateFailure},
+		{"ERROR", StateFailure},
+		// Unlike brand identity, campaigns genuinely return REGISTERING on
+		// the read path — it's an in-progress state, not a stand-in for an
+		// unknown terminal outcome.
+		{"REGISTERING", StatePending},
+		{"UNREGISTERING", StatePending},
+		// An unlisted value keeps polling until timeout rather than being
+		// guessed as success or failure.
+		{"SOMETHING_NEW", StatePending},
+		{"", StatePending},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			if got := ClassifyCampaignStatus(tt.status); got != tt.want {
+				t.Errorf("ClassifyCampaignStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+// A business failure that says only "it failed" wastes the operator's next
+// step. Each failure state names what to do about it, and the wording must
+// actually differ between states — a function returning the same sentence
+// for every failure would still pass a check that only asserts non-empty.
+func TestCampaignRemediationIsSpecificPerState(t *testing.T) {
+	declined := CampaignRemediation("DECLINED")
+	expired := CampaignRemediation("EXPIRED")
+	suspended := CampaignRemediation("SUSPENDED")
+	errText := CampaignRemediation("ERROR")
+
+	for name, text := range map[string]string{
+		"DECLINED":  declined,
+		"EXPIRED":   expired,
+		"SUSPENDED": suspended,
+		"ERROR":     errText,
+	} {
+		if text == "" {
+			t.Errorf("%s must have remediation text", name)
+		}
+	}
+
+	if !strings.Contains(declined, "nudge") || !strings.Contains(declined, "APPEAL_REJECTION") {
+		t.Errorf("DECLINED remediation should mention the nudge appeal path, got: %s", declined)
+	}
+	if !strings.Contains(expired, "Re-create") {
+		t.Errorf("EXPIRED remediation should mention re-creating the campaign, got: %s", expired)
+	}
+	if !strings.Contains(suspended, "account manager") {
+		t.Errorf("SUSPENDED remediation should mention the account manager, got: %s", suspended)
+	}
+	if !strings.Contains(errText, "sync") {
+		t.Errorf("ERROR remediation should mention %q, got: %s", "sync", errText)
+	}
+
+	texts := []string{declined, expired, suspended, errText}
+	for i := range texts {
+		for j := i + 1; j < len(texts); j++ {
+			if texts[i] == texts[j] {
+				t.Errorf("remediation text for distinct failure states must not be identical: %q", texts[i])
+			}
+		}
+	}
+
+	for _, status := range []string{"REGISTERED", "REGISTERING", "UNREGISTERING", "SOMETHING_NEW", ""} {
+		if got := CampaignRemediation(status); got != "" {
+			t.Errorf("CampaignRemediation(%q) = %q, want empty (success/pending state)", status, got)
+		}
+	}
+}
