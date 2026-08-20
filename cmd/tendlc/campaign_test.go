@@ -139,26 +139,54 @@ func TestCampaignListRejectsAllWithOffset(t *testing.T) {
 	}
 }
 
+// TestCampaignListEncodesFiltersAsDeepObject covers the two operators that
+// genuinely filter on this endpoint: status[eq] and vettingStatus[eq] are
+// load-bearing evidence that campaigns, unlike brands, honor eq on status
+// fields -- see the measurement recorded in campaign_list.go's RunE comment.
+// Do not "fix" these to contains; that would just re-break a filter that
+// already works.
 func TestCampaignListEncodesFiltersAsDeepObject(t *testing.T) {
 	srv, queries := stubCampaignListCapturing(t)
 	if _, _, err := runBrandCmd(t, srv, "campaign", "list",
 		"--status", "REGISTERED", "--campaign-name-contains", "Acme",
-		"--brand-id", "BEXMPL1", "--campaign-id", "CEXMPL1",
-		"--usecase", "2FA", "--vetting-status", "VETTED_VERIFIED"); err != nil {
+		"--vetting-status", "VETTED_VERIFIED"); err != nil {
 		t.Fatalf("campaign list: %v", err)
 	}
 	q := (*queries)[0]
 	for _, want := range []string{
 		"status%5Beq%5D=REGISTERED",
 		"campaignName%5Bcontains%5D=Acme",
-		"brandId%5Beq%5D=BEXMPL1",
-		"campaignId%5Beq%5D=CEXMPL1",
-		"usecase%5Beq%5D=2FA",
 		"vettingStatus%5Beq%5D=VETTED_VERIFIED",
 	} {
 		if !strings.Contains(q, want) {
 			t.Errorf("query %q missing deepObject filter %q", q, want)
 		}
+	}
+}
+
+// TestCampaignListBrandAndCampaignIDFiltersSendContains covers the two flags
+// that only filter under contains: brandId and campaignId. eq is accepted
+// and silently ignored by the server on both (measured: 18 of 18 campaigns
+// returned) -- see campaign_list.go's RunE comment. This locks in that
+// neither regresses back to eq, which "looks" more correct for an ID filter
+// but returns every campaign on the account.
+func TestCampaignListBrandAndCampaignIDFiltersSendContains(t *testing.T) {
+	srv, queries := stubCampaignListCapturing(t)
+	if _, _, err := runBrandCmd(t, srv, "campaign", "list",
+		"--brand-id-contains", "BEXMPL1", "--campaign-id-contains", "CEXMPL1"); err != nil {
+		t.Fatalf("campaign list: %v", err)
+	}
+	q := (*queries)[0]
+	for _, want := range []string{
+		"brandId%5Bcontains%5D=BEXMPL1",
+		"campaignId%5Bcontains%5D=CEXMPL1",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query %q missing deepObject contains filter %q", q, want)
+		}
+	}
+	if strings.Contains(q, "brandId%5Beq%5D") || strings.Contains(q, "campaignId%5Beq%5D") {
+		t.Errorf("query %q uses eq for brandId/campaignId, which the API silently ignores", q)
 	}
 }
 

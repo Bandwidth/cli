@@ -12,10 +12,9 @@ var (
 	campaignListLimit                int
 	campaignListOffset               int
 	campaignListAll                  bool
-	campaignListBrandID              string
-	campaignListCampaignID           string
+	campaignListBrandIDContains      string
+	campaignListCampaignIDContains   string
 	campaignListStatus               string
-	campaignListUsecase              string
 	campaignListVettingStatus        string
 	campaignListCampaignNameContains string
 )
@@ -25,11 +24,12 @@ func init() {
 	f.IntVar(&campaignListLimit, "limit", 50, "Page size")
 	f.IntVar(&campaignListOffset, "offset", 0, "Pagination offset")
 	f.BoolVar(&campaignListAll, "all", false, "Fetch every page (cannot be combined with --offset)")
-	f.StringVar(&campaignListBrandID, "brand-id", "", "Filter by the brand that owns the campaign")
-	f.StringVar(&campaignListCampaignID, "campaign-id", "", "Filter by campaign ID")
-	f.StringVar(&campaignListStatus, "status", "", "Filter by campaign status")
-	f.StringVar(&campaignListUsecase, "usecase", "", "Filter by campaign usecase")
-	f.StringVar(&campaignListVettingStatus, "vetting-status", "", "Filter by vetting status")
+	f.StringVar(&campaignListBrandIDContains, "brand-id-contains", "",
+		"Filter to campaigns whose owning brand ID contains this substring (e.g. BEXMPL1 also matches BEXMPL12); the API has no exact-match operator for this field")
+	f.StringVar(&campaignListCampaignIDContains, "campaign-id-contains", "",
+		"Filter by campaign ID substring (e.g. CEXMPL1 also matches CEXMPL12); the API has no exact-match operator for this field, use 'campaign get <id>' for a single campaign")
+	f.StringVar(&campaignListStatus, "status", "", "Filter by campaign status, exact match")
+	f.StringVar(&campaignListVettingStatus, "vetting-status", "", "Filter by vetting status, exact match")
 	f.StringVar(&campaignListCampaignNameContains, "campaign-name-contains", "", "Filter by campaign name substring")
 	campaignCmd.AddCommand(campaignListCmd)
 }
@@ -42,11 +42,17 @@ var campaignListCmd = &cobra.Command{
 This is a summary projection — 19 keys per campaign, versus the 45 keys
 'campaign get' returns. A field that is missing here may simply not be part
 of the listing projection, not null on the campaign; use 'campaign get <id>'
-for the full resource.`,
+for the full resource.
+
+There is no --usecase filter: measured against production, usecase is
+accepted under both eq and contains and silently ignored either way,
+returning every campaign rather than filtering. It is also not among the
+accepted query parameters for this endpoint in either spec file. Filter
+client-side on the output of --all instead.`,
 	Example: `  band tendlc campaign list --plain
   band tendlc campaign list --all --plain
   band tendlc campaign list --status REGISTERED --plain
-  band tendlc campaign list --brand-id BEXMPL1 --plain`,
+  band tendlc campaign list --brand-id-contains BEXMPL1 --plain`,
 	// No positional args: list takes only flags.
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,18 +65,42 @@ for the full resource.`,
 			return err
 		}
 
+		// Measured against production (18 campaigns on the account): GET
+		// /campaigns's operator support differs PER FIELD, and does not mirror
+		// brand list's "everything needs contains" finding -- do not
+		// "harmonize" the two commands.
+		//
+		//   status[eq]           -> 9 of 18   (works)
+		//   vettingStatus[eq]    -> 9 of 18   (works)
+		//   campaignName[contains] -> 8 of 18 (already implemented this way)
+		//   brandId[eq]           -> 18 of 18 (ignored) | brandId[contains]      -> 1 of 18 (works)
+		//   campaignId[eq]        -> 18 of 18 (ignored) | campaignId[contains]   -> 1 of 18 (works)
+		//   usecase[eq] and usecase[contains] -> 18 of 18 (ignored under both operators;
+		//     also absent from the accepted query parameters in both spec files -- see
+		//     the "no --usecase filter" note in the Long text above. There is no flag
+		//     for it at all, not merely a disabled one.)
+		//
+		// status and vettingStatus stay on eq because it genuinely filters here
+		// -- do not switch them to contains "for consistency" with brand list;
+		// that would just narrow a field that eq already narrows correctly.
+		// brandId and campaignId, like brand list's brandId and
+		// customerProfileId, only filter under contains, so their flags are
+		// named for what they actually do (a substring match) rather than
+		// implying an exact-match filter the API cannot perform.
+		//
+		// Unlike brand list's brandIdentityStatus/brandType, status and
+		// vettingStatus need no client-side exact-match narrowing: eq is
+		// already exact on the wire, so there is no contains-on-a-closed-enum
+		// trap to close here.
 		var filters []api.Filter
-		if campaignListBrandID != "" {
-			filters = append(filters, api.Filter{Field: "brandId", Op: api.OpEq, Value: campaignListBrandID})
+		if campaignListBrandIDContains != "" {
+			filters = append(filters, api.Filter{Field: "brandId", Op: api.OpContains, Value: campaignListBrandIDContains})
 		}
-		if campaignListCampaignID != "" {
-			filters = append(filters, api.Filter{Field: "campaignId", Op: api.OpEq, Value: campaignListCampaignID})
+		if campaignListCampaignIDContains != "" {
+			filters = append(filters, api.Filter{Field: "campaignId", Op: api.OpContains, Value: campaignListCampaignIDContains})
 		}
 		if campaignListStatus != "" {
 			filters = append(filters, api.Filter{Field: "status", Op: api.OpEq, Value: campaignListStatus})
-		}
-		if campaignListUsecase != "" {
-			filters = append(filters, api.Filter{Field: "usecase", Op: api.OpEq, Value: campaignListUsecase})
 		}
 		if campaignListVettingStatus != "" {
 			filters = append(filters, api.Filter{Field: "vettingStatus", Op: api.OpEq, Value: campaignListVettingStatus})
