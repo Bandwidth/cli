@@ -894,10 +894,10 @@ Requires the **Customer Profiles Access role** — check with `band auth status 
 
 ```bash
 band customer-profile create --name "Acme Corp" --plain
-# → {"accountId":"9901287","addressId":null,"contact":null,"createdDate":"...","id":"622t7KB9oZkl9kQob0b8el","modifiedDate":"...","name":"Acme Corp","softDeleted":false,"totalCampaigns":0,"version":0,"website":null}
+# → {"accountId":"9900000","addressId":null,"contact":null,"createdDate":"...","id":"ExampleProfileId000002","modifiedDate":"...","name":"Acme Corp","softDeleted":false,"totalCampaigns":0,"version":0,"website":null}
 
 band customer-profile list --all --plain    # walks every page; cannot combine with --offset
-band customer-profile get 622t7KB9oZkl9kQob0b8el --plain
+band customer-profile get ExampleProfileId000002 --plain
 ```
 
 Keys come back alphabetical because the payload is a Go map — don't expect a
@@ -932,8 +932,8 @@ concurrent edit between the read and the write is caught by the API's version
 check and exits **4** — retry the command.
 
 ```bash
-band customer-profile update 622t7KB9oZkl9kQob0b8el --name "New Name" --plain
-band customer-profile update 622t7KB9oZkl9kQob0b8el --website "" --plain   # clears the website
+band customer-profile update ExampleProfileId000002 --name "New Name" --plain
+band customer-profile update ExampleProfileId000002 --website "" --plain   # clears the website
 ```
 
 ### Delete is a soft delete
@@ -943,9 +943,9 @@ humans share one contract. The record leaves listings but stays retrievable by
 ID with `softDeleted: true`, and `restore` brings it back — no confirm needed.
 
 ```bash
-band customer-profile delete 622t7KB9oZkl9kQob0b8el --confirm --plain
-# → {"deleted":true,"id":"622t7KB9oZkl9kQob0b8el","restore":"band customer-profile restore 622t7KB9oZkl9kQob0b8el"}
-band customer-profile restore 622t7KB9oZkl9kQob0b8el --plain
+band customer-profile delete ExampleProfileId000002 --confirm --plain
+# → {"deleted":true,"id":"ExampleProfileId000002","restore":"band customer-profile restore ExampleProfileId000002"}
+band customer-profile restore ExampleProfileId000002 --plain
 ```
 
 Note these are two different fields on two different resources, not a typo of
@@ -963,8 +963,8 @@ first — the profile snapshot lives under `data`, and `version`, `operation`,
 Observed `metadata.operation` values: `CREATED`, `UPDATED`, `DELETED`.
 
 ```bash
-band customer-profile history list 622t7KB9oZkl9kQob0b8el --plain
-band customer-profile history get 622t7KB9oZkl9kQob0b8el 1 --plain
+band customer-profile history list ExampleProfileId000002 --plain
+band customer-profile history get ExampleProfileId000002 1 --plain
 ```
 
 ## Toll-Free Verification (TFV)
