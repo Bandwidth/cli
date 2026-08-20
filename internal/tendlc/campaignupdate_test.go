@@ -51,16 +51,21 @@ func liveDirectCampaign() map[string]any {
 		"termsAndConditionsLink": "https://example.com/terms",
 		"embeddedLinkSample":     "https://example.com/track/abc123",
 
-		"embeddedLink":       false,
-		"embeddedPhone":      false,
+		"embeddedLink":  false,
+		"embeddedPhone": false,
+		"numberPool":    true,
+		"ageGated":      false,
+		"directLending": true,
+		"autoRenewal":   false,
+		// The 4 booleans below are not in campaignUpdateBoolFlags — measured
+		// as not editable on update, see that var's doc comment — but they
+		// are real response fields that still ride along in the RMW body.
+		// Present here, not stripped, so the losslessness test below catches
+		// a regression that starts stripping or nulling them.
 		"termsAndConditions": true,
-		"numberPool":         true,
-		"ageGated":           false,
-		"directLending":      false,
 		"subscriberOptin":    true,
 		"subscriberOptout":   true,
 		"subscriberHelp":     true,
-		"autoRenewal":        false,
 
 		// A field the CLI does not model at all. It must survive the round trip.
 		"someFutureField": "keep me",
@@ -114,16 +119,19 @@ func TestBuildCampaignUpdateRequestIsLossless(t *testing.T) {
 	}
 
 	for k, want := range map[string]bool{
-		"embeddedLink":       false,
-		"embeddedPhone":      false,
+		// The 6 flag-settable booleans.
+		"embeddedLink":  false,
+		"embeddedPhone": false,
+		"numberPool":    true,
+		"ageGated":      false,
+		"directLending": true,
+		"autoRenewal":   false,
+		// The 4 booleans with no CLI flag at all — must still survive an
+		// unrelated update untouched, since they are not stripped.
 		"termsAndConditions": true,
-		"numberPool":         true,
-		"ageGated":           false,
-		"directLending":      false,
 		"subscriberOptin":    true,
 		"subscriberOptout":   true,
 		"subscriberHelp":     true,
-		"autoRenewal":        false,
 	} {
 		v, ok := body[k]
 		if !ok {
@@ -184,26 +192,26 @@ func TestBuildCampaignUpdateRequestChangedBooleanReachesBody(t *testing.T) {
 	}
 }
 
-// An explicitly-passed --terms-and-conditions=false is a real value and must
+// An explicitly-passed --direct-lending=false is a real value and must
 // reach the wire as false, overwriting a current value of true — not be
 // mistaken for "unset" and left alone.
 func TestBuildCampaignUpdateRequestExplicitFalseBooleanIsPresentAndFalse(t *testing.T) {
 	current := liveDirectCampaign()
-	if current["termsAndConditions"] != true {
-		t.Fatal("fixture must start with termsAndConditions true for this test to prove anything")
+	if current["directLending"] != true {
+		t.Fatal("fixture must start with directLending true for this test to prove anything")
 	}
 	body, err := BuildCampaignUpdateRequest(current,
-		CampaignUpdateOptions{TermsAndConditions: false},
-		map[string]bool{"terms-and-conditions": true})
+		CampaignUpdateOptions{DirectLending: false},
+		map[string]bool{"direct-lending": true})
 	if err != nil {
 		t.Fatalf("BuildCampaignUpdateRequest: %v", err)
 	}
-	v, ok := body["termsAndConditions"]
+	v, ok := body["directLending"]
 	if !ok {
-		t.Fatal("termsAndConditions must be present in the body, not omitted")
+		t.Fatal("directLending must be present in the body, not omitted")
 	}
 	if v != false {
-		t.Errorf("termsAndConditions = %v, want false", v)
+		t.Errorf("directLending = %v, want false", v)
 	}
 }
 
@@ -382,6 +390,31 @@ func TestBuildCampaignUpdateRequestImportedRejectsMultipleOtherFlags(t *testing.
 		if !strings.Contains(err.Error(), f) {
 			t.Errorf("error should name %q, got: %s", f, err.Error())
 		}
+	}
+}
+
+// The imported branch must not send an empty-string campaignName just
+// because the caller changed nothing. An empty changed map has nothing to
+// apply, so this must be an error rather than a silent name-clearing PUT.
+func TestBuildCampaignUpdateRequestImportedErrorsWhenNoFlagsChanged(t *testing.T) {
+	_, err := BuildCampaignUpdateRequest(liveImportedCampaign(), CampaignUpdateOptions{}, map[string]bool{})
+	if err == nil {
+		t.Fatal("want an error when no flags were changed on an imported campaign; there is nothing to send")
+	}
+}
+
+// campaign-name unchanged but another flag changed must still be rejected
+// naming that flag — the rejection does not depend on campaign-name's own
+// changed state, only on whether anything OTHER than campaign-name changed.
+func TestBuildCampaignUpdateRequestImportedRejectsOtherFlagWithNameUnchanged(t *testing.T) {
+	_, err := BuildCampaignUpdateRequest(liveImportedCampaign(),
+		CampaignUpdateOptions{Description: "New description text of sufficient length."},
+		map[string]bool{"description": true})
+	if err == nil {
+		t.Fatal("want an error when a flag other than campaign-name changed, even though campaign-name itself did not")
+	}
+	if !strings.Contains(err.Error(), "description") {
+		t.Errorf("error should name description, got: %s", err.Error())
 	}
 }
 

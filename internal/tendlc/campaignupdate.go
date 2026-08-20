@@ -31,30 +31,59 @@ var campaignReadOnlyFields = []string{
 // names. brandId, usecase, and subUsecases are absent: none of the three
 // appear in the spec's directUpdateCampaignRequest, and a campaign's brand
 // and usecase are not editable after creation.
+//
+// Only 6 of create's 10 booleans are here; see campaignUpdateBoolFlags for
+// why the other 4 are deliberately excluded from this flag surface even
+// though the campaign resource itself still carries them.
 var CampaignUpdateFieldFlags = []string{
 	"campaign-name", "description", "sample1", "sample2", "sample3", "sample4", "sample5",
 	"message-flow", "help-message", "help-keywords", "optin-message", "optin-keywords",
 	"optout-message", "optout-keywords", "privacy-policy-link", "terms-and-conditions-link",
 	"embedded-link-sample",
-	"embedded-link", "embedded-phone", "terms-and-conditions", "number-pool", "age-gated",
-	"direct-lending", "subscriber-optin", "subscriber-optout", "subscriber-help", "auto-renewal",
+	"embedded-link", "embedded-phone", "number-pool", "age-gated",
+	"direct-lending", "auto-renewal",
 }
 
 // campaignUpdateBoolFlags is the subset of CampaignUpdateFieldFlags that are
-// boolean-typed rather than string-typed. Ten fields, matching create: booleans
-// have no zero value that means "unset", so the overlay must consult the
-// changed map for these instead of the value's emptiness.
+// boolean-typed rather than string-typed: booleans have no zero value that
+// means "unset", so the overlay must consult the changed map for these
+// instead of the value's emptiness.
 //
-// subscriberOptin/subscriberOptout are deliberately lowercase "in"/"out" —
-// measured production naming for both the request and response bodies. The
-// spec capitalizes them once, in the response schema only, and that is a
-// typo. Do not "fix" the casing here and do not add a response-to-request
-// renaming layer: production is self-consistent, which is exactly what was
-// measured to de-risk this component.
+// Only 6, not create's 10. This is measured, and it is the one place in the
+// whole feature where the published spec turned out right and our own
+// assumption (this file's own earlier version, and the task brief that
+// preceded it) was wrong: termsAndConditions, subscriberOptin,
+// subscriberOptout, and subscriberHelp are NOT editable on update.
+//
+// Measured directly on a live direct campaign by sending one schema-listed
+// boolean and one non-listed boolean in the same PUT:
+//
+//	field            | in directUpdateCampaignRequest? | sent          | result
+//	ageGated         | yes                              | false -> true | applied
+//	subscriberOptin  | no                                | true -> false | ignored, stayed true
+//
+// The API returned 202 and silently discarded the field that is not in the
+// update schema. Offering CLI flags for the 4 excluded booleans would ship
+// four controls that visibly accept a value and silently do nothing —
+// exactly the defect class this PR exists to catch.
+//
+// The 4 excluded booleans are NOT added to campaignReadOnlyFields: they must
+// still ride along unmodified in the read-modify-write body. current already
+// carries them from the GET, and this full-replacement PUT would null them
+// if they were stripped. The change here is only to the flag surface — the
+// CLI no longer claims the caller can change them — not to what survives the
+// round trip.
+//
+// subscriberOptin/subscriberOptout (present as read-only data, not as flags)
+// are deliberately lowercase "in"/"out" — measured production naming for
+// both the request and response bodies. The spec capitalizes them once, in
+// the response schema only, and that is a typo. Do not "fix" the casing and
+// do not add a response-to-request renaming layer: production is
+// self-consistent, which is exactly what was measured to de-risk this
+// component.
 var campaignUpdateBoolFlags = map[string]bool{
-	"embedded-link": true, "embedded-phone": true, "terms-and-conditions": true,
+	"embedded-link": true, "embedded-phone": true,
 	"number-pool": true, "age-gated": true, "direct-lending": true,
-	"subscriber-optin": true, "subscriber-optout": true, "subscriber-help": true,
 	"auto-renewal": true,
 }
 
@@ -68,10 +97,9 @@ var campaignUpdateFlagToField = map[string]string{
 	"privacy-policy-link": "privacyPolicyLink", "terms-and-conditions-link": "termsAndConditionsLink",
 	"embedded-link-sample": "embeddedLinkSample",
 	"embedded-link":        "embeddedLink", "embedded-phone": "embeddedPhone",
-	"terms-and-conditions": "termsAndConditions", "number-pool": "numberPool",
-	"age-gated": "ageGated", "direct-lending": "directLending",
-	"subscriber-optin": "subscriberOptin", "subscriber-optout": "subscriberOptout",
-	"subscriber-help": "subscriberHelp", "auto-renewal": "autoRenewal",
+	"number-pool": "numberPool",
+	"age-gated":   "ageGated", "direct-lending": "directLending",
+	"auto-renewal": "autoRenewal",
 }
 
 // CampaignUpdateOptions is the flag surface of `band tendlc campaign update`.
@@ -97,16 +125,12 @@ type CampaignUpdateOptions struct {
 	TermsAndConditionsLink string
 	EmbeddedLinkSample     string
 
-	EmbeddedLink       bool
-	EmbeddedPhone      bool
-	TermsAndConditions bool
-	NumberPool         bool
-	AgeGated           bool
-	DirectLending      bool
-	SubscriberOptin    bool
-	SubscriberOptout   bool
-	SubscriberHelp     bool
-	AutoRenewal        bool
+	EmbeddedLink  bool
+	EmbeddedPhone bool
+	NumberPool    bool
+	AgeGated      bool
+	DirectLending bool
+	AutoRenewal   bool
 }
 
 // value returns the string option value for a CLI flag name. Boolean flags
@@ -159,20 +183,12 @@ func (o CampaignUpdateOptions) boolValue(flag string) bool {
 		return o.EmbeddedLink
 	case "embedded-phone":
 		return o.EmbeddedPhone
-	case "terms-and-conditions":
-		return o.TermsAndConditions
 	case "number-pool":
 		return o.NumberPool
 	case "age-gated":
 		return o.AgeGated
 	case "direct-lending":
 		return o.DirectLending
-	case "subscriber-optin":
-		return o.SubscriberOptin
-	case "subscriber-optout":
-		return o.SubscriberOptout
-	case "subscriber-help":
-		return o.SubscriberHelp
 	case "auto-renewal":
 		return o.AutoRenewal
 	}
@@ -193,10 +209,15 @@ func (o CampaignUpdateOptions) boolValue(flag string) bool {
 // sample1 unchanged. It is NOT a full replacement there, and it does not
 // require campaignName despite the spec's importUpdateCampaignRequest
 // marking it required. So the imported arm sends exactly
-// {"campaignName": <value>} and nothing else. If the caller explicitly
-// changed any other flag, that flag would be silently dropped by this
-// branch — the worst available outcome — so it is rejected instead with a
-// FlagError naming every ignored flag.
+// {"campaignName": <value>} and nothing else, and only when campaign-name
+// was itself explicitly changed. If the caller explicitly changed any other
+// flag, that flag would be silently dropped by this branch — the worst
+// available outcome — so it is rejected instead with a FlagError naming
+// every ignored flag. If campaign-name was not changed (and nothing else
+// was either, since that case is already rejected above), there is nothing
+// to send: emitting {"campaignName": o.CampaignName} unconditionally would
+// send an empty string and actively clear the name, which is the opposite
+// of "leave it unchanged."
 //
 // If "imported" is absent from current, or is present with a non-bool value,
 // this returns an error rather than guessing which arm applies.
@@ -214,6 +235,15 @@ func BuildCampaignUpdateRequest(current map[string]any, o CampaignUpdateOptions,
 		if rejected := ImportedCampaignRejectedFlags(changed); len(rejected) > 0 {
 			return nil, cmdutil.NewFlagError("imported campaigns only accept --campaign-name; these flags are ignored and were rejected instead: --" +
 				strings.Join(rejected, ", --"))
+		}
+		// campaign-name must actually have been changed. Unlike the direct
+		// branch, an empty changed map is NOT a safe no-op here: emitting
+		// {"campaignName": o.CampaignName} unconditionally would send an
+		// empty-string name and actively clear it, the opposite of "leave
+		// unchanged." With nothing rejected and nothing to apply, there is
+		// nothing to send.
+		if !changed["campaign-name"] {
+			return nil, cmdutil.NewFlagError("imported campaigns only accept --campaign-name; no flags were changed, so there is nothing to update")
 		}
 		return map[string]any{"campaignName": o.CampaignName}, nil
 	}

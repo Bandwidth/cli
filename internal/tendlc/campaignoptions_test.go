@@ -116,6 +116,25 @@ func TestValidateCampaignCreateAcceptsValidSubUsecases(t *testing.T) {
 	}
 }
 
+// The spec describes per-usecase count limits on sub-usecases (e.g. 1-5 for
+// Low Volume Mixed, 2-5 for Mixed), but ValidateCampaignCreate deliberately
+// does not enforce them — unverified against production, per its doc
+// comment. This pins that today's validator only checks membership, not
+// count, so a future change that starts enforcing an unverified count rule
+// (and silently rejects requests production accepts) shows up as a test
+// change, not a surprise.
+func TestValidateCampaignCreateDoesNotEnforceSubUsecaseCounts(t *testing.T) {
+	o := completeValid()
+	o.SubUsecases = []string{
+		"2FA", "ACCOUNT_NOTIFICATION", "CUSTOMER_CARE", "DELIVERY_NOTIFICATION",
+		"FRAUD_ALERT", "HIGHER_EDUCATION", "MARKETING", "POLLING_VOTING",
+		"PUBLIC_SERVICE_ANNOUNCEMENT", "SECURITY_ALERT",
+	}
+	if _, err := ValidateCampaignCreate(o); err != nil {
+		t.Fatalf("want all 10 valid sub-usecases accepted regardless of count, got %v", err)
+	}
+}
+
 // The advisory is the mechanism for the "not required but flagged" behavior:
 // non-fatal, printed to stderr by the command, never blocking the request.
 func TestValidateCampaignCreateAdvisoryFiresWhenHelpFieldsAbsent(t *testing.T) {
@@ -130,6 +149,27 @@ func TestValidateCampaignCreateAdvisoryFiresWhenHelpFieldsAbsent(t *testing.T) {
 	}
 	if !strings.Contains(advisory, "--help-message") || !strings.Contains(advisory, "--help-keywords") {
 		t.Errorf("advisory should name both missing flags, got: %s", advisory)
+	}
+}
+
+// A partially-set help pair (one of helpMessage/helpKeywords present, the
+// other absent) must still fire the advisory, and must name only the field
+// that is actually missing — not the one already supplied.
+func TestValidateCampaignCreateAdvisoryFiresForPartialHelpPair(t *testing.T) {
+	o := completeValid()
+	o.HelpKeywords = ""
+	advisory, err := ValidateCampaignCreate(o)
+	if err != nil {
+		t.Fatalf("want no error (advisory is non-fatal), got %v", err)
+	}
+	if advisory == "" {
+		t.Fatal("want a non-empty advisory when only one help field is set")
+	}
+	if !strings.Contains(advisory, "--help-keywords") {
+		t.Errorf("advisory should name the missing --help-keywords, got: %s", advisory)
+	}
+	if strings.Contains(advisory, "--help-message") {
+		t.Errorf("advisory must not name --help-message, which was supplied: got %s", advisory)
 	}
 }
 
