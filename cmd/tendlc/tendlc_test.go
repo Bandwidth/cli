@@ -3,9 +3,13 @@ package tendlc
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 )
 
 func TestRoleGateError_RegistrationCenter(t *testing.T) {
@@ -165,6 +169,77 @@ func TestIsNotFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isNotFound(tt.err); got != tt.want {
 				t.Errorf("isNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRemovedLegacyCommandsExitNonZero locks in the Task 3 fix: a stray
+// token that used to be a real command -- `campaigns`, `numbers`, or a bare
+// positional under `number` -- must fail loudly, not print help with exit 0.
+// Before this fix, Cmd/brandCmd/campaignCmd/numberCmd/vettingCmd had no RunE,
+// so cobra's execute() hit its `if !c.Runnable() { return flag.ErrHelp }`
+// short-circuit before ever reaching ValidateArgs, and a deleted command's
+// name looked identical to a successful help request: exit 0 either way. A
+// caller (especially an agent scripting against this CLI) cannot tell
+// "this command doesn't exist" apart from "you asked for help" on exit code
+// alone without this fix.
+//
+// `number +15555550100` is the subtler case of the three: "+15555550100" was
+// never a command name to begin with, so this isn't "unknown command", it's
+// a stray positional against a parent (numberCmd) that now takes none. Both
+// failure shapes are covered here because they go through different cobra
+// code paths (unmatched child name vs. a leftover arg after the deepest
+// match), and only NoArgs on the matched command catches the latter.
+//
+// No stub server is passed (srv is nil in every case): all three must fail
+// before ever reaching a RunE that would call `service`, so this needs no
+// live API call and no credentials.
+func TestRemovedLegacyCommandsExitNonZero(t *testing.T) {
+	cases := [][]string{
+		{"campaigns"},
+		{"numbers"},
+		{"number", "+15555550100"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			_, _, err := runBrandCmd(t, nil, args...)
+			if err == nil {
+				t.Fatalf("band tendlc %s: want a non-zero-exit error, got nil", strings.Join(args, " "))
+			}
+			if code := cmdutil.ExitCodeForError(err); code == cmdutil.ExitOK {
+				t.Errorf("band tendlc %s: exit code = %d, want non-zero", strings.Join(args, " "), code)
+			}
+		})
+	}
+}
+
+// TestParentCommandsStillDispatchToRealSubcommands guards the other half of
+// the same change: Args: cobra.NoArgs on Cmd/brandCmd/campaignCmd/numberCmd/
+// vettingCmd must only reject a token that matches no subcommand -- cobra
+// resolves subcommands via Find before Args is ever consulted, so a real
+// subcommand name must keep dispatching exactly as before. Checked directly
+// via Cmd.Find rather than execution, since these commands need no stub
+// server or credentials to prove routing.
+func TestParentCommandsStillDispatchToRealSubcommands(t *testing.T) {
+	cases := []struct {
+		path []string
+		want *cobra.Command
+	}{
+		{[]string{"number", "list"}, numberListCmd},
+		{[]string{"brand", "list"}, brandListCmd},
+		{[]string{"campaign", "list"}, campaignListCmd},
+		{[]string{"vetting", "list"}, vettingListCmd},
+	}
+	for _, tt := range cases {
+		name := strings.Join(tt.path, " ")
+		t.Run(name, func(t *testing.T) {
+			found, _, err := Cmd.Find(tt.path)
+			if err != nil {
+				t.Fatalf("Find(%v): %v", tt.path, err)
+			}
+			if found != tt.want {
+				t.Errorf("%s resolved to %q, want %s", name, found.CommandPath(), tt.want.Name())
 			}
 		})
 	}
