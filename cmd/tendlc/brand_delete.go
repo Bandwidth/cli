@@ -90,10 +90,10 @@ because --wait gave up waiting.`,
 		}
 
 		// GoneIsDone: true — a 404 on the follow-up read means the delete has
-		// actually taken effect. This is the only poll in the whole tendlc
-		// command set that treats 404 as success rather than "not ready yet",
-		// which is exactly why the field is explicit on pollTarget instead of
-		// inferred from the noun.
+		// actually taken effect. This is the first of two polls in the whole
+		// tendlc command set that treat 404 as success rather than "not ready
+		// yet" (campaign deactivate is the other), which is exactly why the
+		// field is explicit on pollTarget instead of inferred from the noun.
 		//
 		// confirmedFetch wraps fetchBrand so the receipt only ever claims
 		// deleted:true at the exact moment a 404 proves it. awaitTerminal

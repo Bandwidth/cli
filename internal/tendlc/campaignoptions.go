@@ -138,10 +138,17 @@ type CampaignCreateOptions struct {
 // create, and this false-rejection is unique to these three tier-2
 // attestations on the CREATE path (update is handled separately).
 //
-// Tiers 3 and 4 are conditional on the submitted VALUE (true), not on the
-// flag's mere presence — checked as changed[flag] && o.Field, so neither an
-// unset --subscriber-optin (zero value false) nor an explicit
-// --subscriber-optin=false spuriously demands optinMessage/optinKeywords.
+// Tiers 3 and 4 trigger whenever the corresponding tier-2 flag was
+// explicitly passed at all, regardless of its value — checked as
+// changed[flag], not changed[flag] && o.Field. An unset --subscriber-optin
+// (zero value false) does not additionally demand optinMessage/optinKeywords,
+// since it is already reported as "missing" on its own. But an explicit
+// --subscriber-optin=false is a REJECTED value, not an absent one (see tier
+// 2 above): the only value that can ever satisfy it is true, which will then
+// require optinMessage/optinKeywords too, so those are surfaced in the same
+// error rather than waiting for a second submission at true to reveal them.
+// Suppressing tier 3/4 is correct for "unset"; it is wrong for "explicitly
+// false", which is why the two are no longer conflated here.
 //
 // subscriberHelp does not gate anything further: helpMessage/helpKeywords
 // were supplied on the one measured create that succeeded, but nothing about
@@ -206,9 +213,11 @@ func ValidateCampaignCreate(o CampaignCreateOptions, changed map[string]bool) (s
 		}
 	}
 
-	// Tiers 3 and 4: required only when the corresponding tier-2 flag was
-	// explicitly passed AND its value is true.
-	if changed["subscriber-optin"] && o.SubscriberOptin {
+	// Tiers 3 and 4: required whenever the corresponding tier-2 flag was
+	// explicitly passed — true or false — but not when it was never passed
+	// at all. See the doc comment above for why an explicit false is not
+	// exempted the way an unset flag is.
+	if changed["subscriber-optin"] {
 		if o.OptinMessage == "" {
 			missing = append(missing, "optin-message")
 		}
@@ -216,7 +225,7 @@ func ValidateCampaignCreate(o CampaignCreateOptions, changed map[string]bool) (s
 			missing = append(missing, "optin-keywords")
 		}
 	}
-	if changed["subscriber-optout"] && o.SubscriberOptout {
+	if changed["subscriber-optout"] {
 		if o.OptoutMessage == "" {
 			missing = append(missing, "optout-message")
 		}

@@ -13,7 +13,8 @@ import (
 
 // pollTarget describes what to poll and how to interpret it.
 type pollTarget struct {
-	// Noun names the resource in messages: "brand", "vetting".
+	// Noun names the resource in messages: "brand", "vetting", "campaign" —
+	// campaign is the most common value.
 	Noun string
 	// Fetch reads the resource. found=false means the API answered 404, which
 	// is "not readable yet" for creates and "done" for deletes — see

@@ -304,6 +304,28 @@ func TestCampaignCreatePreflightUnverifiedBrandExitsConflict(t *testing.T) {
 	}
 }
 
+// Test 8b: a pre-flight success on a SELF_DECLARED brand proceeds with the
+// create — SELF_DECLARED is the sole-proprietor brand path, it is in
+// ClassifyBrandIdentity's StateSuccess set, and 'band tendlc brand create
+// --wait' already exits 0 on it (see AGENTS.md), so campaign create must not
+// be the one place that silently locks this brand status out client-side
+// with no request ever sent.
+func TestCampaignCreatePreflightSelfDeclaredBrandProceeds(t *testing.T) {
+	srv, bodies := stubCampaignBrandThenCreateCapturing(t, "SELF_DECLARED", "CNEW1")
+
+	out, _, err := runBrandCmd(t, srv, validCampaignCreateArgs()...)
+	if err != nil {
+		t.Fatalf("campaign create with a SELF_DECLARED brand: %v", err)
+	}
+	if len(*bodies) != 1 {
+		t.Fatalf("want the create to proceed for a SELF_DECLARED brand, got %d requests", len(*bodies))
+	}
+	got := decodeStdout(t, out)
+	if got["bandwidthId"] != "CNEW1" {
+		t.Errorf("stdout = %v, want the create receipt", got)
+	}
+}
+
 // Test 9: a pre-flight 403 proceeds with the create anyway and warns on
 // stderr — Campaign Management is the role this command needs, and a brand
 // pre-flight check must not block a caller entitled to create campaigns just

@@ -95,14 +95,14 @@ warning on stderr instead, the same degrade-don't-block behavior as the
 brand create pre-flight.
 
 If the brand read succeeds, its identity status is checked too: a campaign
-requires a brand at VERIFIED or VETTED_VERIFIED, so any other status stops
-the create here naming the blocking state, rather than letting the API
-return an opaque error later.
+requires a brand at VERIFIED, VETTED_VERIFIED, or SELF_DECLARED, so any
+other status stops the create here naming the blocking state, rather than
+letting the API return an opaque error later.
 
 This is a non-idempotent, billable write. After an ambiguous failure — a
 timeout or a dropped connection — do not blindly retry: list campaigns
-filtered by --brand-id and reconcile against what you submitted first.
-Retrying blind risks a second campaign against the same brand.`,
+filtered by --brand-id-contains and reconcile against what you submitted
+first. Retrying blind risks a second campaign against the same brand.`,
 	Example: `  band tendlc campaign create --brand-id BEXMPL1 --usecase ACCOUNT_NOTIFICATION \
     --description "Sends account notifications to opted-in subscribers." \
     --sample1 "Your account balance is now available. Reply STOP to opt out." \
@@ -233,10 +233,24 @@ success before the sync actually applied.`,
 // brand_create.go.
 //
 // Unlike preflightCustomerProfile, a successful read is not automatically a
-// pass: a campaign requires a brand at VERIFIED or VETTED_VERIFIED, so any
-// other identity status is a blocking condition and returns a ConflictError
-// (exit 4) naming the status, rather than letting the create proceed toward
-// an opaque API failure.
+// pass: a campaign requires a brand whose identity status is a success state,
+// so any other identity status is a blocking condition and returns a
+// ConflictError (exit 4) naming the status, rather than letting the create
+// proceed toward an opaque API failure.
+//
+// The allow-list is derived from ClassifyBrandIdentity's StateSuccess set
+// (VERIFIED, VETTED_VERIFIED, SELF_DECLARED) rather than a second hardcoded
+// list, so the two cannot drift apart the way this one already had from
+// AGENTS.md's documented `brand create --wait` success set. SELF_DECLARED in
+// particular is the sole-proprietor brand path, and 'band tendlc brand
+// create --wait' already exits 0 on it with the full brand object — nothing
+// has ever measured whether POST /campaigns itself accepts a SELF_DECLARED
+// brandId, since a client-side rejection here means the request is never
+// even attempted. Blocking it anyway would be an unmeasured guess that locks
+// a real 10DLC customer class out of the CLI entirely; letting it through
+// costs at most one opaque API error if the API turns out to disagree. That
+// is the safer direction to be wrong in, so this lets the API speak instead
+// of guessing.
 func preflightBrand(cmd *cobra.Command, svc *tendlcsvc.Service, brandID string) error {
 	env, err := svc.GetBrand(brandID)
 	if err == nil {
@@ -244,12 +258,12 @@ func preflightBrand(cmd *cobra.Command, svc *tendlcsvc.Service, brandID string) 
 		obj, err = env.Object()
 		if err == nil {
 			status, _ := obj["brandIdentityStatus"].(string)
-			if status == "VERIFIED" || status == "VETTED_VERIFIED" {
+			if tendlcsvc.ClassifyBrandIdentity(status) == tendlcsvc.StateSuccess {
 				return nil
 			}
 			return &cmdutil.ConflictError{Message: fmt.Sprintf(
-				"brand %q has identity status %q; a campaign requires a verified brand (VERIFIED or "+
-					"VETTED_VERIFIED) — run 'band tendlc brand get %s' to check its current status",
+				"brand %q has identity status %q; a campaign requires a verified brand (VERIFIED, "+
+					"VETTED_VERIFIED, or SELF_DECLARED) — run 'band tendlc brand get %s' to check its current status",
 				brandID, status, brandID)}
 		}
 	}

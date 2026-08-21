@@ -1507,15 +1507,16 @@ nothing and places no new order, so — unlike `request` — this takes no
 
 `band tendlc campaign` registers and manages 10DLC campaigns for **direct**
 customers, against an existing brand — see [10DLC Brands](#10dlc-brands). A
-campaign belongs to exactly one brand, and that brand must be at `VERIFIED`
-or `VETTED_VERIFIED` before a campaign can be created against it. Requires
+campaign belongs to exactly one brand, and that brand must be at `VERIFIED`,
+`VETTED_VERIFIED`, or `SELF_DECLARED` before a campaign can be created
+against it. Requires
 the same Registration Center feature and Campaign Management role as `brand`
 and `vetting`.
 
 | Command | What it does |
 |---|---|
 | `create` | Registers a new campaign against a brand. Billable, non-idempotent, no `--confirm` |
-| `sync` | Re-pulls a campaign's current state from TCR; also the way to rename a campaign without a full update |
+| `sync` | Re-pulls a campaign's current state from TCR |
 | `list` | Lists campaigns, filterable |
 | `get` | Gets one campaign — the full 45-key resource |
 | `history` | Shows a campaign's activity log |
@@ -1561,10 +1562,14 @@ Error: missing required flags: --optin-keywords, --optin-message, --optout-keywo
 ```
 
 The second example only appears once `--subscriber-optin`/`--subscriber-optout`
-are both passed as `true` — passing them at all (even `false`, see below)
-satisfies tier 2's presence requirement; passing `true` is what pulls tiers
-3 and 4 into the requirement set. Against the raw API this same fix would
-have taken two more round trips than it does here.
+are both passed as `true` — passing either flag at all (with any value) is
+what satisfies tier 2's *presence* requirement. That is a separate question
+from the *value* requirement described below: only `true` is an accepted
+value, so passing `false` clears the "missing" error but immediately trips
+the "must be true" one instead — `false` is not a viable way to satisfy tier
+2. Passing `true` is what additionally pulls tiers 3 and 4 into the
+requirement set. Against the raw API this same fix would have taken two more
+round trips than it does here.
 
 `--help-message` and `--help-keywords` are not on this tree at all —
 compliance-relevant, and worth setting, but neither create nor update

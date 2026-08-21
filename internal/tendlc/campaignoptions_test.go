@@ -257,19 +257,50 @@ func TestValidateCampaignCreateAcceptsFullyValidFourTierPayload(t *testing.T) {
 // this validator's "valid" branch — then 400'd against production with
 // "is required" on all three POINTERs, because the API accepts only true
 // for these three. All three must now be named in one aggregated error, with
-// a message distinct from "missing".
+// a message distinct from "missing". completeValid() also leaves optin/optout's
+// tier-3/4 fields unset, and a rejected false's only path forward is true —
+// which would then demand those fields too — so this error also aggregates
+// them in now rather than waiting for a second submission to reveal them
+// (see TestValidateCampaignCreateAggregatesTierThreeAndFourWithFalseAttestation
+// for that half of the fix in isolation).
 func TestValidateCampaignCreateRejectsAllThreeExplicitFalse(t *testing.T) {
 	_, err := ValidateCampaignCreate(completeValid(), allTierTwoChanged())
 	if err == nil {
 		t.Fatal("want an error: production rejects false on all three tier-2 attestations")
 	}
-	for _, want := range []string{"--subscriber-optin", "--subscriber-optout", "--subscriber-help", "must be true"} {
+	for _, want := range []string{
+		"--subscriber-optin", "--subscriber-optout", "--subscriber-help", "must be true",
+		"missing required flags", "--optin-message", "--optin-keywords", "--optout-message", "--optout-keywords",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q: %s", want, err.Error())
 		}
 	}
-	if strings.Contains(err.Error(), "missing required flags") {
-		t.Errorf("an explicit false is a different mistake from unset and must not say 'missing': %s", err.Error())
+}
+
+// F4: an explicit false on subscriber-optin is a REJECTED value, not an
+// absent one — the only way forward is true, which would then demand
+// optin-message/optin-keywords. Suppressing those two fields for a false
+// value the same way they are correctly suppressed for an unset flag meant
+// fixing "must be true" and then discovering "missing optin fields" took two
+// round trips instead of one. Both must now surface together, in one error.
+// subscriber-optout is left true and fully valid so this isolates the optin
+// half of the fix from the optout half.
+func TestValidateCampaignCreateAggregatesTierThreeAndFourWithFalseAttestation(t *testing.T) {
+	o := withAllSubscriberFieldsValid(completeValid())
+	o.SubscriberOptin = false
+	o.OptinMessage, o.OptinKeywords = "", ""
+	_, err := ValidateCampaignCreate(o, allTierTwoChanged())
+	if err == nil {
+		t.Fatal("want an error for explicit subscriber-optin=false with no optin message/keywords")
+	}
+	for _, want := range []string{"--subscriber-optin", "must be true", "--optin-message", "--optin-keywords"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q: %s", want, err.Error())
+		}
+	}
+	if strings.Contains(err.Error(), "--optout-message") || strings.Contains(err.Error(), "--optout-keywords") {
+		t.Errorf("optout's tier-4 fields must not be demanded when optout is true and valid, got: %s", err.Error())
 	}
 }
 

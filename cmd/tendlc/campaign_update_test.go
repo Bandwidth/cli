@@ -300,3 +300,24 @@ func TestCampaignUpdatePrintsAcceptanceReceiptNotCampaignObject(t *testing.T) {
 		t.Errorf("stdout = %v, must not print the raw PUT body as though it were the updated campaign", got)
 	}
 }
+
+// campaign update is the last of the nine campaign subcommands without its
+// own stray-positional coverage -- ExactArgs(1) already guards it, so this is
+// not a live defect, but every other command in this tree (create, sync,
+// list/get/numbers/history, deactivate/nudge) has this exact test, and a
+// missing or extra positional on a write is the category that bit a
+// previous PR. A nil server means RunE must never reach the service seam on
+// either shape.
+func TestCampaignUpdateRejectsStrayPositional(t *testing.T) {
+	cases := [][]string{
+		{"campaign", "update"},
+		{"campaign", "update", "CEXMPL1", "STRAY", "--description", "Updated description."},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			if _, _, err := runBrandCmd(t, nil, args...); err == nil {
+				t.Fatal("want an argument error")
+			}
+		})
+	}
+}
