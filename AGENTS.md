@@ -1526,34 +1526,45 @@ and `vetting`.
 
 ### `create`: the requirement tree is four tiers, not one flat list
 
-Measured by actually creating a campaign against production: `POST
-/campaigns` with an empty body reports five missing fields, but that's only
-the first tier. Fixing it reveals a second tier; satisfying one of the
-second tier's flags conditionally reveals a third or fourth. A caller who
-fixes each 400 in turn still fails three more times before the create
-succeeds:
+Measured by actually creating a campaign against the raw API: `POST
+/campaigns` reveals its requirements in stages, over several round trips.
+An empty body only reports the first tier; satisfying it reveals a second
+tier; passing one of the second tier's flags as `true` conditionally
+reveals a third or fourth. A caller working directly against the API and
+fixing each 400 in turn fails three more times before the create succeeds:
 
-| Tier | Revealed when | Fields |
+| Tier | Revealed when (raw API) | Fields |
 |---|---|---|
 | 1 | empty body | `brandId`, `usecase`, `description`, `sample1`, `messageFlow` |
 | 2 | tier 1 satisfied | `subscriberOptin`, `subscriberOptout`, `subscriberHelp` |
 | 3 | `subscriberOptin` true | `optinMessage`, `optinKeywords` |
 | 4 | `subscriberOptout` true | `optoutMessage`, `optoutKeywords` |
 
-The CLI enforces all four tiers client-side and reports every violation it
-can currently see in one error, the same aggregation `brand create` does —
-no request is made until nothing is missing:
+**That staging describes the raw API, not this CLI's own validation.**
+`ValidateCampaignCreate` checks tiers 1 and 2 unconditionally, in the same
+pass, on every invocation — tier 2 is not gated behind tier 1 being
+satisfied in the CLI's code, only in the API's error surface. So a bare
+`campaign create` with nothing at all reports all eight tier-1-plus-tier-2
+field names in one error, not five now and three more after fixing them and
+trying again against the raw API. Tiers 3 and 4 are different, in the CLI
+exactly as in the API: they are genuinely conditional on the *value*, not
+merely the presence, of the tier-2 attestations, so the CLI cannot include
+them until it knows `subscriberOptin`/`subscriberOptout` were passed as
+`true`:
 
 ```
 $ band tendlc campaign create --plain
-Error: missing required flags: --brand-id, --description, --message-flow, --sample1, --usecase
+Error: missing required flags: --brand-id, --description, --message-flow, --sample1, --subscriber-help, --subscriber-optin, --subscriber-optout, --usecase
 
-$ band tendlc campaign create <tier-1 fields> --plain
-Error: missing required flags: --subscriber-help, --subscriber-optin, --subscriber-optout
-
-$ band tendlc campaign create <tier 1+2> --plain
+$ band tendlc campaign create <tier 1+2 fields, both booleans true> --plain
 Error: missing required flags: --optin-keywords, --optin-message, --optout-keywords, --optout-message
 ```
+
+The second example only appears once `--subscriber-optin`/`--subscriber-optout`
+are both passed as `true` — passing them at all (even `false`, see below)
+satisfies tier 2's presence requirement; passing `true` is what pulls tiers
+3 and 4 into the requirement set. Against the raw API this same fix would
+have taken two more round trips than it does here.
 
 `--help-message` and `--help-keywords` are not on this tree at all —
 compliance-relevant, and worth setting, but neither create nor update
@@ -1595,7 +1606,7 @@ the same way — before any request is sent:
 
 ```
 $ band tendlc campaign create --usecase NOT_A_REAL_USECASE ... --plain
-Error: --usecase must be one of: 2FA, ACCOUNT_NOTIFICATION, AGENTS_FRANCHISES, CARRIER_EXEMPT, CHARITY, CONVERSATIONAL, CUSTOMER_CARE, DELIVERY_NOTIFICATION, EMERGENCY, FRAUD_ALERT, HIGHER_EDUCATION, K12_EDUCATION, LOW_VOLUME, M2M, MARKETING, MIXED, POLITICAL, POLLING_VOTING, PROXY, PUBLIC_SERVICE_ANNOUNCEMENT, SECURITY_ALERT, SOCIAL, SWEEPSTAKE, TRIAL, UCAAS_HIGH, UCAAS_LOW
+Error: --usecase must be one of: 2FA, ACCOUNT_NOTIFICATION, CARRIER_EXEMPT, CHARITY, CONVERSATIONAL, CUSTOMER_CARE, DELIVERY_NOTIFICATION, EMERGENCY, FRAUD_ALERT, HIGHER_EDUCATION, K12_EDUCATION, LOW_VOLUME, MARKETING, MIXED, POLITICAL, POLLING_VOTING, PUBLIC_SERVICE_ANNOUNCEMENT, SECURITY_ALERT, SOCIAL, SWEEPSTAKE, TRIAL, AGENTS_FRANCHISES, PROXY, UCAAS_HIGH, UCAAS_LOW, M2M
 ```
 
 But **a value that passes that check can still be refused for a given
