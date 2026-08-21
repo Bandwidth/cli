@@ -32,31 +32,21 @@ func init() {
 	hf.IntVar(&numberHistoryOffset, "offset", 0, "Pagination offset")
 	hf.BoolVar(&numberHistoryAll, "all", false, "Fetch every page (cannot be combined with --offset)")
 
-	// numberGetCmd (Use: "number <phoneNumber>") is declared in numbers.go --
-	// the legacy flat `band tendlc number <tn>` command, deleted in Task 3,
-	// not here. It is already registered under Cmd by numbers.go's own
-	// init(). A second, sibling command also named "number" would collide:
-	// cobra's Command.Find matches children by Name() and returns the FIRST
-	// one added to the parent's command slice, with no tie-break on Args or
-	// anything else. Go initializes files within a package in filename
-	// order, so this file's init() would run before numbers.go's, and
-	// `Cmd.AddCommand(numberCmd)` here would always win the race -- silently
-	// shadowing the legacy command's `Cmd.AddCommand(numberGetCmd)` call
-	// below it, so a bare `band tendlc number +15555550100` would resolve to
-	// this file's parent, find no subcommand named "+15555550100", and print
-	// this command's help instead of running the legacy lookup. Verified
-	// against a cobra sandbox before writing this.
-	//
-	// Attaching these three subcommands directly onto the existing
-	// numberGetCmd node avoids that entirely: no second "number" command is
-	// ever registered. Cobra falls through to a parent's own Args/RunE
-	// whenever the next token isn't a known child's name, so
-	// `band tendlc number <tn>` keeps invoking the legacy runNumberGet
-	// unchanged, while `list`, `get <tn>`, and `history <tn>` route to the
-	// commands below. When Task 3 deletes numbers.go, replace numberGetCmd
-	// here with a plain `numberCmd` parent (Use: "number") and re-register
-	// it on Cmd directly.
-	numberGetCmd.AddCommand(numberListCmd, numberDetailCmd, numberHistoryCmd)
+	numberCmd.AddCommand(numberListCmd, numberDetailCmd, numberHistoryCmd)
+	Cmd.AddCommand(numberCmd)
+}
+
+// numberCmd is the `band tendlc number` parent. The legacy flat
+// `band tendlc number <tn>` command (numberGetCmd, declared in numbers.go)
+// is gone as of Task 3 -- there is no bare `number <tn>` anymore, only the
+// three subcommands below.
+var numberCmd = &cobra.Command{
+	Use:   "number",
+	Short: "Manage 10DLC phone number registrations",
+	Long: `View 10DLC phone number registration status.
+
+Requires the Registration Center feature and the Campaign Management role.
+Check with 'band tendlc status --plain'.`,
 }
 
 var numberListCmd = &cobra.Command{
@@ -137,9 +127,9 @@ fields -- check for them rather than relying on their absence.`,
 }
 
 // numberDetailCmd implements `band tendlc number get <tn>`. Named
-// numberDetailCmd, not numberGetCmd, because numbers.go already declares
-// numberGetCmd for the legacy flat `number <tn>` command this is attached
-// beneath -- see this file's init().
+// numberDetailCmd, not numberGetCmd, to avoid colliding with the historical
+// numberGetCmd identifier that once lived in the now-deleted numbers.go for
+// the legacy flat `number <tn>` command.
 var numberDetailCmd = &cobra.Command{
 	Use:   "get <phone-number>",
 	Short: "Get 10DLC registration details for a phone number",

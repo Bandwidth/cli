@@ -124,6 +124,20 @@ func TestNumberListHasNoStatusFilterFlag(t *testing.T) {
 	if f := numberListCmd.Flags().Lookup("status"); f != nil {
 		t.Errorf("number list must not have a --status flag, found %v", f)
 	}
+
+	// An exact-match --campaign-id (distinct from --campaign-id-contains,
+	// which does and should exist) is deliberately absent for the same
+	// reason: campaignId[eq] is silently ignored by the API and returns
+	// every record regardless of value, so an exact-match flag would
+	// reintroduce the filter-returns-everything anti-pattern this series
+	// has now hit three times -- brand list --bandwidth-id, campaign list
+	// --usecase, and this command's own --status above.
+	if f := numberListCmd.Flags().Lookup("campaign-id"); f != nil {
+		t.Errorf("number list must not have an exact-match --campaign-id flag, found %v", f)
+	}
+	if f := numberListCmd.Flags().Lookup("campaign-id-contains"); f == nil {
+		t.Error("number list must have --campaign-id-contains, the flag that genuinely filters")
+	}
 }
 
 // TestNumberListCampaignIDContainsSendsContains covers the one filter that
@@ -324,26 +338,24 @@ func TestNumberRoleGate403MapsToExitFour(t *testing.T) {
 	}
 }
 
-// TestNumberCommandTreeCoexistsWithLegacy guards the coexistence decision
-// recorded in number.go's init(): the three new subcommands are attached
-// onto the existing numberGetCmd node rather than a new sibling "number"
-// command, specifically so the legacy flat `band tendlc number <tn>` keeps
-// resolving to numberGetCmd (and running the legacy runNumberGet) instead of
-// being shadowed by a second command of the same name. This checks cobra's
-// routing directly via Find, which needs no stub server or credentials —
-// legacy's runNumberGet calls cmdutil.PlatformClient directly rather than
-// going through the `service` seam this package's harness swaps, so it
-// can't be exercised end-to-end here the way the new subcommands are; the
-// full end-to-end legacy check happens by hand against the built binary
-// (see the task report). If a future change reintroduces a colliding
-// sibling "number" command, the child-count assertion below catches it.
-func TestNumberCommandTreeCoexistsWithLegacy(t *testing.T) {
+// TestNumberCommandTreeHasNoLegacyFlatGet guards Task 3's removal of the
+// legacy flat `band tendlc number <tn>` command: numberCmd (Use: "number")
+// is now a plain parent, declared the same way as brandCmd and campaignCmd,
+// with no RunE of its own. A bare `number <tn>` therefore resolves to
+// numberCmd itself with an unconsumed positional, not to a get-style
+// command — there is no more shorthand for `number get <tn>`. This also
+// guards against a regression back to the pre-Task-3 collision risk: if a
+// future change ever adds a second sibling command also named "number",
+// this test's child-count assertion below would catch it, since cobra's
+// Find matches children by name and returns the first match with no
+// tie-break.
+func TestNumberCommandTreeHasNoLegacyFlatGet(t *testing.T) {
 	found, _, err := Cmd.Find([]string{"number", "+15555550100"})
 	if err != nil {
 		t.Fatalf("Find(number, <tn>): %v", err)
 	}
-	if found != numberGetCmd {
-		t.Errorf("bare `number <tn>` resolved to %q, want the legacy numberGetCmd", found.CommandPath())
+	if found != numberCmd {
+		t.Errorf("bare `number <tn>` resolved to %q, want it to fall through to the numberCmd parent (no legacy get shorthand)", found.CommandPath())
 	}
 
 	found, _, err = Cmd.Find([]string{"number", "list"})

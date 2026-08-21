@@ -57,53 +57,6 @@ func roleGateError(err error, roleName string) error {
 	}
 }
 
-// extractData unwraps a paginated response to return just the "data" array.
-// If the response doesn't match the expected shape, it's returned as-is.
-func extractData(result interface{}) interface{} {
-	m, ok := result.(map[string]interface{})
-	if !ok {
-		return result
-	}
-	if data, exists := m["data"]; exists {
-		return data
-	}
-	return result
-}
-
-// filterNumbers applies client-side filtering on the phone numbers list.
-// The phoneNumbers endpoint doesn't support server-side filtering on status
-// or campaignId, so we filter after fetching.
-func filterNumbers(data interface{}, status, campaignID string) interface{} {
-	arr, ok := data.([]interface{})
-	if !ok {
-		return data
-	}
-	var filtered []interface{}
-	for _, item := range arr {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if status != "" {
-			s, _ := m["status"].(string)
-			if !strings.EqualFold(s, status) {
-				continue
-			}
-		}
-		if campaignID != "" {
-			c, _ := m["campaignId"].(string)
-			if !strings.EqualFold(c, campaignID) {
-				continue
-			}
-		}
-		filtered = append(filtered, item)
-	}
-	if filtered == nil {
-		return []interface{}{}
-	}
-	return filtered
-}
-
 // isNotFound reports whether err is an API 404.
 func isNotFound(err error) bool {
 	var apiErr *api.APIError
