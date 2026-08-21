@@ -16,6 +16,12 @@ import (
 // validCampaignCreateArgs returns a full, valid flag set for `campaign
 // create` (including both HELP fields, so the advisory does not fire), so
 // each test only needs to state what it adds, overrides, or omits.
+//
+// The three --subscriber-optin/optout/help flags are included, explicitly
+// set to false, because ValidateCampaignCreate's tier 2 requires them to be
+// PASSED (not necessarily true) — measured against production, see
+// ValidateCampaignCreate's doc comment. Passing them as false here also
+// keeps tiers 3/4 (optin/optout message+keywords) from firing.
 func validCampaignCreateArgs(extra ...string) []string {
 	args := []string{
 		"campaign", "create",
@@ -26,6 +32,9 @@ func validCampaignCreateArgs(extra ...string) []string {
 		"--message-flow", "Customer opts in via web form; campaign sends account notifications only.",
 		"--help-message", "For help, reply HELP or contact support.",
 		"--help-keywords", "HELP,INFO",
+		"--subscriber-optin=false",
+		"--subscriber-optout=false",
+		"--subscriber-help=false",
 	}
 	return append(args, extra...)
 }
@@ -40,6 +49,9 @@ func validCampaignCreateArgsNoHelp(extra ...string) []string {
 		"--description", "Sends account notifications to opted-in subscribers about their account status.",
 		"--sample1", "Your account balance is now available. Reply STOP to opt out.",
 		"--message-flow", "Customer opts in via web form; campaign sends account notifications only.",
+		"--subscriber-optin=false",
+		"--subscriber-optout=false",
+		"--subscriber-help=false",
 	}
 	return append(args, extra...)
 }
@@ -114,7 +126,10 @@ func TestCampaignCreateMissingRequiredFlagsAggregate(t *testing.T) {
 	if code := cmdutil.ExitCodeForError(err); code != cmdutil.ExitFlagError {
 		t.Errorf("exit code = %d, want %d", code, cmdutil.ExitFlagError)
 	}
-	for _, want := range []string{"--brand-id", "--usecase", "--description", "--sample1", "--message-flow"} {
+	for _, want := range []string{
+		"--brand-id", "--usecase", "--description", "--sample1", "--message-flow",
+		"--subscriber-optin", "--subscriber-optout", "--subscriber-help",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, missing flag %q", err.Error(), want)
 		}

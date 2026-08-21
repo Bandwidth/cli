@@ -75,23 +75,60 @@ type CampaignCreateOptions struct {
 	AutoRenewal        bool
 }
 
-// ValidateCampaignCreate checks the required flags and the two enum-valued
-// flags, returning every violation in one error, the way the API reports
-// every violation in one 400.
+// ValidateCampaignCreate checks the flags against a four-tier conditional
+// requirement tree, returning every violation in one error, the way the API
+// reports every violation in one 400.
 //
-// Required: exactly brand-id, usecase, description, sample1, message-flow —
-// measured against production 2026-08-20, not the schema. The spec's
-// createCampaignRequest also lists helpMessage and helpKeywords as required,
-// but a create omitting both succeeds in production, so they are not
-// enforced here; see the advisory return value below.
+// The table below was measured by creating a real campaign against
+// production on 2026-08-21, not read from the schema — the spec's
+// createCampaignRequest lists 7 required fields (brandId, usecase,
+// description, sample1, messageFlow, helpMessage, helpKeywords) and is wrong
+// in both directions: helpMessage/helpKeywords are not actually required
+// (see the advisory return value below), and three more required fields
+// only appear once tier 1 is satisfied.
+//
+//	Tier | Revealed when           | Fields
+//	-----|--------------------------|----------------------------------------
+//	1    | empty body               | brandId, usecase, description, sample1,
+//	     |                          | messageFlow
+//	2    | tier 1 satisfied         | subscriberOptin, subscriberOptout,
+//	     |                          | subscriberHelp (all three required)
+//	3    | subscriberOptin: true    | optinMessage, optinKeywords
+//	4    | subscriberOptout: true   | optoutMessage, optoutKeywords
+//
+// An earlier measurement concluded there were only 5 required fields and no
+// second tier; that was a measurement artifact, not a production change. The
+// probe used a deliberately-too-short description, and that length violation
+// short-circuited every tier behind it — the same short-circuit hazard this
+// validator routes around for --usecase below.
+//
+// Tier 2 is three booleans that default to false — exactly the kind of value
+// BuildCampaignCreateRequest otherwise treats as "never sent" when the flag
+// was never passed (see its doc comment). That omission is what keeps an
+// explicit --age-gated=false distinguishable from silence on update. On
+// create, these same three fields can be REQUIRED, so tier 2 is checked
+// against the changed map, not against o's booleans directly: an unset
+// --subscriber-optin and an explicitly-passed --subscriber-optin=false are
+// different inputs, and only the former is a violation.
+//
+// Tiers 3 and 4 are conditional on the submitted VALUE (true), not on the
+// flag's mere presence — checked as changed[flag] && o.Field, so neither an
+// unset --subscriber-optin (zero value false) nor an explicit
+// --subscriber-optin=false spuriously demands optinMessage/optinKeywords.
+//
+// subscriberHelp does not gate anything further: helpMessage/helpKeywords
+// were supplied on the one measured create that succeeded, but nothing about
+// that create proved they were required, so they remain the non-fatal
+// advisory below rather than a tier-5 requirement invented from a single
+// data point.
 //
 // --usecase is validated against CampaignUsecases. Production reports an
 // unrecognized usecase as "is not allowed for direct campaigns" rather than
 // "invalid value", and that error SHORT-CIRCUITS every other violation in
 // the same request — a typo is indistinguishable from a permission boundary
 // there. That is exactly why this validates client-side: an invalid usecase
-// here does not short-circuit anything either, and is aggregated with any
-// missing-flag violations into one error instead.
+// here does not short-circuit anything either, and is aggregated with every
+// other violation into one error instead.
 //
 // --sub-usecase values are validated against CampaignSubUsecases the same
 // way, also aggregated rather than short-circuiting.
@@ -104,7 +141,7 @@ type CampaignCreateOptions struct {
 // what the API accepts. Silently letting a compliance gap through is also
 // bad, so the gap is surfaced as an advisory the caller prints instead of a
 // blocking error.
-func ValidateCampaignCreate(o CampaignCreateOptions) (string, error) {
+func ValidateCampaignCreate(o CampaignCreateOptions, changed map[string]bool) (string, error) {
 	required := [][2]string{
 		{"brand-id", o.BrandID},
 		{"usecase", o.Usecase},
@@ -116,6 +153,33 @@ func ValidateCampaignCreate(o CampaignCreateOptions) (string, error) {
 	for _, p := range required {
 		if p[1] == "" {
 			missing = append(missing, p[0])
+		}
+	}
+
+	// Tier 2: required regardless of value, but only once explicitly passed —
+	// see the doc comment above for why this reads changed instead of o.
+	for _, flag := range []string{"subscriber-optin", "subscriber-optout", "subscriber-help"} {
+		if !changed[flag] {
+			missing = append(missing, flag)
+		}
+	}
+
+	// Tiers 3 and 4: required only when the corresponding tier-2 flag was
+	// explicitly passed AND its value is true.
+	if changed["subscriber-optin"] && o.SubscriberOptin {
+		if o.OptinMessage == "" {
+			missing = append(missing, "optin-message")
+		}
+		if o.OptinKeywords == "" {
+			missing = append(missing, "optin-keywords")
+		}
+	}
+	if changed["subscriber-optout"] && o.SubscriberOptout {
+		if o.OptoutMessage == "" {
+			missing = append(missing, "optout-message")
+		}
+		if o.OptoutKeywords == "" {
+			missing = append(missing, "optout-keywords")
 		}
 	}
 

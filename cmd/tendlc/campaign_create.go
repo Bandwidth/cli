@@ -121,7 +121,19 @@ Retrying blind risks a second campaign against the same brand.`,
 	// rejects before RunE, which reports one flag at a time and would block a
 	// future interactive prompt from filling them in.
 	RunE: func(cmd *cobra.Command, args []string) error {
-		advisory, err := tendlcsvc.ValidateCampaignCreate(campaignCreateOpts)
+		// Built before validation, not just before the build request below:
+		// ValidateCampaignCreate needs to see which of the three
+		// subscriber-optin/optout/help booleans were explicitly passed, since
+		// only their presence — not their value — is tier 2 of the create
+		// requirement tree (see the function's doc comment).
+		changed := map[string]bool{}
+		for _, name := range campaignCreateBoolFlags {
+			if cmd.Flags().Changed(name) {
+				changed[name] = true
+			}
+		}
+
+		advisory, err := tendlcsvc.ValidateCampaignCreate(campaignCreateOpts, changed)
 		if err != nil {
 			return err
 		}
@@ -135,13 +147,6 @@ Retrying blind risks a second campaign against the same brand.`,
 
 		if err := preflightBrand(cmd, svc, campaignCreateOpts.BrandID); err != nil {
 			return err
-		}
-
-		changed := map[string]bool{}
-		for _, name := range campaignCreateBoolFlags {
-			if cmd.Flags().Changed(name) {
-				changed[name] = true
-			}
 		}
 
 		env, err := svc.CreateCampaign(tendlcsvc.BuildCampaignCreateRequest(campaignCreateOpts, changed))
