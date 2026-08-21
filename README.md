@@ -484,7 +484,7 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | Command | What it does |
 |---------|-------------|
 | `band tendlc brand create --customer-profile-id <id> --brand-type <type> ...` | Register a brand (required flags vary by `--brand-type`; `--wait` blocks until VERIFIED/VETTED_VERIFIED) |
-| `band tendlc brand list` | List brands (filter by `--customer-profile-id`, `--brand-id`, `--identity-status`, `--brand-type`, name substrings) |
+| `band tendlc brand list` | List brands (filter by `--customer-profile-id-contains`, `--brand-id-contains`, `--identity-status`, `--brand-type`, name substrings) |
 | `band tendlc brand get <id>` | Get one brand — accepts either the `bandwidthId` or the TCR `brandId` |
 | `band tendlc brand history <id>` | Show a brand's activity log |
 | `band tendlc brand update <id>` | Update a brand (read-modify-write; `--confirm` required when an identity-affecting field changes) |

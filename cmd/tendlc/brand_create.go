@@ -91,8 +91,8 @@ the same way; this check is a guard, not a gate.
 
 This is a non-idempotent, billable write. After an ambiguous failure — a
 timeout or a dropped connection — do not blindly retry: list brands
-filtered by --customer-profile-id and reconcile against what you submitted
-first. Retrying blind risks a second brand against the same profile.`,
+filtered by --customer-profile-id-contains and reconcile against what you
+submitted first. Retrying blind risks a second brand against the same profile.`,
 	Example: `  band tendlc brand create --customer-profile-id CP123 --brand-type PRIVATE_PROFIT \
     --display-name "Acme Corp" --company-name "Acme Corporation" \
     --street "123 Main St" --city Raleigh --state NC --postal-code 27601 \
