@@ -52,6 +52,19 @@ type pollTarget struct {
 //
 // receipt is what gets printed on every non-success outcome. It must already
 // contain the ID from the 202 and, where one exists, a resume command.
+//
+// receipt is shared by reference with the caller, not copied. brand_delete.go
+// and campaign_lifecycle.go both rely on this: they close over the same map
+// inside their Fetch function and mutate it in place (flipping "deleted" or
+// "deactivated" to true) only once a follow-up read confirms a 404. That
+// mutation must be visible here, in emitReceipt, when the timeout/error path
+// fires — the whole reason a --wait timeout still prints "deactivated: false"
+// instead of contradicting its own exit code. A defensive copy of receipt
+// here (e.g. to "protect" the caller's map) would silently break that
+// closure: the caller's confirmed-404 mutation would land on a copy this
+// function never reads, and every such receipt would go back to claiming
+// false success. Do not copy receipt; if a future caller needs isolation, it
+// must copy on its own side instead.
 func awaitTerminal(cmd *cobra.Command, t pollTarget, receipt map[string]any, timeout, interval time.Duration) error {
 	format, plain := cmdutil.OutputFlags(cmd)
 
