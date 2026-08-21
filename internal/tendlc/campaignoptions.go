@@ -92,7 +92,8 @@ type CampaignCreateOptions struct {
 //	1    | empty body               | brandId, usecase, description, sample1,
 //	     |                          | messageFlow
 //	2    | tier 1 satisfied         | subscriberOptin, subscriberOptout,
-//	     |                          | subscriberHelp (all three required)
+//	     |                          | subscriberHelp — all three required,
+//	     |                          | and only true is an accepted value
 //	3    | subscriberOptin: true    | optinMessage, optinKeywords
 //	4    | subscriberOptout: true   | optoutMessage, optoutKeywords
 //
@@ -109,7 +110,33 @@ type CampaignCreateOptions struct {
 // create, these same three fields can be REQUIRED, so tier 2 is checked
 // against the changed map, not against o's booleans directly: an unset
 // --subscriber-optin and an explicitly-passed --subscriber-optin=false are
-// different inputs, and only the former is a violation.
+// different inputs, and only the former is "missing".
+//
+// The latter is its own, different violation: production accepts ONLY true
+// for these three. Measured directly — a create with all three explicitly
+// passed as false serialized to
+//
+//	{"brandId":"B","description":"d","messageFlow":"m","sample1":"s",
+//	 "subscriberHelp":false,"subscriberOptin":false,"subscriberOptout":false,
+//	 "usecase":"CUSTOMER_CARE"}
+//
+// (all three present, not omitted) and still came back
+//
+//	400 {"description":"is required","source":{"POINTER":"/subscriberOptin"}}
+//	    {"description":"is required","source":{"POINTER":"/subscriberOptout"}}
+//	    {"description":"is required","source":{"POINTER":"/subscriberHelp"}}
+//
+// i.e. the API treats an explicit false on these three the same as absent,
+// and reports it as "is required" rather than as an invalid value — which
+// reads exactly like a client-side serialization bug (a field silently
+// dropped) even though the field was on the wire. A campaign apparently
+// cannot declare "no opt-in, no opt-out, no help support"; only true is
+// accepted. So an explicit false on any of the three is rejected here, with
+// a message that names the real constraint instead of letting the caller
+// chase a phantom "we forgot to send it" theory. This is NOT extended to any
+// other boolean: --age-gated=false and the rest are legitimately settable on
+// create, and this false-rejection is unique to these three tier-2
+// attestations on the CREATE path (update is handled separately).
 //
 // Tiers 3 and 4 are conditional on the submitted VALUE (true), not on the
 // flag's mere presence — checked as changed[flag] && o.Field, so neither an
@@ -157,10 +184,25 @@ func ValidateCampaignCreate(o CampaignCreateOptions, changed map[string]bool) (s
 	}
 
 	// Tier 2: required regardless of value, but only once explicitly passed —
-	// see the doc comment above for why this reads changed instead of o.
-	for _, flag := range []string{"subscriber-optin", "subscriber-optout", "subscriber-help"} {
-		if !changed[flag] {
-			missing = append(missing, flag)
+	// see the doc comment above for why this reads changed instead of o. An
+	// explicitly-passed false is a DIFFERENT violation from unset: production
+	// accepts only true for these three (see the doc comment's wire-level
+	// evidence), so false is collected separately rather than folded into
+	// "missing".
+	var mustBeTrue []string
+	for _, tf := range []struct {
+		flag  string
+		value bool
+	}{
+		{"subscriber-optin", o.SubscriberOptin},
+		{"subscriber-optout", o.SubscriberOptout},
+		{"subscriber-help", o.SubscriberHelp},
+	} {
+		switch {
+		case !changed[tf.flag]:
+			missing = append(missing, tf.flag)
+		case !tf.value:
+			mustBeTrue = append(mustBeTrue, tf.flag)
 		}
 	}
 
@@ -192,7 +234,7 @@ func ValidateCampaignCreate(o CampaignCreateOptions, changed map[string]bool) (s
 		}
 	}
 
-	if invalidUsecase || len(invalidSubUsecases) > 0 {
+	if invalidUsecase || len(invalidSubUsecases) > 0 || len(mustBeTrue) > 0 {
 		var parts []string
 		if invalidUsecase {
 			parts = append(parts, "--usecase must be one of: "+strings.Join(CampaignUsecases, ", "))
@@ -201,10 +243,23 @@ func ValidateCampaignCreate(o CampaignCreateOptions, changed map[string]bool) (s
 			parts = append(parts, "--sub-usecase "+strings.Join(invalidSubUsecases, ", ")+
 				" must be one of: "+strings.Join(CampaignSubUsecases, ", "))
 		}
+		if len(mustBeTrue) > 0 {
+			sorted := append([]string(nil), mustBeTrue...)
+			sort.Strings(sorted)
+			prefixed := make([]string, len(sorted))
+			for i, f := range sorted {
+				prefixed[i] = "--" + f
+			}
+			parts = append(parts, strings.Join(prefixed, ", ")+
+				" must be true — the API rejects false on these three as \"is required\" rather "+
+				"than as an invalid value, so a campaign cannot declare no opt-in, no opt-out, "+
+				"and no help support")
+		}
 		if len(missing) > 0 {
 			// Sorted the same way cmdutil.NewMissingFlagsError sorts its own
 			// list, so the rendering of the same missing flags does not depend
-			// on whether an enum violation also happened to be present.
+			// on whether an enum or must-be-true violation also happened to be
+			// present.
 			sorted := append([]string(nil), missing...)
 			sort.Strings(sorted)
 			prefixed := make([]string, len(sorted))

@@ -11,9 +11,11 @@ import (
 // completeValid returns options satisfying tier 1 (the five unconditional
 // required fields) plus both help fields, so each test can knock out exactly
 // one thing. It leaves the tier-2 subscriber booleans at their zero value
-// (false) — callers that need tier 2 satisfied must pass allTierTwoChanged
-// (or a more specific changed map) alongside it, since tier 2's requirement
-// is presence in changed, not the value in this struct.
+// (false) — combined with allTierTwoChanged, that is now DELIBERATELY an
+// invalid combination (see TestValidateCampaignCreateRejectsAllThreeExplicitFalse):
+// production accepts only true for all three, so completeValid alone is a
+// tier-1/help fixture, not a fully-valid one. Tests that need a fully-valid
+// payload use withAllSubscriberFieldsValid on top of this.
 func completeValid() CampaignCreateOptions {
 	return CampaignCreateOptions{
 		BrandID:      "BEXMPL1",
@@ -27,11 +29,11 @@ func completeValid() CampaignCreateOptions {
 	}
 }
 
-// allTierTwoChanged marks the three tier-2 booleans as explicitly passed,
-// the minimum `changed` set that satisfies ValidateCampaignCreate on top of
-// completeValid's other fields. Values are read from the options struct
-// itself (all false by default in completeValid), so tiers 3/4 do not fire
-// unless a test also sets SubscriberOptin/SubscriberOptout to true.
+// allTierTwoChanged marks the three tier-2 booleans as explicitly passed —
+// required for ValidateCampaignCreate to treat them as attestations at all,
+// rather than as unset. It does not by itself make a payload valid: the
+// values still have to be true (see withAllSubscriberFieldsValid) or the
+// mustBeTrue violation fires instead of "missing".
 func allTierTwoChanged() map[string]bool {
 	return map[string]bool{
 		"subscriber-optin":  true,
@@ -40,8 +42,25 @@ func allTierTwoChanged() map[string]bool {
 	}
 }
 
+// withAllSubscriberFieldsValid returns o with all three tier-2 booleans set
+// to true and their tier-3/4 dependents filled in — the only combination of
+// these fields production actually accepts. Tests that are not specifically
+// about tiers 2-4 use this as their base so they exercise a payload the API
+// would accept, not one this validator's earlier version wrongly let through.
+func withAllSubscriberFieldsValid(o CampaignCreateOptions) CampaignCreateOptions {
+	o.SubscriberOptin = true
+	o.OptinMessage = "Text JOIN to opt in."
+	o.OptinKeywords = "JOIN"
+	o.SubscriberOptout = true
+	o.OptoutMessage = "You have been unsubscribed."
+	o.OptoutKeywords = "STOP"
+	o.SubscriberHelp = true
+	return o
+}
+
 func TestValidateCampaignCreateAcceptsCompleteOptions(t *testing.T) {
-	advisory, err := ValidateCampaignCreate(completeValid(), allTierTwoChanged())
+	o := withAllSubscriberFieldsValid(completeValid())
+	advisory, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err != nil {
 		t.Fatalf("want valid, got %v", err)
 	}
@@ -70,6 +89,9 @@ func TestValidateCampaignCreateReportsAllMissingFieldsAtOnce(t *testing.T) {
 			t.Errorf("error missing %s: %s", want, err.Error())
 		}
 	}
+	if strings.Contains(err.Error(), "must be true") {
+		t.Errorf("unset tier-2 flags must report as missing, not must-be-true: %s", err.Error())
+	}
 }
 
 // Tier 2, isolated: tier 1 and the help fields are satisfied, but none of
@@ -90,12 +112,21 @@ func TestValidateCampaignCreateReportsAllMissingTierTwoFlagsAtOnce(t *testing.T)
 			t.Errorf("error missing %s: %s", want, err.Error())
 		}
 	}
+	// An UNSET flag is a "missing" violation, not the "must be true" one —
+	// they are different mistakes (see ValidateCampaignCreateRejectsAllThreeExplicitFalse
+	// for the other one) and must produce different messages.
+	if !strings.Contains(err.Error(), "missing required flags") {
+		t.Errorf("unset tier-2 flags should report as missing, got: %s", err.Error())
+	}
+	if strings.Contains(err.Error(), "must be true") {
+		t.Errorf("unset tier-2 flags must not trigger the must-be-true message, got: %s", err.Error())
+	}
 }
 
 // helpMessage/helpKeywords are spec-required but production accepts a create
 // omitting both. They must not appear in the missing-flags error.
 func TestValidateCampaignCreateDoesNotRequireHelpFields(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.HelpMessage, o.HelpKeywords = "", ""
 	_, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err != nil {
@@ -130,7 +161,7 @@ func TestValidateCampaignCreateAggregatesInvalidUsecaseWithMissingFlags(t *testi
 }
 
 func TestValidateCampaignCreateAcceptsValidUsecase(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.Usecase = "2FA"
 	if _, err := ValidateCampaignCreate(o, allTierTwoChanged()); err != nil {
 		t.Fatalf("want valid usecase accepted, got %v", err)
@@ -138,7 +169,7 @@ func TestValidateCampaignCreateAcceptsValidUsecase(t *testing.T) {
 }
 
 func TestValidateCampaignCreateRejectsUnknownSubUsecase(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.SubUsecases = []string{"MARKETING", "NOT_A_REAL_SUBUSECASE"}
 	_, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err == nil {
@@ -153,7 +184,7 @@ func TestValidateCampaignCreateRejectsUnknownSubUsecase(t *testing.T) {
 }
 
 func TestValidateCampaignCreateAcceptsValidSubUsecases(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.SubUsecases = []string{"MARKETING", "CUSTOMER_CARE"}
 	if _, err := ValidateCampaignCreate(o, allTierTwoChanged()); err != nil {
 		t.Fatalf("want valid sub-usecases accepted, got %v", err)
@@ -168,7 +199,7 @@ func TestValidateCampaignCreateAcceptsValidSubUsecases(t *testing.T) {
 // (and silently rejects requests production accepts) shows up as a test
 // change, not a surprise.
 func TestValidateCampaignCreateDoesNotEnforceSubUsecaseCounts(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.SubUsecases = []string{
 		"2FA", "ACCOUNT_NOTIFICATION", "CUSTOMER_CARE", "DELIVERY_NOTIFICATION",
 		"FRAUD_ALERT", "HIGHER_EDUCATION", "MARKETING", "POLLING_VOTING",
@@ -180,10 +211,11 @@ func TestValidateCampaignCreateDoesNotEnforceSubUsecaseCounts(t *testing.T) {
 }
 
 // Tier 3: --subscriber-optin passed as true requires both --optin-message
-// and --optin-keywords, aggregated into one error naming both.
+// and --optin-keywords, aggregated into one error naming both. optout and
+// help start from a fully-valid base so the only violation in play is optin's.
 func TestValidateCampaignCreateRequiresOptinFieldsWhenOptinTrue(t *testing.T) {
-	o := completeValid()
-	o.SubscriberOptin = true
+	o := withAllSubscriberFieldsValid(completeValid())
+	o.OptinMessage, o.OptinKeywords = "", ""
 	_, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err == nil {
 		t.Fatal("want an error when subscriber-optin is true without optin message/keywords")
@@ -197,8 +229,8 @@ func TestValidateCampaignCreateRequiresOptinFieldsWhenOptinTrue(t *testing.T) {
 
 // Tier 4: the same shape as tier 3, for --subscriber-optout.
 func TestValidateCampaignCreateRequiresOptoutFieldsWhenOptoutTrue(t *testing.T) {
-	o := completeValid()
-	o.SubscriberOptout = true
+	o := withAllSubscriberFieldsValid(completeValid())
+	o.OptoutMessage, o.OptoutKeywords = "", ""
 	_, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err == nil {
 		t.Fatal("want an error when subscriber-optout is true without optout message/keywords")
@@ -213,34 +245,92 @@ func TestValidateCampaignCreateRequiresOptoutFieldsWhenOptoutTrue(t *testing.T) 
 // A fully-valid payload exercising every tier — both subscriberOptin and
 // subscriberOptout true, with their conditional fields supplied — passes.
 func TestValidateCampaignCreateAcceptsFullyValidFourTierPayload(t *testing.T) {
-	o := completeValid()
-	o.SubscriberOptin = true
-	o.OptinMessage = "Text JOIN to opt in."
-	o.OptinKeywords = "JOIN"
-	o.SubscriberOptout = true
-	o.OptoutMessage = "You have been unsubscribed."
-	o.OptoutKeywords = "STOP"
+	o := withAllSubscriberFieldsValid(completeValid())
 	if _, err := ValidateCampaignCreate(o, allTierTwoChanged()); err != nil {
 		t.Fatalf("want a fully-valid four-tier payload accepted, got %v", err)
 	}
 }
 
-// The other highest-value case: --subscriber-optin=false, explicitly
-// passed, satisfies tier 2 (the flag was passed) without triggering tier 3
-// (its value is false) — optinMessage/optinKeywords must NOT be required.
-func TestValidateCampaignCreateExplicitFalseOptinSkipsTierThree(t *testing.T) {
-	o := completeValid()
-	o.SubscriberOptin = false // explicit, mirrored by changed below
+// The exact case the coordinator's live probe found: --subscriber-optin=false
+// --subscriber-optout=false --subscriber-help=false all pass tier 2's
+// presence check (every flag was explicitly passed) and previously reached
+// this validator's "valid" branch — then 400'd against production with
+// "is required" on all three POINTERs, because the API accepts only true
+// for these three. All three must now be named in one aggregated error, with
+// a message distinct from "missing".
+func TestValidateCampaignCreateRejectsAllThreeExplicitFalse(t *testing.T) {
+	_, err := ValidateCampaignCreate(completeValid(), allTierTwoChanged())
+	if err == nil {
+		t.Fatal("want an error: production rejects false on all three tier-2 attestations")
+	}
+	for _, want := range []string{"--subscriber-optin", "--subscriber-optout", "--subscriber-help", "must be true"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q: %s", want, err.Error())
+		}
+	}
+	if strings.Contains(err.Error(), "missing required flags") {
+		t.Errorf("an explicit false is a different mistake from unset and must not say 'missing': %s", err.Error())
+	}
+}
+
+// Each of the three tier-2 booleans, passed individually as false against an
+// otherwise fully-valid payload, is rejected on its own with the
+// must-be-true message — not folded into a generic missing-flags error.
+func TestValidateCampaignCreateRejectsEachExplicitFalseTierTwoBoolean(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(*CampaignCreateOptions)
+		wantFlag string
+	}{
+		{"subscriber-optin", func(o *CampaignCreateOptions) { o.SubscriberOptin = false }, "--subscriber-optin"},
+		{"subscriber-optout", func(o *CampaignCreateOptions) { o.SubscriberOptout = false }, "--subscriber-optout"},
+		{"subscriber-help", func(o *CampaignCreateOptions) { o.SubscriberHelp = false }, "--subscriber-help"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := withAllSubscriberFieldsValid(completeValid())
+			tt.mutate(&o)
+			_, err := ValidateCampaignCreate(o, allTierTwoChanged())
+			if err == nil {
+				t.Fatalf("want an error for explicit %s=false", tt.name)
+			}
+			var fe *cmdutil.FlagError
+			if !errors.As(err, &fe) {
+				t.Fatalf("want a FlagError (exit 6), got %T", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantFlag) {
+				t.Errorf("error missing %s: %s", tt.wantFlag, err.Error())
+			}
+			if !strings.Contains(err.Error(), "must be true") {
+				t.Errorf("error should explain the must-be-true constraint, got: %s", err.Error())
+			}
+		})
+	}
+}
+
+// A false attestation aggregated together with an unrelated missing flag —
+// the point of this validator is that every violation, of every kind, comes
+// back in one error rather than in successive round trips.
+func TestValidateCampaignCreateAggregatesFalseAttestationWithMissingFlag(t *testing.T) {
+	o := withAllSubscriberFieldsValid(completeValid())
+	o.BrandID = ""           // an unrelated tier-1 missing flag
+	o.SubscriberHelp = false // the false attestation
 	_, err := ValidateCampaignCreate(o, allTierTwoChanged())
-	if err != nil {
-		t.Fatalf("want subscriber-optin=false to satisfy tier 2 without demanding tier 3, got %v", err)
+	if err == nil {
+		t.Fatal("want an error aggregating both violations")
+	}
+	if !strings.Contains(err.Error(), "--brand-id") {
+		t.Errorf("error should still name the missing --brand-id, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "--subscriber-help") || !strings.Contains(err.Error(), "must be true") {
+		t.Errorf("error should name the false attestation with the must-be-true message, got: %s", err.Error())
 	}
 }
 
 // The advisory is the mechanism for the "not required but flagged" behavior:
 // non-fatal, printed to stderr by the command, never blocking the request.
 func TestValidateCampaignCreateAdvisoryFiresWhenHelpFieldsAbsent(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.HelpMessage, o.HelpKeywords = "", ""
 	advisory, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err != nil {
@@ -258,7 +348,7 @@ func TestValidateCampaignCreateAdvisoryFiresWhenHelpFieldsAbsent(t *testing.T) {
 // other absent) must still fire the advisory, and must name only the field
 // that is actually missing — not the one already supplied.
 func TestValidateCampaignCreateAdvisoryFiresForPartialHelpPair(t *testing.T) {
-	o := completeValid()
+	o := withAllSubscriberFieldsValid(completeValid())
 	o.HelpKeywords = ""
 	advisory, err := ValidateCampaignCreate(o, allTierTwoChanged())
 	if err != nil {
@@ -276,7 +366,7 @@ func TestValidateCampaignCreateAdvisoryFiresForPartialHelpPair(t *testing.T) {
 }
 
 func TestValidateCampaignCreateAdvisoryEmptyWhenHelpFieldsPresent(t *testing.T) {
-	advisory, err := ValidateCampaignCreate(completeValid(), allTierTwoChanged())
+	advisory, err := ValidateCampaignCreate(withAllSubscriberFieldsValid(completeValid()), allTierTwoChanged())
 	if err != nil {
 		t.Fatalf("want valid, got %v", err)
 	}

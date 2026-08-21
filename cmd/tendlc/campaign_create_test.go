@@ -18,10 +18,11 @@ import (
 // each test only needs to state what it adds, overrides, or omits.
 //
 // The three --subscriber-optin/optout/help flags are included, explicitly
-// set to false, because ValidateCampaignCreate's tier 2 requires them to be
-// PASSED (not necessarily true) — measured against production, see
-// ValidateCampaignCreate's doc comment. Passing them as false here also
-// keeps tiers 3/4 (optin/optout message+keywords) from firing.
+// set to TRUE, because ValidateCampaignCreate's tier 2 requires them to be
+// PASSED, and production accepts only true for all three — an explicit false
+// serializes onto the wire and still comes back "is required" (measured, see
+// ValidateCampaignCreate's doc comment). optin/optout=true in turn requires
+// their message+keywords pairs (tiers 3/4), so those are included too.
 func validCampaignCreateArgs(extra ...string) []string {
 	args := []string{
 		"campaign", "create",
@@ -32,9 +33,13 @@ func validCampaignCreateArgs(extra ...string) []string {
 		"--message-flow", "Customer opts in via web form; campaign sends account notifications only.",
 		"--help-message", "For help, reply HELP or contact support.",
 		"--help-keywords", "HELP,INFO",
-		"--subscriber-optin=false",
-		"--subscriber-optout=false",
-		"--subscriber-help=false",
+		"--subscriber-optin=true",
+		"--optin-message", "Text JOIN to opt in.",
+		"--optin-keywords", "JOIN",
+		"--subscriber-optout=true",
+		"--optout-message", "You have been unsubscribed.",
+		"--optout-keywords", "STOP",
+		"--subscriber-help=true",
 	}
 	return append(args, extra...)
 }
@@ -49,9 +54,13 @@ func validCampaignCreateArgsNoHelp(extra ...string) []string {
 		"--description", "Sends account notifications to opted-in subscribers about their account status.",
 		"--sample1", "Your account balance is now available. Reply STOP to opt out.",
 		"--message-flow", "Customer opts in via web form; campaign sends account notifications only.",
-		"--subscriber-optin=false",
-		"--subscriber-optout=false",
-		"--subscriber-help=false",
+		"--subscriber-optin=true",
+		"--optin-message", "Text JOIN to opt in.",
+		"--optin-keywords", "JOIN",
+		"--subscriber-optout=true",
+		"--optout-message", "You have been unsubscribed.",
+		"--optout-keywords", "STOP",
+		"--subscriber-help=true",
 	}
 	return append(args, extra...)
 }
