@@ -7,18 +7,27 @@ import (
 	"github.com/Bandwidth/cli/internal/api"
 )
 
-// ListPhoneNumbers returns the phone numbers on the account. The list
-// projection has five keys — createdDate, modifiedDate, nnid, phoneNumber,
-// status — notably no campaignId.
+// ListPhoneNumbers returns the phone numbers on the account.
 //
-// filters is accepted only for signature consistency with ListBrands and
-// ListCampaigns. Measured against production, filtering does not work on
-// this endpoint: status[eq] is silently ignored (an account with 21 SUCCESS
-// and 2 FAILURE phone numbers returned all 23 for status[eq]=SUCCESS,
-// status[eq]=FAILED, and status[eq]=NOT_A_STATUS alike), and
-// campaignId[contains] is evaluated but matches nothing, for a real
-// campaign ID and for garbage alike. No caller should pass a filter here,
-// and the command layer offers no flags for one.
+// The projection is CONDITIONAL, not fixed. Measured across all 23 numbers
+// on one account: 16 carried five keys — createdDate, modifiedDate, nnid,
+// phoneNumber, status — while the 7 assigned to a campaign carried three
+// more: brandId, campaignId, customerProfileId. A client that types this
+// response from a single sample drops three fields on every assigned
+// number. (An earlier version of this comment claimed a fixed five-key
+// projection; that was measured from one record fetched with limit=1.)
+//
+// Filter support is split, and both halves were measured:
+//
+//   - campaignId[contains] WORKS. A campaign with three assigned numbers
+//     returns 3; a garbage value returns 0. campaignId[eq] is ignored and
+//     returns all 23, matching the brand endpoints' behavior in general.
+//   - status does NOT filter under any operator. An account with 21 SUCCESS
+//     and 2 FAILURE returned all 23 for status[eq] and status[contains] on
+//     SUCCESS, on FAILURE, and on a value matching nothing at all.
+//
+// So the command layer offers --campaign-id-contains and deliberately does
+// not offer --status.
 func (s *Service) ListPhoneNumbers(limit, offset int, filters []api.Filter) (*api.Envelope, error) {
 	return s.get(s.base() + "/phoneNumbers" + api.EncodeQuery(limit, offset, filters))
 }
