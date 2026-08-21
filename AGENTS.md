@@ -461,7 +461,7 @@ create in a race, error 23022 surfaces instead — see the errors table below.)
 ```
 account + auth (Registration Center feature + Campaign Management role)
   └─→ customer-profile create          (one profile per brand — 1:1, not reusable)
-        └─→ tendlc brand create --wait  (must reach VERIFIED or VETTED_VERIFIED)
+        └─→ tendlc brand create --wait  (must reach VERIFIED, VETTED_VERIFIED, or SELF_DECLARED)
               └─→ tendlc campaign create --wait  (must reach REGISTERED)
                     └─→ tnoption assign <number> --campaign-id <id>
 ```
@@ -1599,11 +1599,16 @@ error it gives for an absent field, with no hint that the value, not the
 presence, is the problem. In practice a campaign cannot be registered that
 declares no opt-in, no opt-out, and no help support. The CLI catches this
 client-side with a message naming the real constraint instead of forwarding
-a request the API will reject with a misleading error:
+a request the API will reject with a misleading error. An explicit `false`
+on `--subscriber-optin`/`--subscriber-optout` is a rejected value, not an
+absent one, so — unlike leaving the flag unset — it does not suppress tiers
+3 and 4 either: `true` is the only value that could ever satisfy them, so
+the same error also names the now-unreachable optin/optout message and
+keyword flags:
 
 ```
 $ band tendlc campaign create ... --subscriber-optin=false --subscriber-optout=false --subscriber-help=false --plain
-Error: --subscriber-help, --subscriber-optin, --subscriber-optout must be true — the API rejects false on these three as "is required" rather than as an invalid value, so a campaign cannot declare no opt-in, no opt-out, and no help support
+Error: --subscriber-help, --subscriber-optin, --subscriber-optout must be true — the API rejects false on these three as "is required" rather than as an invalid value, so a campaign cannot declare no opt-in, no opt-out, and no help support; missing required flags: --optin-keywords, --optin-message, --optout-keywords, --optout-message
 ```
 
 **`--usecase` accepts one of 26 values**, and a typo is caught client-side
@@ -1641,9 +1646,13 @@ $ echo $?
 ```
 
 If the brand read does succeed, its identity status is also checked: a
-campaign requires `VERIFIED` or `VETTED_VERIFIED`, and any other status
-stops the create with a `ConflictError` (exit **4**) naming the blocking
-status, rather than letting the API fail later with something opaque.
+campaign requires a brand at `VERIFIED`, `VETTED_VERIFIED`, or
+`SELF_DECLARED` — the same success set `ClassifyBrandIdentity` uses to end
+`brand create --wait` (see [10DLC Brands](#10dlc-brands)), not a second
+hardcoded list, so `brand create --wait` exiting 0 and `campaign create`
+accepting that brand can never disagree. Any other status stops the create
+with a `ConflictError` (exit **4**) naming the blocking status, rather than
+letting the API fail later with something opaque.
 
 ### `--confirm`-gated writes
 
