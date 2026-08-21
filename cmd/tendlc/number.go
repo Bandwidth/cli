@@ -9,9 +9,10 @@ import (
 )
 
 var (
-	numberListLimit  int
-	numberListOffset int
-	numberListAll    bool
+	numberListLimit              int
+	numberListOffset             int
+	numberListAll                bool
+	numberListCampaignIDContains string
 
 	numberHistoryLimit  int
 	numberHistoryOffset int
@@ -23,6 +24,8 @@ func init() {
 	lf.IntVar(&numberListLimit, "limit", 50, "Page size")
 	lf.IntVar(&numberListOffset, "offset", 0, "Pagination offset")
 	lf.BoolVar(&numberListAll, "all", false, "Fetch every page (cannot be combined with --offset)")
+	lf.StringVar(&numberListCampaignIDContains, "campaign-id-contains", "",
+		"Filter by campaign ID substring (e.g. CEXMPL1 also matches CEXMPL12); the API has no exact-match operator for this field")
 
 	hf := numberHistoryCmd.Flags()
 	hf.IntVar(&numberHistoryLimit, "limit", 50, "Page size")
@@ -61,25 +64,31 @@ var numberListCmd = &cobra.Command{
 	Short: "List 10DLC registered phone numbers",
 	Long: `Lists the phone numbers registered for 10DLC traffic on the account.
 
-There are no filter flags -- not --status, not --campaign-id. None. That is
-deliberate and measured, not an oversight: on an account holding 21 SUCCESS
-and 2 FAILURE phone numbers, status[eq] was silently ignored and returned
-all 23 records for status[eq]=SUCCESS, status[eq]=FAILED, and even
-status[eq]=NOT_A_STATUS alike, and campaignId[contains] was evaluated but
-matched nothing -- 0 results for a real campaign ID and for deliberate
-garbage alike. The API does not support filtering on this endpoint. A
-filter that returns every record, or none, with a 200 and no error is worse
-than an absent flag, because the caller believes it worked -- the same
-reasoning that already removed 'brand list --bandwidth-id' and
+There is no --status flag. That is deliberate and measured, not an
+oversight: status[eq] and status[contains] are both accepted and silently
+ignored, for every value tried -- including a value matching nothing at
+all -- and every one of them returned every phone number on the account
+regardless. A filter that returns every record with a 200 and no error is
+worse than an absent flag, because the caller believes it worked -- the
+same reasoning that already removed 'brand list --bandwidth-id' and
 'campaign list --usecase'.
 
-For the campaign-scoped view, which is a different endpoint and does work,
+--campaign-id-contains, by contrast, genuinely narrows results:
+campaignId[contains] filters correctly. campaignId[eq] does not -- like
+status, it is accepted and silently ignored, returning every number
+regardless of value -- which is why the flag is named for what it actually
+does (a substring match) rather than implying an exact-match filter the API
+cannot perform. For the campaign-scoped view, which is a different endpoint,
 use 'band tendlc campaign numbers <campaign-id>' instead.
 
-This is a summary projection -- five keys per number: createdDate,
-modifiedDate, nnid, phoneNumber, status. Notably absent: campaignId.`,
+The list projection has two shapes, not one fixed set of keys: every record
+carries createdDate, modifiedDate, nnid, phoneNumber, and status; a number
+already assigned to a campaign additionally carries brandId, campaignId,
+and customerProfileId. Do not assume every record is missing the campaign
+fields -- check for them rather than relying on their absence.`,
 	Example: `  band tendlc number list --plain
-  band tendlc number list --all --plain`,
+  band tendlc number list --all --plain
+  band tendlc number list --campaign-id-contains CEXMPL1 --plain`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Detected via Changed so that an explicit --offset 0 also conflicts.
@@ -92,8 +101,13 @@ modifiedDate, nnid, phoneNumber, status. Notably absent: campaignId.`,
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
 
+		var filters []api.Filter
+		if numberListCampaignIDContains != "" {
+			filters = append(filters, api.Filter{Field: "campaignId", Op: api.OpContains, Value: numberListCampaignIDContains})
+		}
+
 		if !numberListAll {
-			env, err := svc.ListPhoneNumbers(numberListLimit, numberListOffset, nil)
+			env, err := svc.ListPhoneNumbers(numberListLimit, numberListOffset, filters)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -107,7 +121,7 @@ modifiedDate, nnid, phoneNumber, status. Notably absent: campaignId.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.ListPhoneNumbers(limit, offset, nil)
+			return svc.ListPhoneNumbers(limit, offset, filters)
 		}, numberListLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

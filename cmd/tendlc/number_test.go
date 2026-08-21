@@ -19,6 +19,36 @@ func stubNumberList(t *testing.T) *httptest.Server {
 	})
 }
 
+// stubNumberListCapturing records the raw query string of every request to
+// /phoneNumbers so a test can assert on the deepObject filter encoding.
+func stubNumberListCapturing(t *testing.T) (*httptest.Server, *[]string) {
+	var queries []string
+	srv := newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{"data":[],"page":{"pageNumber":0,"pageSize":50,"totalElements":0,"totalPages":0}}`))
+	})
+	return srv, &queries
+}
+
+// stubNumberListTwoPagesCapturing is stubNumberListTwoPages's twin that also
+// records the raw query string of every request, so a test can assert a
+// filter survives every page of an --all walk, not just the first request.
+func stubNumberListTwoPagesCapturing(t *testing.T) (*httptest.Server, *[]string) {
+	var queries []string
+	srv := newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		offset := r.URL.Query().Get("offset")
+		if offset == "" || offset == "0" {
+			_, _ = w.Write([]byte(`{"data":[{"phoneNumber":"+15555550100"}],` +
+				`"page":{"pageNumber":0,"pageSize":1,"totalElements":2,"totalPages":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"phoneNumber":"+15555550199"}],` +
+			`"page":{"pageNumber":1,"pageSize":1,"totalElements":2,"totalPages":2}}`))
+	})
+	return srv, &queries
+}
+
 // stubNumberListTruncated answers with a page that reports more records
 // exist than were returned, so warnIfTruncated fires.
 func stubNumberListTruncated(t *testing.T) *httptest.Server {
@@ -83,16 +113,59 @@ func stubNumberHistoryTwoPages(t *testing.T) *httptest.Server {
 	})
 }
 
-func TestNumberListHasNoFilterFlags(t *testing.T) {
-	// Locks in the deliberate absence of --status and --campaign-id (see
-	// numberListCmd's Long): the API accepts and silently ignores both, so
-	// nobody should reintroduce these flags without deleting this test and
-	// the reasoning it guards.
+// TestNumberListHasNoStatusFilterFlag locks in the deliberate absence of
+// --status (see numberListCmd's Long): status[eq] and status[contains] are
+// both accepted and silently ignored by the server for every value tried,
+// including one matching nothing, and every one of them returns every phone
+// number on the account regardless. Unlike campaignId, there is no operator
+// under which status genuinely filters, so nobody should reintroduce this
+// flag without deleting this test and the reasoning it guards.
+func TestNumberListHasNoStatusFilterFlag(t *testing.T) {
 	if f := numberListCmd.Flags().Lookup("status"); f != nil {
 		t.Errorf("number list must not have a --status flag, found %v", f)
 	}
-	if f := numberListCmd.Flags().Lookup("campaign-id"); f != nil {
-		t.Errorf("number list must not have a --campaign-id flag, found %v", f)
+}
+
+// TestNumberListCampaignIDContainsSendsContains covers the one filter that
+// genuinely works on this endpoint: campaignId[contains]. campaignId[eq] is
+// accepted and silently ignored by the server (returns every number
+// regardless of value) exactly like status -- see numberListCmd's Long --
+// so this locks in that the flag never regresses back to eq, which "looks"
+// more correct for an ID filter but would return every number on the
+// account.
+func TestNumberListCampaignIDContainsSendsContains(t *testing.T) {
+	srv, queries := stubNumberListCapturing(t)
+	if _, _, err := runBrandCmd(t, srv, "number", "list", "--campaign-id-contains", "CEXMPL1"); err != nil {
+		t.Fatalf("number list: %v", err)
+	}
+	q := (*queries)[0]
+	if !strings.Contains(q, "campaignId%5Bcontains%5D=CEXMPL1") {
+		t.Errorf("query %q missing deepObject contains filter for campaignId", q)
+	}
+	if strings.Contains(q, "campaignId%5Beq%5D") {
+		t.Errorf("query %q uses eq for campaignId, which the API silently ignores", q)
+	}
+}
+
+// TestNumberListCampaignIDContainsSurvivesAllPagination confirms the filter
+// is threaded through every page of an --all walk, not just the first
+// request -- an implementation that captured filters once for the first
+// call and then paginated with a bare ForEachPage closure ignoring them
+// would pass a single-page filter test but silently drop the filter from
+// page two onward.
+func TestNumberListCampaignIDContainsSurvivesAllPagination(t *testing.T) {
+	srv, queries := stubNumberListTwoPagesCapturing(t)
+	if _, _, err := runBrandCmd(t, srv, "number", "list",
+		"--campaign-id-contains", "CEXMPL1", "--all", "--limit", "1"); err != nil {
+		t.Fatalf("number list --all: %v", err)
+	}
+	if len(*queries) < 2 {
+		t.Fatalf("got %d requests, want at least 2 (one per page)", len(*queries))
+	}
+	for i, q := range *queries {
+		if !strings.Contains(q, "campaignId%5Bcontains%5D=CEXMPL1") {
+			t.Errorf("page %d query %q missing the campaignId filter", i, q)
+		}
 	}
 }
 
