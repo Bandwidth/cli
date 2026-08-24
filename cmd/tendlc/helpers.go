@@ -1,8 +1,11 @@
 package tendlc
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
@@ -99,4 +102,41 @@ func filterNumbers(data interface{}, status, campaignID string) interface{} {
 		return []interface{}{}
 	}
 	return filtered
+}
+
+// isNotFound reports whether err is an API 404.
+func isNotFound(err error) bool {
+	var apiErr *api.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == 404
+}
+
+// requireConfirm enforces a --confirm gate before any HTTP request is made.
+// The message must name the specific consequence — a generic "pass --confirm"
+// tells an operator nothing about what they are agreeing to.
+func requireConfirm(confirm bool, message string) error {
+	if confirm {
+		return nil
+	}
+	return cmdutil.NewFlagError(message)
+}
+
+// flagList renders flag names as a "--a, --b, --c" list for error messages.
+func flagList(names []string) string {
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += ", "
+		}
+		out += "--" + n
+	}
+	return out
+}
+
+// warnIfTruncated tells the caller on stderr when more records exist than the
+// page just returned. stdout stays clean so a pipeline sees only data.
+func warnIfTruncated(cmd *cobra.Command, env *api.Envelope, offset, returned int, noun string) {
+	if env.Page != nil && env.Page.Truncated(offset+returned) {
+		cmd.PrintErrf("showing %d of %d %s; pass --all to fetch every page\n",
+			returned, env.Page.TotalElements, noun)
+	}
 }

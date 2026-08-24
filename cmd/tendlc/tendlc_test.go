@@ -1,6 +1,8 @@
 package tendlc
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/Bandwidth/cli/internal/api"
@@ -271,6 +273,35 @@ func TestStatusAlwaysReportsModeUnknown(t *testing.T) {
 		if mode["status"] != "unknown" || mode["reason"] != "not_discoverable" {
 			t.Errorf("code %d: mode = %v, want unknown/not_discoverable", code, mode)
 		}
+	}
+}
+
+// isNotFound is the sole translator of a real 404 into pollTarget's
+// found=false, which is the mechanism the create-vs-delete GoneIsDone
+// contract in async.go depends on — it must recognize a 404 wherever it
+// appears in the error chain, and reject everything else, including a nil
+// error.
+func TestIsNotFound(t *testing.T) {
+	notFound := &api.APIError{StatusCode: 404, Body: "brand not found"}
+	serverError := &api.APIError{StatusCode: 500, Body: "boom"}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"404 API error", notFound, true},
+		{"500 API error", serverError, false},
+		{"wrapped 404", fmt.Errorf("fetching brand: %w", notFound), true},
+		{"plain non-API error", errors.New("connection reset"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNotFound(tt.err); got != tt.want {
+				t.Errorf("isNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
