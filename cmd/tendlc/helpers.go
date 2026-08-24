@@ -1,8 +1,11 @@
 package tendlc
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/spf13/cobra"
 
 	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
@@ -54,49 +57,39 @@ func roleGateError(err error, roleName string) error {
 	}
 }
 
-// extractData unwraps a paginated response to return just the "data" array.
-// If the response doesn't match the expected shape, it's returned as-is.
-func extractData(result interface{}) interface{} {
-	m, ok := result.(map[string]interface{})
-	if !ok {
-		return result
-	}
-	if data, exists := m["data"]; exists {
-		return data
-	}
-	return result
+// isNotFound reports whether err is an API 404.
+func isNotFound(err error) bool {
+	var apiErr *api.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == 404
 }
 
-// filterNumbers applies client-side filtering on the phone numbers list.
-// The phoneNumbers endpoint doesn't support server-side filtering on status
-// or campaignId, so we filter after fetching.
-func filterNumbers(data interface{}, status, campaignID string) interface{} {
-	arr, ok := data.([]interface{})
-	if !ok {
-		return data
+// requireConfirm enforces a --confirm gate before any HTTP request is made.
+// The message must name the specific consequence — a generic "pass --confirm"
+// tells an operator nothing about what they are agreeing to.
+func requireConfirm(confirm bool, message string) error {
+	if confirm {
+		return nil
 	}
-	var filtered []interface{}
-	for _, item := range arr {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
+	return cmdutil.NewFlagError(message)
+}
+
+// flagList renders flag names as a "--a, --b, --c" list for error messages.
+func flagList(names []string) string {
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += ", "
 		}
-		if status != "" {
-			s, _ := m["status"].(string)
-			if !strings.EqualFold(s, status) {
-				continue
-			}
-		}
-		if campaignID != "" {
-			c, _ := m["campaignId"].(string)
-			if !strings.EqualFold(c, campaignID) {
-				continue
-			}
-		}
-		filtered = append(filtered, item)
+		out += "--" + n
 	}
-	if filtered == nil {
-		return []interface{}{}
+	return out
+}
+
+// warnIfTruncated tells the caller on stderr when more records exist than the
+// page just returned. stdout stays clean so a pipeline sees only data.
+func warnIfTruncated(cmd *cobra.Command, env *api.Envelope, offset, returned int, noun string) {
+	if env.Page != nil && env.Page.Truncated(offset+returned) {
+		cmd.PrintErrf("showing %d of %d %s; pass --all to fetch every page\n",
+			returned, env.Page.TotalElements, noun)
 	}
-	return filtered
 }

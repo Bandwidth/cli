@@ -10,7 +10,7 @@
 These principles guide how the CLI is built. If you're contributing changes, maintain them:
 
 - **`--plain` output must be stable and parseable.** Agents depend on flat JSON. Don't change the shape of `--plain` output without a migration path.
-- **`--if-not-exists` for idempotency.** Any create command should support this flag so agents can retry safely.
+- **`--if-not-exists` for idempotency, where a safe natural key exists.** Create commands support this flag when there's a stable identity to retry against. A command that lacks one omits the flag deliberately and documents why (see [Customer Profiles](#customer-profiles)) rather than risk a retry silently reusing the wrong resource.
 - **`--wait` for async operations.** Agents can't poll — give them a way to block until the operation completes.
 - **Structured exit codes.** Agents use exit codes for control flow, not string parsing. See [Exit Codes](#exit-codes).
 - **Update this file.** If you add, remove, or change a command, update this file alongside the README.
@@ -85,12 +85,49 @@ This issues one cheap `GET /realms` call. A `200` reports `available`/`probe_suc
 
 Important: `band sip status` **does not persist** its result anywhere. Run it again any time you need a fresh answer, and don't expect `band auth status` to start reporting anything other than `unknown` for a role-holding credential — that command stays fully offline by design.
 
+#### 10DLC capability (tri-state, not boolean)
+
+`band auth status --plain` reports `tendlc` as `{"status":..., "reason":...}` rather than a
+boolean, for the same reason as SIP: access needs both the Campaign Management role and the
+account-level Registration Center feature, and only the role is knowable offline.
+
+- `unavailable` / `role_absent` — the credential lacks the Campaign Management role.
+- `unknown` / `role_present_not_probed` — run `band tendlc status` to resolve.
+
+`campaign_management` remains a plain boolean meaning "the credential holds the role", and
+`customer_profiles` is a separate capability — the Customer Profiles Access role is distinct.
+
+```bash
+band tendlc status --plain
+# → {"access":"available","mode":{"reason":"not_discoverable","status":"unknown"},"reason":"probe_succeeded"}
+```
+
+`band tendlc status` can emit any of these `reason` values. Every 403-derived result
+exits **0** — the probe answered the question, even when the answer is negative — so
+there is no stderr message to fall back on; this table is the only authoritative place
+to learn what to do next. `probe_failed` is the sole exception: the probe couldn't
+answer at all, so it exits non-zero and is the only reason worth retrying.
+
+| `reason` | `access` | Exit code | Next action |
+|---|---|---|---|
+| `probe_succeeded` | `available` | 0 | Registration Center access confirmed. Proceed with `band tendlc` commands. |
+| `registration_center_not_enabled` | `unavailable` | 0 | Account doesn't have the Registration Center feature. Escalate to your Bandwidth account manager to enable it — do not retry. |
+| `campaign_management_not_enabled` | `unavailable` | 0 | Campaign Management/messaging is not enabled on the account. Escalate to your Bandwidth account manager — do not retry. |
+| `role_absent` | `unavailable` | 0 | The credential lacks the Campaign Management role. Have an account manager assign the role — do not retry; a retry hits the same 403. |
+| `access_denied` | `unavailable` | 0 | A 403 that didn't match any recognized cause. Escalate to your Bandwidth account manager — do not retry. |
+| `probe_failed` | `unknown` | non-zero | The probe itself failed (rate limited, 5xx, or a transport error) — it could not answer the question. This is the only reason where retrying makes sense. |
+
+**`mode` is always `unknown`, by design.** An account either registers campaigns *directly* or
+*imports* them from TCR — never both — and that is a property of the account's Bandwidth setup,
+not something the API exposes. Do not infer it, and do not try one path to see what happens.
+If direct-vs-import was not given to you in the task, stop and ask the operator.
+
 ### Account Hint
 
 When multiple accounts or profiles are active, commands write a hint to stderr so you know which account is being targeted:
 
 ```
-[account: 9901287 | profile: admin | env: test]
+[account: 9900000 | profile: admin | env: test]
 ```
 
 The environment is included in the hint only when credentials span multiple environments or the active environment is non-default. Single-environment users (e.g. customers on prod only) won't see it.
@@ -170,19 +207,30 @@ All read operations (gets, lists, deletes) are safe to retry.
 Use `--wait` to block until completion:
 
 ```bash
-band number order +19195551234 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
+band number order +15555550100 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
 band call create --from ... --to ... --wait --timeout 120       # blocks until call completes
 band transcription create <call-id> <rec-id> --wait             # blocks until transcription ready (60s default)
 ```
 
 All `--wait` commands support `--timeout <seconds>`. Exit code 5 on timeout.
 
+**`--timeout` bounds when polling stops, not wall-clock duration.** The
+underlying poll loop (`internal/cmdutil/poll.go`) checks the deadline
+*between* poll attempts, not during one, and always sleeps the full
+`--interval` rather than whatever time remains before the deadline. So a
+call can run past `--timeout` by up to one poll interval plus one in-flight
+request — and if that late attempt happens to succeed, the command exits
+**0**, not 5, seconds after the timeout you asked for. Concretely: a 5s
+poll interval with `--timeout 1` can still succeed at t≈5s. Do not treat
+`--timeout` as a precise deadline; treat it as a lower bound on how long the
+CLI will keep trying.
+
 ## Output
 
 **Always use `--plain` when parsing CLI output.** Default JSON reflects Bandwidth's API structure with deep nesting. `--plain` flattens it:
 
 ```bash
-band number list --plain        # → ["+19193554167", "+19198234157", ...]
+band number list --plain        # → ["+15555550100", "+15555550101", ...]
 band subaccount list --plain    # → [{"Id":"152681","Name":"Subacct"}]
 band app list --plain           # → [{"ApplicationId":"abc-123", ...}, ...]
 band app get <id> --plain       # → {"ApplicationId":"abc-123", "AppName":"My App", ...}
@@ -329,7 +377,7 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 Use when no credentials exist yet. The CLI submits the registration request; the remaining setup happens in the browser. **An agent cannot complete this flow autonomously** — it requires a human (or an agent with web/phone access) to finish.
 
 ```bash
-band account register --phone +19195551234 --email you@example.com --first-name Jane --last-name Doe --accept-tos
+band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe --accept-tos
 # → registration submitted; remaining steps happen outside the CLI:
 #   1. Check email for a registration link from Bandwidth
 #   2. Enter the OTP code sent via SMS to verify the phone number
@@ -409,6 +457,21 @@ only be created on ACTIVE realms; retry after 'band sip realm get <name>' report
 ACTIVE"` and exits **1**. (In the narrow case where the API itself rejects the
 create in a race, error 23022 surfaces instead — see the errors table below.)
 
+**10DLC (Registration Center, direct):**
+```
+account + auth (Registration Center feature + Campaign Management role)
+  └─→ customer-profile create          (one profile per brand — 1:1, not reusable)
+        └─→ tendlc brand create --wait  (must reach VERIFIED, VETTED_VERIFIED, or SELF_DECLARED)
+              └─→ tendlc campaign create --wait  (must reach REGISTERED)
+                    └─→ tnoption assign <number> --campaign-id <id>
+```
+
+See [10DLC Brands](#10dlc-brands) for `brand create`'s flag matrix, `--wait`
+semantics, and the customer-profile pre-flight; [10DLC Vettings](#10dlc-vettings)
+for the optional vetting step some brand/campaign combinations require;
+[10DLC Campaigns](#10dlc-campaigns) for `campaign create`'s four-tier
+requirement tree and `--wait` semantics.
+
 ---
 
 ### Diagnose: What state am I in?
@@ -426,8 +489,8 @@ band vcp list --plain                       # VCPs? (403 = legacy account, use s
 
 For messaging readiness, also check:
 ```bash
-band tendlc campaigns --plain               # any 10DLC campaigns? (403 = see note below)
-band tendlc number <number> --plain         # is a specific number registered?
+band tendlc campaign list --plain               # any 10DLC campaigns? (403 = see note below)
+band tendlc number get <number> --plain         # is a specific number registered?
 band tfv get <number> --plain               # toll-free verification status?
 ```
 
@@ -498,7 +561,7 @@ band message send --from <number> --to <destination> --app-id <app-id> --text "H
 |---|---|---|
 | `"not linked to any location"` | App not assigned to a location | `band app assign <app-id> --site <id> --location <id>` |
 | `"no working callback URL"` | Callback URL is placeholder or missing | `band app update <app-id> --callback-url <url>` |
-| `"not assigned to any active 10DLC campaign"` | Number not on a campaign | `band tendlc campaigns --plain` to list campaigns; `band tnoption assign <number> --campaign-id <id>` to assign |
+| `"not assigned to any active 10DLC campaign"` | Number not on a campaign | `band tendlc campaign list --plain` to list campaigns; `band tnoption assign <number> --campaign-id <id>` to assign |
 | `"toll-free verification status"` | TFV not approved | `band tfv get <number> --plain` to check status |
 
 ### Send a message
@@ -506,7 +569,7 @@ band message send --from <number> --to <destination> --app-id <app-id> --text "H
 Once provisioning is set up, sending is straightforward:
 
 ```bash
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello from the agent"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Hello from the agent"
 # → preflight checks pass (app linked, callback URL valid, number on campaign)
 # → returns JSON with message id, segmentCount, direction
 ```
@@ -517,30 +580,30 @@ band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text 
 
 ```bash
 MEDIA_URL=$(band message media upload image.png)
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Check this out" --media "$MEDIA_URL"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Check this out" --media "$MEDIA_URL"
 ```
 
 **Group messaging** uses the same `send` command with multiple recipients:
 
 ```bash
-band message send --from +19195551234 --to +15551234567,+15552345678 --app-id abc-123 --text "Team update"
+band message send --from +15555550100 --to +15551234567,+15552345678 --app-id abc-123 --text "Team update"
 ```
 
 **Listing messages** requires at least one filter and **millisecond-precision timestamps** (a common agent mistake):
 
 ```bash
 # Correct — milliseconds in the timestamp:
-band message list --from +19195551234 --start-date 2024-01-01T00:00:00.000Z --plain
+band message list --from +15555550100 --start-date 2024-01-01T00:00:00.000Z --plain
 # Wrong — this returns a 400:
-band message list --from +19195551234 --start-date 2024-01-01T00:00:00Z --plain
+band message list --from +15555550100 --start-date 2024-01-01T00:00:00Z --plain
 ```
 
 ### Make a call
 
 ```bash
-band number list --plain                # → ["+19195551234", ...]
+band number list --plain                # → ["+15555550100", ...]
 band app list --plain                   # → [{"ApplicationId":"abc-123", ...}, ...]
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url <url>
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url <url>
 # → returns JSON with callId
 
 # IMPORTANT: always verify the call actually connected
@@ -573,7 +636,7 @@ band transcription create <call-id> <rec-id> --wait --plain        # blocks unti
 
 **Look up a specific number's VCP:**
 ```bash
-band number get +19195551234 --plain    # → shows VCP assignment and voice settings
+band number get +15555550100 --plain    # → shows VCP assignment and voice settings
 ```
 
 **List all numbers on a VCP:**
@@ -603,13 +666,13 @@ band portin validate-tf +18005551234 --wait --plain
 
 ```bash
 band portin create \
-  --numbers +19195551234,+19195551235 \
+  --numbers +15555550100,+15555550101 \
   --site <site-id> --peer <peer-id> \
   --foc 2026-06-01T15:30:00Z \
   --loa-authorizing-person "Jane Doe" \
   --loa ./loa.pdf \
   --customer-order-id agent-run-42 --if-not-exists --plain
-# → {"orderId":"...","status":"DRAFT","numbers":["+19195551234","+19195551235"], ...}
+# → {"orderId":"...","status":"DRAFT","numbers":["+15555550100","+15555550101"], ...}
 
 ORDER_ID=$(... extract from above ...)
 band portin submit $ORDER_ID --wait --plain
@@ -791,15 +854,15 @@ These commands query the Registration Center API for 10DLC campaign and phone nu
 
 **Important:** These commands are for **import customers** — accounts that register campaigns through TCR and import them to Bandwidth. They require the **Campaign Management role** on your API credential and the **Registration Center feature** on your account.
 
-**Direct customers** (accounts that register campaigns directly through Bandwidth) are not yet supported by these commands. Direct registration through the CLI is planned for mid-2026. In the meantime, direct customers should use the Bandwidth App or the existing Campaign Management API.
+**Direct customers** (accounts that register campaigns directly through Bandwidth) are not supported by the commands on this page — those remain import-only. Direct customers register brands, order vettings, and register campaigns through the CLI via [`band tendlc brand`](#10dlc-brands), [`band tendlc vetting`](#10dlc-vettings), and [`band tendlc campaign`](#10dlc-campaigns).
 
 A 403 from `band tendlc` can mean: credential lacks the Campaign Management role, account doesn't have Registration Center, account is a direct customer, or messaging isn't enabled. The CLI parses the API response and gives a specific message for each case.
 
 ### Check if a number is registered for 10DLC
 
 ```bash
-band tendlc number +19195551234 --plain
-# → { "phoneNumber": "+19195551234", "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "B1DER2J", ... }
+band tendlc number get +15555550100 --plain
+# → { "phoneNumber": "+15555550100", "campaignId": "CEXMPL1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }
 ```
 
 Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (registration failed).
@@ -807,23 +870,29 @@ Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (reg
 ### List all 10DLC campaigns
 
 ```bash
-band tendlc campaigns --plain
-# → [{ "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "B1DER2J", ... }, ...]
+band tendlc campaign list --plain
+# → [{ "campaignId": "CEXMPL1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }, ...]
 ```
 
-### List all registered numbers (with filters)
+### List all registered numbers
 
 ```bash
-band tendlc numbers --plain                           # all registered numbers
-band tendlc numbers --campaign-id CA3XKE1 --plain     # numbers on a specific campaign
-band tendlc numbers --status SUCCESS --plain           # only successfully registered numbers
-band tendlc numbers --status FAILURE --plain           # numbers with registration failures
+band tendlc number list --plain                                  # all registered numbers
+band tendlc number list --campaign-id-contains CEXMPL1 --plain   # numbers on a specific campaign
+band tendlc number list --all --plain                            # walk every page
 ```
+
+**There is no `--status` filter, and that is deliberate.** The API accepts a `status`
+filter and silently ignores it: an account holding 21 `SUCCESS` and 2 `FAILURE`
+numbers returns all 23 for `status[eq]=SUCCESS`, for `status[eq]=FAILURE`, and even
+for a value matching nothing at all. Offering the flag would hand callers every
+record while implying it was filtered. Filter client-side on the `status` field
+instead — it is present on every record.
 
 ### List numbers on a specific campaign
 
 ```bash
-band tendlc campaigns numbers CA3XKE1 --plain
+band tendlc campaign numbers CA3XKE1 --plain
 ```
 
 ### Diagnose messaging send failures
@@ -832,16 +901,1080 @@ When `message send` fails with "not assigned to any active 10DLC campaign":
 
 ```bash
 # 1. Check the specific number's registration
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 
 # 2. If not registered, list available campaigns
-band tendlc campaigns --plain
+band tendlc campaign list --plain
 
 # 3. Assign the number to a campaign
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait
 ```
 
 **If `band tendlc` returns 403:** Don't retry — escalate. Tell the user: "Your credential may not have the Campaign Management role, or your account may not have the Registration Center feature enabled. Contact your Bandwidth account manager to check your configuration."
+
+## Customer Profiles
+
+A customer profile is required to register a 10DLC brand, and **a profile backs
+exactly one brand** — reusing a profile ID on a second brand fails with
+`cannot be assigned to another brand`. Create a fresh profile per brand. The
+prerequisite chain is **customer profile → brand → campaign**: brand
+registration happens in the CLI via [`band tendlc brand create`](#10dlc-brands);
+campaign registration happens via [`band tendlc campaign create`](#10dlc-campaigns).
+
+Requires the **Customer Profiles Access role** — check with `band auth status --plain`.
+
+### Create, list, and get
+
+```bash
+band customer-profile create --name "Acme Corp" --plain
+# → {"accountId":"9900000","addressId":null,"contact":null,"createdDate":"...","id":"ExampleProfileId000002","modifiedDate":"...","name":"Acme Corp","softDeleted":false,"totalCampaigns":0,"version":0,"website":null}
+
+band customer-profile list --all --plain    # walks every page; cannot combine with --offset
+band customer-profile get ExampleProfileId000002 --plain
+```
+
+Keys come back alphabetical because the payload is a Go map — don't expect a
+"nicer" ordering; the docs match reality, not a prettified version of it.
+
+`list` excludes soft-deleted profiles; `get` still returns them, reporting
+`softDeleted: true`. Without `--all`, a truncated page warns on stderr.
+
+**`create` deliberately has no `--if-not-exists`** (see the [Design
+Principles](#design-principles) exception). A profile has no safe natural key
+to match on, and it's strictly 1:1 with a brand — a retry that silently reused
+an existing profile could link an old brand's profile to a new brand's data.
+Each brand needs its own freshly created profile; a retry must create, not reuse.
+
+**`create` is also non-idempotent, which cuts the other way after an
+ambiguous failure.** If a `create` call fails ambiguously — e.g. the
+connection drops after the POST reached the server but before the response
+reached you — do not blindly retry. A blind retry can create a *second*,
+duplicate profile if the first one actually succeeded. Instead, run `band
+customer-profile list --plain` and reconcile the results against what you
+just submitted (name, website, contact) to determine whether the first call
+already created a profile. If you cannot establish uniqueness that way, stop
+and escalate rather than guessing.
+
+### Update is read-modify-write
+
+The API replaces the whole record, so `update` reads the profile first and
+re-sends it with your changes applied. Fields you do not pass are preserved.
+**Passing a flag with an empty value clears that field** — it sends JSON
+`null`, not an empty string, because the API rejects empty strings. A
+concurrent edit between the read and the write is caught by the API's version
+check and exits **4** — retry the command.
+
+```bash
+band customer-profile update ExampleProfileId000002 --name "New Name" --plain
+band customer-profile update ExampleProfileId000002 --website "" --plain   # clears the website
+```
+
+### Delete is a soft delete
+
+`delete` requires `--confirm`. That's a flag, never a prompt, so agents and
+humans share one contract. The record leaves listings but stays retrievable by
+ID with `softDeleted: true`, and `restore` brings it back — no confirm needed.
+
+```bash
+band customer-profile delete ExampleProfileId000002 --confirm --plain
+# → {"deleted":true,"id":"ExampleProfileId000002","restore":"band customer-profile restore ExampleProfileId000002"}
+band customer-profile restore ExampleProfileId000002 --plain
+```
+
+Note these are two different fields on two different resources, not a typo of
+each other: `deleted: true` is the delete command's own receipt, confirming the
+204 completed synchronously. `softDeleted: true` is a field on the profile
+itself, seen when you `get` it afterward — there is no `deleted` field on the
+profile, and no `softDeleted` field on the receipt.
+
+### Version history
+
+`history list` and `history get` return a `{data, metadata}` envelope, newest
+first — the profile snapshot lives under `data`, and `version`, `operation`,
+`userName`, `createdDate` live under `metadata`. So the version is at
+`metadata.version`, NOT top-level the way it is on `customer-profile get`.
+Observed `metadata.operation` values: `CREATED`, `UPDATED`, `DELETED`.
+
+```bash
+band customer-profile history list ExampleProfileId000002 --plain
+band customer-profile history get ExampleProfileId000002 1 --plain
+```
+
+## 10DLC Brands
+
+`band tendlc brand` registers and manages 10DLC brands for **direct** customers
+(accounts that register with TCR through Bandwidth directly, not through
+import). A brand needs a customer profile first — see
+[Customer Profiles](#customer-profiles) — and a profile backs exactly one
+brand. Requires the **Registration Center** feature and the **Campaign
+Management** role.
+
+### Eligibility
+
+Check before doing anything else:
+
+```bash
+band tendlc status --plain
+```
+
+This is a probe, not a live brand/vetting command, and it is deliberately
+gentle: every 403 it can classify — role missing, Registration Center not
+enabled, campaign management not enabled, or an unrecognized 403 — is a
+**successful answer to the question "can I do this?"**, so it exits **0** with
+`{"access":"unavailable", ...}`. See [10DLC capability](#10dlc-capability-tri-state-not-boolean)
+for the full `reason` table. Only `probe_failed` (rate limit, 5xx, transport
+error) is worth retrying.
+
+That gentle handling is specific to `status`. Once you move on to an actual
+`brand`/`vetting` command, a 403 there is **not** a probe answer — it is the
+command failing — and it maps to exit **4** via the same
+`FeatureLimitError`/`roleGateError` path used everywhere else in this CLI.
+Escalate to the account manager; do not retry.
+
+### The two IDs
+
+Every brand has two identifiers, and they are not interchangeable in what
+they guarantee:
+
+- **`bandwidthId`** exists from the moment of the 202 that accepts the create.
+- **`brandId`** is assigned by TCR once registration completes, and is `null`
+  until then. A brand that never registers never gets one.
+
+Every `brand`/`vetting` command that takes an ID accepts either. This matters
+for anything that keys off `brandId`: a script or agent that reads `brandId`
+right after `create` and treats a missing/`null` value as an error will
+misfire on every brand still mid-registration — `bandwidthId` is the only ID
+guaranteed to exist immediately.
+
+```bash
+band tendlc brand get BEXMPL1 --plain       # TCR brandId
+band tendlc brand get WEXAMPLE01 --plain    # bandwidthId — same brand
+```
+
+Both return the same 46-key object, including `bandwidthId`, `brandId`,
+`brandIdentityStatus`, `brandRelationship`, `universalEin`, `imported`, and
+`vertical` (a live value observed was `PROFESSIONAL`, which is absent from the
+published enum).
+
+### `create`
+
+```bash
+band tendlc brand create --customer-profile-id CP123 --brand-type PRIVATE_PROFIT \
+  --display-name "Acme Corp" --company-name "Acme Corporation" \
+  --street "123 Main St" --city Raleigh --state NC --postal-code 27601 \
+  --country-code-a3 USA --phone +18885551234 --email ops@acme.com \
+  --vertical RETAIL --ein 123456789 --ein-issuing-country-code-a3 USA --wait
+```
+
+There is **no `--country` flag** — the API derives `country` server-side from
+`--country-code-a3`, so passing one would just be dead input. Likewise there
+is no separate country flag for the EIN; `--ein-issuing-country-code-a3` is
+the only knob.
+
+**Every brand type** requires these 9 fields plus `--brand-type` itself:
+`--customer-profile-id`, `--display-name`, `--street`, `--city`, `--state`,
+`--postal-code`, `--country-code-a3`, `--phone`, `--email`. Beyond that, the
+required set is per-`brandType`. This matrix is sourced from
+`internal/tendlc/brandoptions.go`, which is the measured truth — the API's
+own schema gets required-ness wrong in both directions, so this is derived
+from the API's actual 400 responses, not the published spec:
+
+| `--brand-type` | Additional required flags |
+|---|---|
+| `PRIVATE_PROFIT` | `--company-name`, `--vertical`, `--ein`, `--ein-issuing-country-code-a3` |
+| `NON_PROFIT` | same four as `PRIVATE_PROFIT` |
+| `GOVERNMENT` | same four as `PRIVATE_PROFIT` |
+| `PUBLIC_PROFIT` | the same four, **plus** `--stock-symbol`, `--stock-exchange`, `--website`, `--business-contact-email` |
+| `SOLE_PROPRIETOR` | none enforced by the CLI beyond the 9 common fields (see note) |
+
+**`SOLE_PROPRIETOR` is deliberately under-validated.** Its field rules sit
+behind an account-level gate no available test account could get past, so
+they were never observable. The CLI does not invent rules for it — doing so
+risks rejecting a request the API would actually accept. Expect the API's own
+400 to enforce anything beyond the 9 common fields for this type. The
+`--first-name`, `--last-name`, `--mobile-phone`, and `--ip-address` flags
+exist and are almost certainly what a sole-proprietor registration needs, but
+they are optional at the CLI layer.
+
+Validation aggregates every violation into one error, the way the API
+reports every violation in one 400 — no request is made:
+
+```
+$ band tendlc brand create --plain
+Error: missing required flags: --brand-type, --city, --country-code-a3, --customer-profile-id, --display-name, --email, --phone, --postal-code, --state, --street
+
+$ band tendlc brand create --brand-type PUBLIC_PROFIT <all common fields + company/vertical/ein> --plain
+Error: missing required flags: --business-contact-email, --stock-exchange, --stock-symbol, --website
+```
+
+**The `customerProfileId` trap.** Measured against production: `POST /brands`
+does **not** reject an invalid or typo'd `customerProfileId`. It silently
+discards it and returns **202**, creating an orphan brand with no profile
+association — a brand that can never verify. To prevent this, `brand create`
+reads the customer profile named by `--customer-profile-id` before it submits
+anything. Only a definitive 404 stops the create:
+
+```
+$ band tendlc brand create --customer-profile-id NOT_A_REAL_PROFILE_ID --brand-type PRIVATE_PROFIT ... --plain
+Error: customer profile "NOT_A_REAL_PROFILE_ID" not found — run 'band customer-profile list' to see valid profile IDs (API error 404: {"errors":[{"type":"not found","description":"Customer profile not found, id: NOT_A_REAL_PROFILE_ID","source":{"POINTER":"/id"}}],"links":[]})
+$ echo $?
+3
+```
+
+Brand count was measured 10 before and 10 after this refusal — nothing was
+created. If the pre-flight itself **cannot run** — most commonly because the
+caller has Campaign Management but not the separate **Customer Profiles
+Access** role — the CLI does not block the create on a check it has no
+permission to perform. It warns on stderr and proceeds:
+
+```
+warning: could not verify customer profile "CP123" before creating the brand (...); proceeding anyway
+```
+
+An agent that sees this warning should not assume the profile association
+took — verify it afterward by checking `accounts[0].customerProfileId` on
+the resulting brand (`band tendlc brand get <id> --plain`).
+
+**`--wait` semantics.** `brandIdentityStatus` reads `UNVERIFIED` for the
+entire registration window; `REGISTERING`, the enum's documented in-progress
+value, was never observed on the read path in live testing. That means
+`UNVERIFIED` cannot distinguish "TCR hasn't answered yet" from "TCR rejected
+it" — so the CLI keeps polling on `UNVERIFIED` rather than treating it as a
+failure, and only surfaces it at timeout, with the last-seen status attached.
+Two brands submitted with byte-identical payloads measured very differently:
+
+- `WEXAMPLE02`: read `UNVERIFIED` at t=3s, flipped to `VERIFIED` at t=46s
+- `WEXAMPLE03`: read `UNVERIFIED` at t=3s, still `UNVERIFIED` at t=275s, no TCR response in its history at all
+
+**A timeout (exit 5) is not a failure.** Tell the caller plainly: re-check
+with `band tendlc brand get <id>` (or `brand history <id>` for the raw TCR
+timeline) rather than treating the timeout as a rejected brand. The only
+state that *is* a business failure is `ERROR`, which exits **4** — everything
+else not in `{VERIFIED, VETTED_VERIFIED, SELF_DECLARED, ERROR}` is treated as
+still-pending.
+
+| Outcome | Exit | What's on stdout |
+|---|---|---|
+| Reached `VERIFIED` / `VETTED_VERIFIED` / `SELF_DECLARED` | 0 | The full brand object (46 keys), including `bandwidthId` |
+| Reached `ERROR` | 4 | The full brand object, plus a remediation message on stderr pointing at `brand refresh` |
+| `--wait` exceeded `--timeout`, still pending | 5 | The synthetic receipt (below), with `lastSeenStatus` |
+| Transport/decode failure mid-poll | Whatever `ExitCodeForError` maps the underlying error to (not necessarily 5 — only an actual deadline-exceeded times out as 5) | The synthetic receipt (below) |
+| No `--wait` | 0 | The synthetic receipt, immediately after the 202 |
+
+**The receipt guarantee.** On every path that reaches a 202 accept, stdout
+carries `bandwidthId` somewhere in valid JSON — that ID is the one thing that
+cannot be recovered any other way if the command exits without printing it.
+
+**This guarantee covers every path the command itself takes — it does not
+cover an interrupt.** `cmd/root.go`'s `Execute()` runs with no context, and
+the CLI does not install a `SIGINT` handler anywhere (no `signal.Notify` /
+`signal.NotifyContext` in the codebase), so the cancellation branch in
+`awaitTerminal` that exists specifically to emit this receipt can never
+actually fire from a real Ctrl-C. Press Ctrl-C during `--wait` after the 202
+has landed and the process dies immediately with no `bandwidthId` on stdout.
+If that happens, recover with `band tendlc brand list --customer-profile-id-contains
+<id>` to find the brand that was accepted. This applies CLI-wide, not just to
+`tendlc` — it is a pre-existing, repo-wide gap, tracked separately from this
+PR.
+
+Without `--wait`, or on a timeout/transport failure with `--wait`, that's the
+literal synthetic receipt: `{"bandwidthId": "...", "status": "accepted",
+"resume": "band tendlc brand get <id>", "brandId": "..." (if already known)}`
+— plus, on a `--wait` timeout/error, `"note"` (pointing at `get`/`history`
+for a brand parked at `UNVERIFIED`) and `"lastSeenStatus"` (if a status was
+ever successfully read). On success or business failure (`ERROR`), stdout
+instead carries the **real, full brand object** returned by the API — not
+the synthetic receipt — but `bandwidthId` is still one of its keys either
+way. **This is a reconstruction, not a captured run** — forcing a real
+timeout would mean paying for another brand creation just to let it sit
+unverified, so no live timeout receipt was captured. The shape below is
+assembled field-by-field from what `buildAcceptedReceipt` and `awaitTerminal`
+actually emit, not copied from a real invocation:
+
+```json
+{
+  "bandwidthId": "WEXAMPLE03",
+  "status": "accepted",
+  "resume": "band tendlc brand get WEXAMPLE03",
+  "note": "if this timed out at UNVERIFIED, the brand may still be registering with TCR rather than having failed. Check 'band tendlc brand get WEXAMPLE03' for its current status, or 'band tendlc brand history WEXAMPLE03' for the full history.",
+  "lastSeenStatus": "UNVERIFIED"
+}
+```
+
+### `--confirm`-gated writes, and what each costs
+
+`--confirm` is a flag, never a prompt — agents and humans share one
+contract. Missing it is exit **6** (`FlagError`) with **zero write
+requests** — but `brand update` is a partial exception: see the callout
+below the table.
+
+**`brand create` is billable but deliberately has no `--confirm`.** Measured
+against production: the brand registration fee is billed about six
+seconds after the 202, before verification resolves, and is charged even for
+a brand that never ends up verifying — see the fee note in
+[10DLC Brands](#10dlc-brands). Every other billable or destructive write here
+gates behind `--confirm`; `create` does not, because it requires roughly a
+dozen explicit required flags and cannot be triggered by accident the way a
+bare `<id> --confirm` command can. This is a deliberate product call, not an
+oversight — do not read the omission as one.
+
+| Command | Cost / consequence |
+|---|---|
+| `brand delete <id> --confirm` | Permanent. Requires every campaign on the brand to be deactivated first. See the cascade correction below. |
+| `brand reverify <id> --confirm` | $4 fee. Resets `brandIdentityStatus` toward re-registration (documented as `REGISTERING`; in practice this reads back as `UNVERIFIED`, per the `--wait` note above). |
+| `brand update <id> --confirm ...` | Only required when an identity-affecting field changes: `--company-name`, `--brand-type`, `--ein`, or `--ein-issuing-country-code-a3` (possible $4 fee + reset to re-registration, and rejected outright if the brand has an active campaign or an active Standard/Enhanced/Political vetting), `--mobile-phone` (sets identity status to `UNVERIFIED`), or `--business-contact-email` on a `PUBLIC_PROFIT` brand (revokes Auth+ compliance — regaining it needs a new `AUTHPLUS` vetting and another 2FA email round-trip). |
+| `vetting request <brand-id> --confirm` | Billable order placed with an external vetting provider (see [10DLC Vettings](#10dlc-vettings)). |
+
+**`brand update`'s refusal is not zero-request — it costs one GET.** Unlike
+every other confirm gate here, `update` performs a real `GetBrand` call
+*before* it can even decide whether `--confirm` is required: the
+business-contact-email/PUBLIC_PROFIT condition in
+`IdentityFieldsChanged` needs the brand's current type, which is only known
+once that GET returns (see the source comment on this in
+`cmd/tendlc/brand_update.go` — it deliberately warns against moving the
+check earlier to "fix" this). So an unconfirmed `brand update` on an
+identity-affecting field still makes one live GET against your account's
+shared rate-limit budget; it is only the **write** (the PUT) that never
+happens without `--confirm`. Do not treat it as a free dry-run.
+
+Example refusals — `delete` and `reverify` make zero requests; `update`
+makes the one GET described above, but never the write:
+
+```
+$ band tendlc brand delete BEXMPL1 --plain
+Error: this permanently deletes brand BEXMPL1. It cannot be undone, it deletes the brand in TCR for direct accounts, and it requires every campaign on the brand to be deactivated first. It does NOT delete the associated customer profile (measured against production — the documented cascade does not happen); remove that separately with 'band customer-profile delete <id>' if you no longer need it. Pass --confirm to proceed.
+
+$ band tendlc brand reverify BEXMPL1 --plain
+Error: reverifying brand BEXMPL1 incurs a $4 fee and resets brandIdentityStatus toward re-registration; it reads back as UNVERIFIED until TCR responds. Pass --confirm to proceed.
+
+$ band tendlc brand update BEXMPL1 --company-name "New Name" --plain
+Error: changing company-name on brand BEXMPL1 resubmits it for identity verification: this may incur a $4 fee and resets brandIdentityStatus toward re-registration (it reads back as UNVERIFIED until TCR responds). If the brand has an active campaign or an active Standard/Enhanced/Political vetting, the API will reject the change outright. Pass --confirm to proceed.
+```
+
+`brand resend-2fa` and `brand refresh` take no `--confirm` — neither is
+destructive nor billable.
+
+**The delete cascade correction.** The endpoint's own docs say deleting a
+brand cascades to delete its backing customer profile. Measured against
+production: **it does not.** Two test brands were deleted and both backing
+profiles remained retrievable afterward with `softDeleted: false`. Delete the
+profile separately with `band customer-profile delete <id>` if you don't need
+it — otherwise it's an orphan that can never back another brand (a profile
+is 1:1 with a brand for life). Also note: deletion takes roughly **40
+seconds** to be reflected in `brand list`/`brand get`; `delete --wait` polls
+until the brand is actually gone (the one poll in this whole command set
+where a 404 on the follow-up read means success, not "not ready yet").
+
+**The receipt's `deleted` field is honest, not optimistic.** The DELETE call
+only ACCEPTS the request — it does not confirm the brand is actually gone.
+So `deleted` starts `false` and stays `false` until a 404 on the follow-up
+read proves it. Without `--wait`, that's every invocation:
+
+```
+$ band tendlc brand delete WEXAMPLE02 --confirm --plain
+{
+  "deleted": false,
+  "id": "WEXAMPLE02",
+  "note": "delete accepted but not yet confirmed: production takes roughly 40s to actually remove the brand, so it may still appear in 'brand list' or 'brand get' until then. Confirm with 'band tendlc brand get WEXAMPLE02' — a 404 means it is gone.",
+  "status": "accepted"
+}
+$ echo $?
+0
+```
+
+With `--wait`, `deleted` flips to `true` (and `note` is dropped) only once
+the follow-up read actually 404s:
+
+```
+$ band tendlc brand delete WEXAMPLE02 --confirm --wait --plain
+{
+  "deleted": true,
+  "id": "WEXAMPLE02",
+  "status": "accepted"
+}
+$ echo $?
+0
+```
+
+A `--wait` timeout (exit **5**) prints the identical unconfirmed receipt as
+the no-`--wait` case above — `deleted: false`, the `note`, exit 5 — never
+`deleted: true`. A receipt that claims completion while the exit code says
+"gave up waiting" would be worse than no receipt at all: an agent branching
+on `deleted` must not be able to see `true` paired with a non-zero exit.
+
+### `update` is read-modify-write, with no version field
+
+The API replaces the whole record on update, so the CLI reads the brand
+first and re-sends it with your changes applied — fields you don't pass are
+preserved. Unlike customer profiles, **brands have no optimistic-locking
+token at all**: there is no version check on the PUT. A concurrent edit that
+lands between the CLI's read and its write is silently lost — whichever
+write reaches the API last wins, with no conflict error to catch it.
+
+**`update` prints an acceptance receipt, not the updated brand.** Measured
+against production: `PUT /brands/{brandId}` returns a bare `{bandwidthId,
+brandId}` acceptance, not the resource, and the change itself takes roughly
+**5 minutes** to be reflected — a `website` change submitted at ~14:55 was
+still absent from the brand at t+48s and only showed up in `modifiedDate`
+and the activity log at 15:00:37. So `brand update` prints the same
+`{bandwidthId, brandId, status: "accepted", resume}` receipt shape
+`create`/`refresh` use, plus a `note` naming the latency:
+
+```bash
+band tendlc brand update BEXMPL1 --website "https://acme.example" --plain
+```
+
+```json
+{
+  "bandwidthId": "WEXAMPLE01",
+  "brandId": "BEXMPL1",
+  "status": "accepted",
+  "resume": "band tendlc brand get WEXAMPLE01",
+  "note": "this is an acceptance, not the updated brand: production takes about 5 minutes to apply the change (modifiedDate and the history log lag behind), so an immediate 'brand get' may still show the pre-update value. Check 'band tendlc brand get WEXAMPLE01' again shortly, or 'band tendlc brand history WEXAMPLE01' for confirmation."
+}
+```
+
+This is also why `update` has no `--wait`: this measurement confirms that
+decision rather than merely motivating it — a poll here would hit a brand
+still holding its pre-update state and report success before the change
+actually took effect.
+
+**A safety net, not a feature.** The read-modify-write PUT above depends on
+production accepting read-only fields it doesn't use. If a future field is
+ever rejected instead, the CLI drops exactly the field(s) the API's error
+names and retries once, printing `note: retried after dropping field(s) the
+API rejected but does not need: <fields>` to stderr — it does not fail
+outright or retry silently.
+
+### `list` vs `get`: projection, not nullability
+
+`brand list` returns a **12-key summary projection**; `brand get` returns
+**46 keys**. A field missing from `list` output is not null on the brand —
+it's simply outside the listing projection. Use `get` for the full resource.
+
+```
+$ band tendlc brand list --plain --limit 2
+showing 2 of 10 brands; pass --all to fetch every page      # <- stderr
+[
+  {
+    "accounts": [{"accountId": "9900000", "customerProfileId": "ExampleProfileId000001"}],
+    "authenticationStatus": "ACTIVE",
+    "bandwidthId": "WEXAMPLE04",
+    "brandId": "BEXMPL4",
+    "brandIdentityStatus": "VERIFIED",
+    "brandType": "PUBLIC_PROFIT",
+    "businessContactEmail": "ops@example.com",
+    "companyName": "Bandwidth",
+    "createdDate": "2026-05-28T21:00:16.048Z",
+    "displayName": "Another Auth+ Test, Bandwidth",
+    "modifiedDate": "2026-05-28T21:00:16.048Z",
+    "website": "bandwidth.com"
+  }
+]
+```
+
+There is deliberately **no `--bandwidth-id` filter**. Measured against
+production: the API accepts a `bandwidthId[eq]` filter and silently ignores
+it, returning every brand rather than filtering — so the CLI doesn't expose
+a flag that would lie about filtering. Use `brand get <bandwidth-id>` to
+fetch one directly instead.
+
+**None of `brand list`'s filters use `eq` on the wire, even the ones that
+look like exact-match flags.** Measured against a 10-brand test account:
+`eq` is accepted and silently dropped on every field tried —
+`brandId[eq]`, `customerProfileId[eq]`, `brandIdentityStatus[eq]`, and
+`brandType[eq]` all returned all 10 brands, the same failure documented
+above for `bandwidthId`. `contains` is the only operator that actually
+filters, so:
+
+- `--brand-id-contains` and `--customer-profile-id-contains` are named for
+  what they do — a substring match. `--brand-id-contains BEXMPL1` also
+  matches `BEXMPL12`; use `brand get <id>` when you need exactly one brand.
+- `--identity-status` and `--brand-type` filter on closed enums, where a bare
+  substring match has a sharper trap: `brandIdentityStatus[contains]=VERIFIED`
+  matches `VERIFIED`, `VETTED_VERIFIED`, **and** `UNVERIFIED` — the opposite
+  of what was asked for. The CLI sends `contains` to the server and then
+  filters the response client-side for an exact match, so these two flags
+  keep exact-match semantics despite the API having no `eq` that works.
+
+`brand history <id>` is a free-text activity log, newest first, with no
+version-per-entry the way customer profiles have:
+
+```
+$ band tendlc brand history BEXMPL1 --plain --limit 2
+showing 2 of 7 history entries; pass --all to fetch every page      # <- stderr
+[
+  {"createdDate": "2026-06-17T19:37:16.927Z", "message": "Successfully updated brand BEXMPL1 for account 9900000"},
+  {"createdDate": "2026-06-17T18:10:48.526Z", "message": "BRAND_IDENTITY_STATUS_UPDATE received from TCR with new status UNVERIFIED"}
+]
+```
+
+A real registration timeline, from live testing, newest first:
+
+```
+{"createdDate": "2026-08-19T13:39:04.542Z", "message": "BRAND_IDENTITY_STATUS_UPDATE received from TCR with new status VERIFIED"}
+{"createdDate": "2026-08-19T13:38:24.988Z", "message": "Brand billed for account 9900000 brandId BEXMPL3 sku BRAND-FEE-EXAMPLE"}
+{"createdDate": "2026-08-19T13:38:18.725Z", "message": "Successfully created brand BEXMPL3 for account 9900000 and bandwidthId WEXAMPLE02"}
+{"createdDate": "2026-08-19T13:38:17.589Z", "message": "Registering brand for account 9900000 bandwidthId WEXAMPLE02"}
+```
+
+Note the fee lands ~6 seconds after creation — long before verification
+resolves either way. **The brand fee is billed at creation, not at
+verification**, and is charged even for a brand that never ends up
+verifying. Factor that into any retry logic: a create you retry blind after
+an ambiguous failure risks a second bill, not just a second brand.
+
+## 10DLC Vettings
+
+`band tendlc vetting` orders and records third-party vettings against a
+brand. Requires the same Registration Center feature and Campaign Management
+role as `brand`.
+
+**Vettings are brand-scoped, not campaign-scoped.** Every command here takes
+a **brand ID** as its first positional, not a vetting ID — there is no
+campaign vetting endpoint in either spec. A campaign only exposes a
+read-only, derived `vettingStatus`; re-evaluating a campaign directly is a
+different, separate future command (`nudge`), not covered here.
+
+### `list`
+
+```
+$ band tendlc vetting list BEXMPL2 --plain
+[
+  {
+    "bandwidthId": "WEXAMPLE05",
+    "createdDate": "2026-06-17T17:55:13Z",
+    "evpId": "AEGIS",
+    "reasons": [
+      "Submitted Address Line 1 cannot be verified against government or business sources.",
+      "Submitted Postal Code cannot be verified against government or business sources.",
+      "Submitted company name does not match state business registration records."
+    ],
+    "vettedDate": "2026-06-17T17:55:13Z",
+    "vettingClass": "STANDARD",
+    "vettingDetails": {},
+    "vettingId": "00000000-1111-2222-3333-444444444444",
+    "vettingScore": 88,
+    "vettingStatus": "ACTIVE",
+    "vettingToken": "eyJ...redacted..."
+  }
+]
+```
+
+Note `vettingStatus: "ACTIVE"` — the live success value, and it appears in
+**neither** the brand-vetting enum nor the campaign `vettingStatus` enum.
+Unknown/undocumented statuses are treated as still-pending everywhere in
+this command set: only `ACTIVE` classifies as success and only `FAILED` /
+`EXPIRED` classify as business failure, so a status this CLI has never seen
+keeps polling under `--wait` rather than being reported as either outcome.
+
+**A naming quirk to handle, not normalize.** `list` returns the ID under
+`bandwidthId`; the `POST .../vettings` 202 accept returns it as
+`vettingBandwidthId` instead. The CLI preserves whichever key name the API
+actually used in its own receipts rather than renaming it to one canonical
+field — so when you read a vetting receipt, check for both key names.
+
+### `request` — billable, `--confirm`-gated
+
+```bash
+band tendlc vetting request BEXMPL1 --evp AEGIS --class STANDARD --confirm --plain
+band tendlc vetting request BEXMPL1 --evp AEGIS --class STANDARD --confirm --wait --plain
+```
+
+`--evp` accepts `AEGIS`, `CV`, `WMC` — a small, stable, fully documented enum.
+
+`--class` accepts `STANDARD`, `ENHANCED`, `POLITICAL`, `AUTHPLUS`, and
+**`RCS`**. `RCS` is absent from the published `enumVettingClass`, but
+production accepts it — confirmed by pairing each class with an invalid
+`evpId` and observing which produced a class-level error rather than an
+evp-level one. Do not drop it to match the spec; production honors it.
+
+This places a real, billable order with an external vetting provider, so
+`--confirm` is required — missing it is exit 6, zero requests:
+
+```
+$ band tendlc vetting request BEXMPL1 --evp AEGIS --class STANDARD --plain
+Error: requesting a STANDARD vetting from AEGIS for brand BEXMPL1 is a billable order placed with an external vetting provider. Pass --confirm to proceed.
+```
+
+With `--wait`, the receipt is `{<idField>: id, "brandId": ..., "status":
+"accepted", "check": "band tendlc vetting list <brand-id>"}`, printed
+immediately without `--wait` or on a timeout/transport error with it. Unlike
+`brand create --wait`, there is no `lastSeenStatus` carried on a vetting
+timeout — the vetting poll target doesn't track a last-observed status, so a
+timed-out `vetting request --wait` tells you to re-check with `vetting list`
+rather than showing you the last status inline.
+
+### `import` — not billable, no `--confirm`
+
+```bash
+band tendlc vetting import BEXMPL1 V123 --evp AEGIS --plain
+band tendlc vetting import BEXMPL1 V123 --evp AEGIS --vetting-token TOK123 --plain
+```
+
+Recording a vetting that was already performed outside Bandwidth costs
+nothing and places no new order, so — unlike `request` — this takes no
+`--confirm`.
+
+## 10DLC Campaigns
+
+`band tendlc campaign` registers and manages 10DLC campaigns for **direct**
+customers, against an existing brand — see [10DLC Brands](#10dlc-brands). A
+campaign belongs to exactly one brand, and that brand must be at `VERIFIED`,
+`VETTED_VERIFIED`, or `SELF_DECLARED` before a campaign can be created
+against it. Requires
+the same Registration Center feature and Campaign Management role as `brand`
+and `vetting`.
+
+| Command | What it does |
+|---|---|
+| `create` | Registers a new campaign against a brand. Billable, non-idempotent, no `--confirm` |
+| `sync` | Re-pulls a campaign's current state from TCR |
+| `list` | Lists campaigns, filterable |
+| `get` | Gets one campaign — the full 45-key resource |
+| `history` | Shows a campaign's activity log |
+| `numbers` | Lists phone numbers assigned to the campaign |
+| `update` | Read-modify-write update; the `imported` branch is narrower |
+| `deactivate` | Permanently deactivates a campaign; `--confirm` required |
+| `nudge` | Asks TCR to re-evaluate a campaign; not billable, no `--confirm` |
+
+### `create`: the requirement tree is four tiers, not one flat list
+
+Measured by actually creating a campaign against the raw API: `POST
+/campaigns` reveals its requirements in stages, over several round trips.
+An empty body only reports the first tier; satisfying it reveals a second
+tier; passing one of the second tier's flags as `true` conditionally
+reveals a third or fourth. A caller working directly against the API and
+fixing each 400 in turn fails three more times before the create succeeds:
+
+| Tier | Revealed when (raw API) | Fields |
+|---|---|---|
+| 1 | empty body | `brandId`, `usecase`, `description`, `sample1`, `messageFlow` |
+| 2 | tier 1 satisfied | `subscriberOptin`, `subscriberOptout`, `subscriberHelp` |
+| 3 | `subscriberOptin` true | `optinMessage`, `optinKeywords` |
+| 4 | `subscriberOptout` true | `optoutMessage`, `optoutKeywords` |
+
+**That staging describes the raw API, not this CLI's own validation.**
+`ValidateCampaignCreate` checks tiers 1 and 2 unconditionally, in the same
+pass, on every invocation — tier 2 is not gated behind tier 1 being
+satisfied in the CLI's code, only in the API's error surface. So a bare
+`campaign create` with nothing at all reports all eight tier-1-plus-tier-2
+field names in one error, not five now and three more after fixing them and
+trying again against the raw API. Tiers 3 and 4 are different, in the CLI
+exactly as in the API: they are genuinely conditional on the *value*, not
+merely the presence, of the tier-2 attestations, so the CLI cannot include
+them until it knows `subscriberOptin`/`subscriberOptout` were passed as
+`true`:
+
+```
+$ band tendlc campaign create --plain
+Error: missing required flags: --brand-id, --description, --message-flow, --sample1, --subscriber-help, --subscriber-optin, --subscriber-optout, --usecase
+
+$ band tendlc campaign create <tier 1+2 fields, both booleans true> --plain
+Error: missing required flags: --optin-keywords, --optin-message, --optout-keywords, --optout-message
+```
+
+The second example only appears once `--subscriber-optin`/`--subscriber-optout`
+are both passed as `true` — passing either flag at all (with any value) is
+what satisfies tier 2's *presence* requirement. That is a separate question
+from the *value* requirement described below: only `true` is an accepted
+value, so passing `false` clears the "missing" error but immediately trips
+the "must be true" one instead — `false` is not a viable way to satisfy tier
+2. Passing `true` is what additionally pulls tiers 3 and 4 into the
+requirement set. Against the raw API this same fix would have taken two more
+round trips than it does here.
+
+`--help-message` and `--help-keywords` are not on this tree at all —
+compliance-relevant, and worth setting, but neither create nor update
+enforces them, so a campaign can register and update without ever setting a
+HELP response. Recommended, not required.
+
+A fully-satisfying command looks like this:
+
+```bash
+band tendlc campaign create --brand-id BEXMPL1 --usecase ACCOUNT_NOTIFICATION \
+  --description "Sends account notifications to opted-in subscribers." \
+  --sample1 "Your account balance is now available. Reply STOP to opt out." \
+  --message-flow "Customer opts in via web form; campaign sends account notifications only." \
+  --subscriber-optin --subscriber-optout --subscriber-help \
+  --optin-message "You are now opted in to Acme notifications. Reply STOP to opt out, HELP for help." \
+  --optin-keywords START,YES \
+  --optout-message "You have been unsubscribed and will not receive further messages." \
+  --optout-keywords STOP,CANCEL \
+  --wait
+```
+
+**The three tier-2 attestations must be `true` — `false` is rejected.**
+Measured at the wire level: sending `subscriberOptin`/`subscriberOptout`/
+`subscriberHelp` explicitly as `false` puts `"subscriberOptin":false` on the
+request body, and the API answers that the field `"is required"` — the same
+error it gives for an absent field, with no hint that the value, not the
+presence, is the problem. In practice a campaign cannot be registered that
+declares no opt-in, no opt-out, and no help support. The CLI catches this
+client-side with a message naming the real constraint instead of forwarding
+a request the API will reject with a misleading error. An explicit `false`
+on `--subscriber-optin`/`--subscriber-optout` is a rejected value, not an
+absent one, so — unlike leaving the flag unset — it does not suppress tiers
+3 and 4 either: `true` is the only value that could ever satisfy them, so
+the same error also names the now-unreachable optin/optout message and
+keyword flags:
+
+```
+$ band tendlc campaign create ... --subscriber-optin=false --subscriber-optout=false --subscriber-help=false --plain
+Error: --subscriber-help, --subscriber-optin, --subscriber-optout must be true — the API rejects false on these three as "is required" rather than as an invalid value, so a campaign cannot declare no opt-in, no opt-out, and no help support; missing required flags: --optin-keywords, --optin-message, --optout-keywords, --optout-message
+```
+
+**`--usecase` accepts one of 26 values**, and a typo is caught client-side
+the same way — before any request is sent:
+
+```
+$ band tendlc campaign create --usecase NOT_A_REAL_USECASE ... --plain
+Error: --usecase must be one of: 2FA, ACCOUNT_NOTIFICATION, CARRIER_EXEMPT, CHARITY, CONVERSATIONAL, CUSTOMER_CARE, DELIVERY_NOTIFICATION, EMERGENCY, FRAUD_ALERT, HIGHER_EDUCATION, K12_EDUCATION, LOW_VOLUME, MARKETING, MIXED, POLITICAL, POLLING_VOTING, PUBLIC_SERVICE_ANNOUNCEMENT, SECURITY_ALERT, SOCIAL, SWEEPSTAKE, TRIAL, AGENTS_FRANCHISES, PROXY, UCAAS_HIGH, UCAAS_LOW, M2M
+```
+
+But **a value that passes that check can still be refused for a given
+account** — client-side validation only confirms membership in the enum, not
+that this account is permitted to register that usecase. Measured against
+production: posting an unrecognized value returns a single API error whose
+wording is `"is not allowed for direct campaigns"`, pointing at `/usecase` —
+not `"not a valid value"`. That phrasing makes a typo indistinguishable from
+a genuine permission boundary, and unlike every other campaign 400 observed,
+this one short-circuits: no other violation is reported alongside it.
+Recognize the wording so you don't mistake it for a client-side rejection or
+an account-config problem worth escalating on its own — check the usecase
+value first.
+
+### Brand pre-flight — exit 3, creates nothing
+
+Before submitting, `create` reads the brand named by `--brand-id`. Only a
+definitive 404 stops the create; a 403 or any other pre-flight failure
+degrades to a stderr warning and proceeds, the same behavior as `brand
+create`'s customer-profile pre-flight:
+
+```
+$ band tendlc campaign create --brand-id BNOPE99 ... --plain
+Error: brand "BNOPE99" not found — run 'band tendlc brand list' to see valid brand IDs (API error 404: ...)
+$ echo $?
+3
+```
+
+If the brand read does succeed, its identity status is also checked: a
+campaign requires a brand at `VERIFIED`, `VETTED_VERIFIED`, or
+`SELF_DECLARED` — the same success set `ClassifyBrandIdentity` uses to end
+`brand create --wait` (see [10DLC Brands](#10dlc-brands)), not a second
+hardcoded list, so `brand create --wait` exiting 0 and `campaign create`
+accepting that brand can never disagree. Any other status stops the create
+with a `ConflictError` (exit **4**) naming the blocking status, rather than
+letting the API fail later with something opaque.
+
+### `--confirm`-gated writes
+
+`deactivate` is the one billable/destructive write here, and it is gated;
+`nudge` asks for re-evaluation only, so it is neither destructive nor
+billable and takes no `--confirm`. Missing `--confirm` on `deactivate` is
+exit **6** with zero write requests:
+
+```
+$ band tendlc campaign deactivate CEXMPL1 --plain
+Error: this permanently deactivates campaign CEXMPL1. It cannot be undone: deactivation ends message delivery for the campaign and removes it from Bandwidth, and any phone numbers assigned to it stop working for messaging. Pass --confirm to proceed.
+```
+
+`nudge` requires `--intent`, one of `APPEAL_REJECTION` or `REVIEW`, checked
+client-side before any request:
+
+```
+$ band tendlc campaign nudge CEXMPL1 --plain
+Error: missing required flags: --intent
+
+$ band tendlc campaign nudge CEXMPL1 --intent NOPE --plain
+Error: --intent NOPE is not valid; must be one of: APPEAL_REJECTION, REVIEW
+```
+
+### `update`: read-modify-write, the `imported` branch, and the timing trap
+
+Like `brand update`, the API replaces the whole record on a direct
+campaign's update, so this reads the campaign first and re-sends it with
+your changes applied — fields you don't pass are preserved. There is **no
+version field at all**, so a concurrent edit landing between the read and
+the write is silently lost.
+
+**The `imported` branch is narrower, not more permissive.** Measured against
+production, `PUT` against an imported campaign (`imported: true` on the
+campaign object) does *not* behave like a full replacement — an empty body
+returned 202 and left `campaignName`/`description`/`sample1` untouched,
+the reverse of the direct arm. Rather than lean on that forgiveness, the CLI
+narrows what it will send for an imported campaign to exactly
+`--campaign-name`, and **rejects every other flag outright with exit 6**
+instead of silently dropping it — silently discarding a flag the caller
+explicitly passed is the one outcome this command refuses to produce:
+
+```
+$ band tendlc campaign update CEXMPL2 --description "New description" --plain
+Error: imported campaigns only accept --campaign-name; these flags are ignored and were rejected instead: --description
+```
+
+Check whether a campaign is imported with `band tendlc campaign get <id>`
+(the `imported` key) before deciding which flags apply.
+
+`update` prints an acceptance, not the updated campaign — `PUT
+/campaigns/{id}` returns a bare `{bandwidthId, campaignId}`:
+
+```
+$ band tendlc campaign update CEXMPL1 --description "..." --plain
+{
+  "bandwidthId": "WEXAMPLE10",
+  "campaignId": "CEXMPL1",
+  "note": "this is an acceptance, not the updated campaign: ...",
+  "resume": "band tendlc campaign get WEXAMPLE10",
+  "status": "accepted"
+}
+```
+
+**The change lands with variable latency** — measured at roughly 5 seconds
+on one edit and roughly 5 minutes on another against the same account. Do
+not promise a number to a caller; say it may take several minutes and point
+them at `campaign get`/`campaign history` to confirm rather than trusting
+the acceptance.
+
+**The single most important operational fact in this section: writes to a
+campaign in a non-terminal state are accepted and silently discarded.**
+Measured on two campaigns: a `PUT` and a `DELETE` against a `REGISTERING`
+campaign both returned success, and neither applied — no error, no history
+entry, and on one occasion `modifiedDate` advanced anyway with no
+corresponding content change or log entry. So even "the timestamp moved"
+is not proof a write landed.
+
+This compounds with a second measured fact: **an update itself re-submits
+the campaign for carrier review.** Editing a `REGISTERED` campaign is not
+cosmetic — production re-imports it from TCR and puts it back into
+`PENDING with BANDWIDTH_DCA`. Put together: a first edit lands, moves the
+campaign out of a terminal state, and a second edit made shortly after —
+correcting a typo in the first, say — is accepted with a 202 and then
+silently vanishes, because the campaign was no longer in a state that
+accepts writes when the second one arrived. There is no error to catch this
+and no field in the response indicating anything was dropped.
+
+**Never batch quick successive edits, and never trust an update's
+acceptance as proof it applied.** Re-check with `band tendlc campaign get
+<id>` (or `campaign history <id>` for the activity log) after a pause, and
+if a second edit is genuinely necessary, wait for the campaign to settle
+back into a terminal state (`REGISTERED`, `DECLINED`, etc.) first.
+
+No `--wait` on `update`: the write usually lands against a campaign already
+in a terminal state, so polling here would return immediately and report
+success before the change — or the re-import above — actually took effect.
+No `--confirm` either: unlike `brand update`, a campaign update carries no
+fee and no identity reset, so there is no API-justified reason to gate it.
+
+**A safety net, not a feature.** Like `brand update`, this read-modify-write
+PUT depends on production accepting read-only fields it doesn't use. If a
+field is ever rejected instead, the CLI drops exactly the named field(s)
+and retries once, noting the drop on stderr, rather than failing outright
+or silently swallowing the retry.
+
+### `create --wait`: exit codes and the receipt guarantee
+
+| Outcome | Exit | What's on stdout |
+|---|---|---|
+| Reached `REGISTERED` | 0 | The full campaign object (45 keys), including `bandwidthId` |
+| Reached `DECLINED` / `EXPIRED` / `SUSPENDED` / `ERROR` | 4 | The full campaign object, plus a remediation message on stderr (e.g. `DECLINED` points at `campaign nudge --intent APPEAL_REJECTION`) |
+| `--wait` exceeded `--timeout`, still pending (`REGISTERING`/`UNREGISTERING`) | 5 | The synthetic receipt, with `lastSeenStatus` |
+| No `--wait` | 0 | The synthetic receipt, immediately after the 202 |
+
+**The receipt guarantee.** On every path that reaches the 202 accept, stdout
+carries `bandwidthId` somewhere in valid JSON — the one thing that cannot be
+recovered any other way if the command exits without printing it. This
+covers `create`, `sync`, and `update` alike, all of which share the same
+`{bandwidthId, campaignId (if present), status: "accepted", resume}`
+receipt shape. As with `brand create`, this guarantee does not extend past a
+`SIGINT` — see the equivalent note under [10DLC Brands](#create) for why and
+how to recover (`band tendlc campaign list --brand-id-contains <id>`).
+
+### `deactivate`'s honest receipt
+
+`DELETE` on a campaign only *accepts* the deactivation — it is asynchronous,
+so `deactivated` starts `false` and stays `false` until a follow-up read
+actually 404s:
+
+```
+$ band tendlc campaign deactivate CEXMPL2 --confirm --plain
+{
+  "deactivated": false,
+  "id": "CEXMPL2",
+  "note": "deactivation accepted but not yet confirmed. Confirm with 'band tendlc campaign get CEXMPL2' — a 404 means it is gone.",
+  "status": "accepted"
+}
+```
+
+With `--wait`, `deactivated` flips to `true` only once the follow-up read
+actually 404s — the only poll in the campaign command set where a 404
+means success rather than "not ready yet." A `--wait` timeout (exit 5)
+prints the identical unconfirmed receipt — `deactivated: false`, the `note`,
+exit 5 — never `true`: the receipt must never contradict its own exit code,
+so an agent branching on `deactivated` can't see `true` paired with a
+non-zero exit. Note also the trap above: a campaign stuck in a non-terminal
+state can accept a `deactivate` and silently discard it, so a `deactivated:
+false` receipt on such a campaign may mean exactly that — not merely "not
+confirmed yet."
+
+### `nudge` — 204, synthesized receipt
+
+`POST .../nudge` returns 204 with no body, so this prints a synthesized
+receipt rather than a resource read back from the API. The wire key is
+`nudgeIntent`, not `intent`:
+
+```
+$ band tendlc campaign nudge CEXMPL2 --intent REVIEW --description "..." --plain
+{
+  "check": "band tendlc campaign get CEXMPL2",
+  "description": "...",
+  "id": "CEXMPL2",
+  "nudgeIntent": "REVIEW",
+  "nudged": true,
+  "status": "accepted"
+}
+```
+
+### `list` vs `get`: projection, and which filters work
+
+`campaign get <id>` accepts either the TCR `campaignId` or the `bandwidthId`
+— same dual-ID contract as `brand get`. `campaign list` returns a **19-key
+summary projection**; `get` returns **45 keys**. As with brands, a field
+missing from `list` is not null on the campaign — it's outside the listing
+projection.
+
+**Filter operator support is per-field, and diverges from `brand list`'s.**
+Measured against an 18-campaign test account:
+
+| Flag | Result |
+|---|---|
+| `--status DECLINED` | 9 of 18 ✅ (`eq` works) |
+| `--vetting-status REJECTED` | 9 of 18 ✅ (`eq` works) |
+| `--campaign-name-contains Athena` | 8 of 18 ✅ |
+| `--brand-id-contains BEXMPL7` | 1 of 18 ✅ (needs `contains`; `eq` returned all 18) |
+| `--campaign-id-contains CEXMPL1` | 1 of 18 ✅ (needs `contains`; `eq` returned all 18) |
+| `--usecase` | **no such flag** — ignored under every operator on this endpoint |
+
+**Do not harmonize this with `brand list`'s filters.** Brand filters need
+`contains` on every field, including ones that look like exact-match flags
+(see [10DLC Brands](#list-vs-get-projection-not-nullability)). Campaigns are
+the opposite for status fields: `status` and `vetting-status` honor `eq`
+correctly and are left on it, while `brand-id`/`campaign-id` need `contains`
+the same way brand filters do. There is deliberately **no `--usecase`
+flag at all** — measured against production, `usecase` is silently ignored
+under both `eq` and `contains`, returning every campaign rather than
+filtering, and it isn't among the accepted query parameters for this
+endpoint in either spec file. Filter client-side on `--all`'s output
+instead.
+
+## 10DLC Numbers
+
+`band tendlc number` looks up 10DLC phone number registration status:
+`list`, `get <tn>`, and `history <tn>`. Unlike `brand`/`vetting`/`campaign`,
+these three aren't direct-customer-only — an imported number's registration
+record looks the same as a directly-registered one. Requires the same
+Registration Center feature and Campaign Management role as the rest of
+`tendlc`.
+
+### `list`: the projection is conditional, not fixed
+
+```
+$ band tendlc number list --plain --limit 2
+[
+  {
+    "createdDate": "2025-05-30T20:53:26.046Z",
+    "modifiedDate": "2025-08-01T19:21:43.987Z",
+    "nnid": "100000",
+    "phoneNumber": "+15555550100",
+    "status": "SUCCESS"
+  },
+  {
+    "createdDate": "2025-05-30T20:53:27.162Z",
+    "modifiedDate": "2025-11-07T21:03:41.065Z",
+    "nnid": "100001",
+    "phoneNumber": "+15555550101",
+    "status": "SUCCESS"
+  }
+]
+```
+
+Every record carries those five keys. A number already assigned to a
+campaign carries three more — `brandId`, `campaignId`,
+`customerProfileId` — rather than the same five with the extra keys
+present but empty:
+
+```
+{
+  "brandId": "BEXMPL1",
+  "campaignId": "CEXMPL1",
+  "createdDate": "2025-09-19T14:20:15.189Z",
+  "customerProfileId": "ExampleProfileId000001",
+  "modifiedDate": "2026-05-08T10:29:45.789Z",
+  "nnid": "100010",
+  "phoneNumber": "+15555550110",
+  "status": "SUCCESS"
+}
+```
+
+Measured across 23 numbers on a test account: 16 carried the base five
+keys, and the 7 assigned to a campaign carried all eight. Don't assume a
+record is missing the campaign fields — check for them rather than relying
+on their absence.
+
+### Filters: `--campaign-id-contains` works, there is deliberately no `--status`
+
+`--campaign-id-contains` genuinely narrows results: `campaignId[contains]`
+filters correctly against production — a campaign holding three numbers
+returned exactly three, and a substring matching no campaign returned zero.
+`campaignId[eq]` does not filter at all — like `status` below, it's
+accepted and silently ignored, which is why the flag is named for what it
+actually does (a substring match) rather than implying an exact match the
+API can't perform.
+
+`status` is a different story, and there is no `--status` flag at all.
+The API accepts a `status` filter and silently ignores it under **every**
+operator — `eq`, `contains`, even a value matching nothing at all — always
+returning every number on the account regardless. A filter that returns
+every record with a 200 and no error is worse than an absent flag, because
+the caller believes it worked. Filter client-side on `status` instead —
+it's present on every record, in both projection shapes.
+
+For the campaign-scoped view — a different endpoint, not this one with a
+filter — use `band tendlc campaign numbers <campaign-id>` (see
+[10DLC Campaigns](#10dlc-campaigns)).
+
+### `get <tn>`: may 404 for numbers `list` returns
+
+```
+$ band tendlc number get +15555550100 --plain
+Error: API request failed: API error 404: {"errors":[{"type":"not found","description":"+15555550100"}],"links":[]}
+$ echo $?
+3
+```
+
+On the one account this was tested against, `get` 404s for every number
+`list` returns, while `history` on the same phone number returns 200 for
+all of them. The cause is unconfirmed and may be account-specific — this
+API reports authorization failures as 403, not 404, so this isn't a
+permissions mask in disguise, but one account isn't enough to call it a
+confirmed API defect either. `list` and `history` both work normally; if
+`get` 404s for you too, fall back to `list` (filtered client-side, or with
+`--campaign-id-contains`) or `history`.
+
+### `history <tn>`
+
+```
+$ band tendlc number history +15555550100 --plain --limit 2
+[
+  {
+    "createdDate": "2025-08-01T19:21:43.987Z",
+    "message": "Published registration event for the TN for action: will do nothing"
+  }
+]
+```
+
+As with brand and campaign history, this is a free-text activity log,
+newest first, with no versioned snapshots and no per-entry fetch.
 
 ## Toll-Free Verification (TFV)
 
@@ -868,7 +2001,7 @@ band tfv submit +18005551234 \
   --contact-first "Jane" \
   --contact-last "Doe" \
   --contact-email "jane@acme.com" \
-  --contact-phone "+19195551234" \
+  --contact-phone "+15555550100" \
   --message-volume 10000 \
   --use-case "2FA" \
   --use-case-summary "Two-factor auth codes for user login" \
@@ -917,14 +2050,14 @@ TN Option Orders assign phone numbers to 10DLC campaigns (and can set other per-
 ### Assign a number to a campaign
 
 ```bash
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait --plain
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait --plain
 # → order completes when status is COMPLETE
 ```
 
 Multiple numbers in one order:
 
 ```bash
-band tnoption assign +19195551234 +19195551235 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 +15555550101 --campaign-id CA3XKE1 --wait
 ```
 
 ### Check order status
@@ -939,14 +2072,14 @@ band tnoption get <order-id> --plain
 ```bash
 band tnoption list --plain
 band tnoption list --status FAILED --plain
-band tnoption list --tn +19195551234 --plain
+band tnoption list --tn +15555550100 --plain
 ```
 
 ### Common errors
 
 | Error code | Message | Cause | Fix |
 |---|---|---|---|
-| **1022** | "TelephoneNumber is in an invalid format" | Number not in E.164 format | Pass numbers with `+` prefix: `+19195551234` |
+| **1022** | "TelephoneNumber is in an invalid format" | Number not in E.164 format | Pass numbers with `+` prefix: `+15555550100` |
 | **12220** | "Campaign has been rejected by DCA2" | Campaign failed carrier compliance review | Fix campaign compliance in the Bandwidth App, then retry |
 | **5132** | "SMS attribute should be 'ON' for provisioning A2P" | SMS not enabled on the number's SIP peer/location | Enable SMS on the location in the Bandwidth App |
 | **5133** | "A2P provisioning requires A2P on corresponding Sip peer" | Location not configured for A2P messaging | Enable A2P on the location in the Bandwidth App |
@@ -955,23 +2088,23 @@ band tnoption list --tn +19195551234 --plain
 
 ```bash
 # 1. Check if number is on a campaign
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 
 # 2. If not, find an available campaign
-band tendlc campaigns --plain
+band tendlc campaign list --plain
 
 # 3. Assign the number (use full E.164 format with + prefix)
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait
 
 # 4. If assign fails with 5132/5133, SMS or A2P isn't enabled on the
 #    number's location — this must be fixed in the Bandwidth App before retrying
 
 # 5. Verify assignment
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 # → status should be SUCCESS
 
 # 6. Now send
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
 
 ### Test SIP Trunking end-to-end
@@ -984,7 +2117,7 @@ Use this workflow to verify that a SIP realm and credential authenticate correct
 # 1. Pick a from number — must be on your account and voice-capable
 FROM=$(band number list --plain | jq -r '.[0]')
 # On Bandwidth Build accounts, band number list is not available.
-# Pass the pre-provisioned number manually: FROM=+19195551234
+# Pass the pre-provisioned number manually: FROM=+15555550100
 
 # 2. Create an ephemeral realm (never the default — it cannot be deleted if it is)
 REALM=$(band sip realm create --name sip-test --default=false --wait --plain)
@@ -1105,7 +2238,7 @@ Every error in this table exits **4**, regardless of the HTTP status the API use
 - **No real-time call control.** The CLI can initiate calls and query state, but cannot receive or respond to mid-call callbacks. Dynamic call control requires a separate callback-handling server.
 - **No message delivery confirmation.** The CLI verifies your setup is correct before sending (app-location link, callback URL, campaign), but it cannot confirm whether a message was actually delivered. Delivery status (`message-delivered`, `message-failed`) arrives via webhooks on your callback server. The CLI's `message get` and `message list` return metadata only — not delivery status.
 - **No message content retrieval.** Bandwidth does not store message bodies. After sending, the message text is gone forever. `message get` and `message list` return timestamps, direction, and segment counts only.
-- **10DLC: read + assign only.** The CLI can list campaigns, check number registration status, diagnose failures (`band tendlc`), and assign numbers to campaigns (`band tnoption assign`). It cannot create campaigns or register brands — those require the Bandwidth App. The CLI checks that a number is on a campaign and blocks sends if it's not.
+- **10DLC: brand, vetting, and campaign registration are all in the CLI for direct customers.** `band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage the full chain. `band tendlc number` checks phone number registration status (`get`/`list`/`history`) for direct and import customers alike, `band tendlc campaign` lists campaigns and diagnoses failures, and `band tnoption assign` assigns numbers to campaigns; a `message send` is blocked if the source number isn't on an approved campaign.
 - **TFV is check-and-submit.** The CLI can check toll-free verification status and submit new requests (`band tfv`), but cannot approve or expedite reviews — those happen on the carrier side.
 - **Porting is port-IN only.** `band portin` covers the six end-to-end flows that complete via the public API: TF validation, on-net domestic, automated off-net (Level 3), TF Phase 1 (gated), bulk, and lifecycle ops (notes, supp, cancel, history, doc upload). Out of scope: port-out (no public API), manual TF, internal TF, NASC manual override, and international ports — these need ops or the Dashboard. `band portin create` exits 4 if the account doesn't have `TOLL_FREE_AUTOMATION_PHASE_1` for a TF order. `band portin supp` defends against the documented Bandwidth API behavior where a supp returns 200 on PUT but error code 7300 on the next GET (Neustar never received it) — exits 1 with a clear message rather than silently succeeding.
 - **10DLC, TFV, and short code commands are role-gated.** A 403 can mean the credential lacks the required role (Campaign Management, TFV), the account doesn't have the Registration Center feature, or messaging isn't enabled. The CLI provides a diagnostic message — if it says "access denied," escalate to the Bandwidth account manager rather than retrying.
