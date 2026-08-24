@@ -471,7 +471,14 @@ func TestDocumentedCommandsAndFlagsExist(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading %s: %v", doc, err)
 		}
-		for _, line := range strings.Split(string(raw), "\n") {
+		// A Windows checkout lands these files with CRLF. This parser is
+		// line-oriented, so a surviving "\r" glues itself to the last token on
+		// every line -- turning "get" into "get\r" (fails commandTokenRe) and
+		// the lone "\" continuation marker into "\\\r", which defeats the
+		// abstain rule for it. Normalize once, here, rather than defending
+		// against "\r" at each of the token checks downstream.
+		text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+		for _, line := range strings.Split(text, "\n") {
 			// Shell comments inside fenced blocks are prose, not runnable
 			// commands. They routinely mention a command mid-sentence — e.g.
 			// "# On Build accounts, band number list is not available." — and
