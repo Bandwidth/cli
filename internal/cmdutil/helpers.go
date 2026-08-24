@@ -90,6 +90,16 @@ func voiceHostForEnvironment(env string) string {
 	}
 }
 
+// insightsHost returns the Insights API base host. The Insights API publishes
+// a single production host (no test environment). BW_INSIGHTS_URL overrides
+// the base URL for local proxies.
+func insightsHost() string {
+	if v := os.Getenv("BW_INSIGHTS_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return "https://insights.bandwidth.com"
+}
+
 // messagingHost returns the Messaging API base host. The Bandwidth Messaging
 // API is PRODUCTION-ONLY — there is no public test/sandbox host, so unlike the
 // api/voice clients it does NOT vary by --environment. (Confirmed against all
@@ -259,6 +269,17 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 		return nil, "", err
 	}
 	return api.NewClient(apiHostForEnvironment(env), tm), acctID, nil
+}
+
+// InsightsClient returns a JSON client for the Bandwidth Insights API.
+// Insights is production-only (single published host); the OAuth token from
+// the standard auth flow is sent as a Bearer token, which the API accepts.
+func InsightsClient(accountIDOverride string) (*api.Client, string, error) {
+	tm, acctID, _, err := authenticate(accountIDOverride)
+	if err != nil {
+		return nil, "", err
+	}
+	return api.NewClient(insightsHost()+"/api", tm), acctID, nil
 }
 
 // messagingProdOnlyWarning returns a user warning when env is a non-production
