@@ -13,12 +13,28 @@ import (
 	"github.com/Bandwidth/cli/internal/output"
 )
 
-var listStatus string
+var (
+	listStatus       string
+	listNpaNxx       string
+	listState        string
+	listRateCenter   string
+	listLata         string
+	listSubaccount   string
+	listLocation     string
+	listDisconnected bool
+)
 
 func init() {
 	listCmd.Flags().StringVar(&listStatus, "status", "Inservice",
 		"Comma-separated statuses to include. Common values: Inservice (live), "+
 			"InAccount (assigned, not yet live), Aging (released, in aging period).")
+	listCmd.Flags().StringVar(&listNpaNxx, "npa-nxx", "", "Filter to a 6-digit NPA-NXX prefix (in-service numbers only; requires the inservice role)")
+	listCmd.Flags().StringVar(&listState, "state", "", "Filter to a 2-letter state/province (in-service numbers only)")
+	listCmd.Flags().StringVar(&listRateCenter, "ratecenter", "", "Filter to a rate center; requires --state")
+	listCmd.Flags().StringVar(&listLata, "lata", "", "Filter to a LATA (in-service numbers only)")
+	listCmd.Flags().StringVar(&listSubaccount, "subaccount", "", "List numbers on a sub-account (site ID)")
+	listCmd.Flags().StringVar(&listLocation, "location", "", "List numbers on a location (SIP peer ID); requires --subaccount")
+	listCmd.Flags().BoolVar(&listDisconnected, "disconnected", false, "List disconnected numbers instead of in-service ones")
 	Cmd.AddCommand(listCmd)
 }
 
@@ -31,17 +47,45 @@ By default, returns only numbers in service (ready to route calls or send
 messages). Pass --status to include numbers in other states.`,
 	Example: `  band number list                                # default: only in-service
   band number list --status Inservice,InAccount   # include numbers just ordered
-  band number list --status Aging                 # numbers being released`,
+  band number list --status Aging                 # numbers being released
+  band number list --npa-nxx 919555                # in-service numbers in an NPA-NXX
+  band number list --state NC --ratecenter RALEIGH # in-service numbers in a rate center
+  band number list --subaccount 407                # numbers on a sub-account
+  band number list --subaccount 407 --location 500017
+  band number list --disconnected                  # recently disconnected numbers`,
 	RunE: runList,
 }
 
 func runList(cmd *cobra.Command, args []string) error {
+	// --status has a default, so only treat it as user intent when changed;
+	// otherwise the default value would conflict with every filter flag.
+	opts := listOptions{
+		NpaNxx:       listNpaNxx,
+		State:        listState,
+		RateCenter:   listRateCenter,
+		Lata:         listLata,
+		Subaccount:   listSubaccount,
+		Location:     listLocation,
+		Disconnected: listDisconnected,
+	}
+	if cmd.Flags().Changed("status") {
+		opts.Status = listStatus
+	}
+	if err := opts.validate(); err != nil {
+		return err
+	}
+
 	client, acctID, err := cmdutil.DashboardClient(cmdutil.AccountIDFlag(cmd))
 	if err != nil {
 		return err
 	}
 
-	numbers, err := fetchAccountNumbers(client, acctID, listStatus)
+	var numbers []string
+	if query := buildListQuery(acctID, opts); query != nil {
+		numbers, err = fetchPagedNumbers(client, query)
+	} else {
+		numbers, err = fetchAccountNumbers(client, acctID, listStatus)
+	}
 	if err != nil {
 		return err
 	}
@@ -112,6 +156,41 @@ func wrapTNsError(err error, acctID string, isBuild bool) error {
 			"Contact your Bandwidth account manager to assign this role.", acctID), err)
 }
 
+// pagedListSize is the page size for the inserviceNumbers/discnumbers/site
+// list endpoints. These endpoints document no maximum; 1000 keeps request
+// counts low while staying well under any plausible server cap.
+const pagedListSize = 1000
+
+// fetchPagedNumbers pages through a filtered list endpoint and returns the
+// merged E.164 numbers. The endpoints use 1-based page/size query params and
+// signal the last page by returning fewer rows than requested.
+func fetchPagedNumbers(client *api.Client, query *listQuery) ([]string, error) {
+	var all []string
+	for page := 1; page <= tnsMaxPages; page++ {
+		q := url.Values{}
+		for k, vs := range query.Query {
+			for _, v := range vs {
+				q.Add(k, v)
+			}
+		}
+		q.Set("page", strconv.Itoa(page))
+		q.Set("size", strconv.Itoa(pagedListSize))
+
+		var result interface{}
+		if err := client.Get(query.Path+"?"+q.Encode(), &result); err != nil {
+			return nil, fmt.Errorf("listing phone numbers: %w", err)
+		}
+
+		batch := extractFullNumbers(result)
+		all = append(all, batch...)
+		if len(batch) < pagedListSize {
+			return all, nil
+		}
+	}
+	return nil, fmt.Errorf("listing phone numbers: exceeded %d pages (%d numbers); "+
+		"narrow the query or contact support", tnsMaxPages, tnsMaxPages*pagedListSize)
+}
+
 // extractFullNumbers walks a decoded /tns response and returns each
 // TelephoneNumber's FullNumber formatted as E.164.
 func extractFullNumbers(raw interface{}) []string {
@@ -127,6 +206,13 @@ func collectFullNumbers(v interface{}, out *[]string) {
 			*out = append(*out, cmdutil.NormalizeE164(fn))
 			return
 		}
+		// The inserviceNumbers and discnumbers endpoints return bare strings
+		// under <TelephoneNumbers><TelephoneNumber>, not FullNumber objects.
+		if tn, ok := x["TelephoneNumber"]; ok {
+			if collectBareNumbers(tn, out) {
+				return
+			}
+		}
 		for _, child := range x {
 			collectFullNumbers(child, out)
 		}
@@ -135,4 +221,32 @@ func collectFullNumbers(v interface{}, out *[]string) {
 			collectFullNumbers(item, out)
 		}
 	}
+}
+
+// collectBareNumbers appends bare-string telephone numbers (a single string
+// or a list of strings) and reports whether it consumed the value. Object
+// forms of TelephoneNumber return false so the caller keeps walking.
+func collectBareNumbers(v interface{}, out *[]string) bool {
+	switch x := v.(type) {
+	case string:
+		if x != "" {
+			*out = append(*out, cmdutil.NormalizeE164(x))
+		}
+		return true
+	case []interface{}:
+		consumed := false
+		for _, item := range x {
+			if s, ok := item.(string); ok {
+				if s != "" {
+					*out = append(*out, cmdutil.NormalizeE164(s))
+				}
+				consumed = true
+			} else {
+				collectFullNumbers(item, out)
+				consumed = true
+			}
+		}
+		return consumed
+	}
+	return false
 }

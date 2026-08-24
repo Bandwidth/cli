@@ -34,6 +34,7 @@ import (
 	tendlccmd "github.com/Bandwidth/cli/cmd/tendlc"
 	tfvcmd "github.com/Bandwidth/cli/cmd/tfv"
 	tnoptioncmd "github.com/Bandwidth/cli/cmd/tnoption"
+	tollfreecmd "github.com/Bandwidth/cli/cmd/tollfree"
 	transcriptioncmd "github.com/Bandwidth/cli/cmd/transcription"
 	vcpcmd "github.com/Bandwidth/cli/cmd/vcp"
 )
@@ -114,6 +115,7 @@ func init() {
 	rootCmd.AddCommand(shortcodecmd.Cmd)
 	rootCmd.AddCommand(tfvcmd.Cmd)
 	rootCmd.AddCommand(tnoptioncmd.Cmd)
+	rootCmd.AddCommand(tollfreecmd.Cmd)
 	rootCmd.AddCommand(portincmd.Cmd)
 	rootCmd.AddCommand(versionCmd)
 }
