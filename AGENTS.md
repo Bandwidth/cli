@@ -207,7 +207,7 @@ All read operations (gets, lists, deletes) are safe to retry.
 Use `--wait` to block until completion:
 
 ```bash
-band number order +19195551234 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
+band number order +15555550100 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
 band call create --from ... --to ... --wait --timeout 120       # blocks until call completes
 band transcription create <call-id> <rec-id> --wait             # blocks until transcription ready (60s default)
 ```
@@ -230,7 +230,7 @@ CLI will keep trying.
 **Always use `--plain` when parsing CLI output.** Default JSON reflects Bandwidth's API structure with deep nesting. `--plain` flattens it:
 
 ```bash
-band number list --plain        # → ["+19193554167", "+19198234157", ...]
+band number list --plain        # → ["+15555550100", "+15555550101", ...]
 band subaccount list --plain    # → [{"Id":"152681","Name":"Subacct"}]
 band app list --plain           # → [{"ApplicationId":"abc-123", ...}, ...]
 band app get <id> --plain       # → {"ApplicationId":"abc-123", "AppName":"My App", ...}
@@ -377,7 +377,7 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 Use when no credentials exist yet. The CLI submits the registration request; the remaining setup happens in the browser. **An agent cannot complete this flow autonomously** — it requires a human (or an agent with web/phone access) to finish.
 
 ```bash
-band account register --phone +19195551234 --email you@example.com --first-name Jane --last-name Doe --accept-tos
+band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe --accept-tos
 # → registration submitted; remaining steps happen outside the CLI:
 #   1. Check email for a registration link from Bandwidth
 #   2. Enter the OTP code sent via SMS to verify the phone number
@@ -489,8 +489,8 @@ band vcp list --plain                       # VCPs? (403 = legacy account, use s
 
 For messaging readiness, also check:
 ```bash
-band tendlc campaigns --plain               # any 10DLC campaigns? (403 = see note below)
-band tendlc number <number> --plain         # is a specific number registered?
+band tendlc campaign list --plain               # any 10DLC campaigns? (403 = see note below)
+band tendlc number get <number> --plain         # is a specific number registered?
 band tfv get <number> --plain               # toll-free verification status?
 ```
 
@@ -561,7 +561,7 @@ band message send --from <number> --to <destination> --app-id <app-id> --text "H
 |---|---|---|
 | `"not linked to any location"` | App not assigned to a location | `band app assign <app-id> --site <id> --location <id>` |
 | `"no working callback URL"` | Callback URL is placeholder or missing | `band app update <app-id> --callback-url <url>` |
-| `"not assigned to any active 10DLC campaign"` | Number not on a campaign | `band tendlc campaigns --plain` to list campaigns; `band tnoption assign <number> --campaign-id <id>` to assign |
+| `"not assigned to any active 10DLC campaign"` | Number not on a campaign | `band tendlc campaign list --plain` to list campaigns; `band tnoption assign <number> --campaign-id <id>` to assign |
 | `"toll-free verification status"` | TFV not approved | `band tfv get <number> --plain` to check status |
 
 ### Send a message
@@ -569,7 +569,7 @@ band message send --from <number> --to <destination> --app-id <app-id> --text "H
 Once provisioning is set up, sending is straightforward:
 
 ```bash
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello from the agent"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Hello from the agent"
 # → preflight checks pass (app linked, callback URL valid, number on campaign)
 # → returns JSON with message id, segmentCount, direction
 ```
@@ -580,30 +580,30 @@ band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text 
 
 ```bash
 MEDIA_URL=$(band message media upload image.png)
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Check this out" --media "$MEDIA_URL"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Check this out" --media "$MEDIA_URL"
 ```
 
 **Group messaging** uses the same `send` command with multiple recipients:
 
 ```bash
-band message send --from +19195551234 --to +15551234567,+15552345678 --app-id abc-123 --text "Team update"
+band message send --from +15555550100 --to +15551234567,+15552345678 --app-id abc-123 --text "Team update"
 ```
 
 **Listing messages** requires at least one filter and **millisecond-precision timestamps** (a common agent mistake):
 
 ```bash
 # Correct — milliseconds in the timestamp:
-band message list --from +19195551234 --start-date 2024-01-01T00:00:00.000Z --plain
+band message list --from +15555550100 --start-date 2024-01-01T00:00:00.000Z --plain
 # Wrong — this returns a 400:
-band message list --from +19195551234 --start-date 2024-01-01T00:00:00Z --plain
+band message list --from +15555550100 --start-date 2024-01-01T00:00:00Z --plain
 ```
 
 ### Make a call
 
 ```bash
-band number list --plain                # → ["+19195551234", ...]
+band number list --plain                # → ["+15555550100", ...]
 band app list --plain                   # → [{"ApplicationId":"abc-123", ...}, ...]
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url <url>
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url <url>
 # → returns JSON with callId
 
 # IMPORTANT: always verify the call actually connected
@@ -636,7 +636,7 @@ band transcription create <call-id> <rec-id> --wait --plain        # blocks unti
 
 **Look up a specific number's VCP:**
 ```bash
-band number get +19195551234 --plain    # → shows VCP assignment and voice settings
+band number get +15555550100 --plain    # → shows VCP assignment and voice settings
 ```
 
 **List all numbers on a VCP:**
@@ -666,13 +666,13 @@ band portin validate-tf +18005551234 --wait --plain
 
 ```bash
 band portin create \
-  --numbers +19195551234,+19195551235 \
+  --numbers +15555550100,+15555550101 \
   --site <site-id> --peer <peer-id> \
   --foc 2026-06-01T15:30:00Z \
   --loa-authorizing-person "Jane Doe" \
   --loa ./loa.pdf \
   --customer-order-id agent-run-42 --if-not-exists --plain
-# → {"orderId":"...","status":"DRAFT","numbers":["+19195551234","+19195551235"], ...}
+# → {"orderId":"...","status":"DRAFT","numbers":["+15555550100","+15555550101"], ...}
 
 ORDER_ID=$(... extract from above ...)
 band portin submit $ORDER_ID --wait --plain
@@ -861,8 +861,8 @@ A 403 from `band tendlc` can mean: credential lacks the Campaign Management role
 ### Check if a number is registered for 10DLC
 
 ```bash
-band tendlc number +19195551234 --plain
-# → { "phoneNumber": "+19195551234", "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }
+band tendlc number get +15555550100 --plain
+# → { "phoneNumber": "+15555550100", "campaignId": "CEXMPL1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }
 ```
 
 Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (registration failed).
@@ -870,23 +870,29 @@ Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (reg
 ### List all 10DLC campaigns
 
 ```bash
-band tendlc campaigns --plain
-# → [{ "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }, ...]
+band tendlc campaign list --plain
+# → [{ "campaignId": "CEXMPL1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }, ...]
 ```
 
-### List all registered numbers (with filters)
+### List all registered numbers
 
 ```bash
-band tendlc numbers --plain                           # all registered numbers
-band tendlc numbers --campaign-id CA3XKE1 --plain     # numbers on a specific campaign
-band tendlc numbers --status SUCCESS --plain           # only successfully registered numbers
-band tendlc numbers --status FAILURE --plain           # numbers with registration failures
+band tendlc number list --plain                                  # all registered numbers
+band tendlc number list --campaign-id-contains CEXMPL1 --plain   # numbers on a specific campaign
+band tendlc number list --all --plain                            # walk every page
 ```
+
+**There is no `--status` filter, and that is deliberate.** The API accepts a `status`
+filter and silently ignores it: an account holding 21 `SUCCESS` and 2 `FAILURE`
+numbers returns all 23 for `status[eq]=SUCCESS`, for `status[eq]=FAILURE`, and even
+for a value matching nothing at all. Offering the flag would hand callers every
+record while implying it was filtered. Filter client-side on the `status` field
+instead — it is present on every record.
 
 ### List numbers on a specific campaign
 
 ```bash
-band tendlc campaigns numbers CA3XKE1 --plain
+band tendlc campaign numbers CA3XKE1 --plain
 ```
 
 ### Diagnose messaging send failures
@@ -895,13 +901,13 @@ When `message send` fails with "not assigned to any active 10DLC campaign":
 
 ```bash
 # 1. Check the specific number's registration
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 
 # 2. If not registered, list available campaigns
-band tendlc campaigns --plain
+band tendlc campaign list --plain
 
 # 3. Assign the number to a campaign
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait
 ```
 
 **If `band tendlc` returns 403:** Don't retry — escalate. Tell the user: "Your credential may not have the Campaign Management role, or your account may not have the Registration Center feature enabled. Contact your Bandwidth account manager to check your configuration."
@@ -1333,6 +1339,13 @@ decision rather than merely motivating it — a poll here would hit a brand
 still holding its pre-update state and report success before the change
 actually took effect.
 
+**A safety net, not a feature.** The read-modify-write PUT above depends on
+production accepting read-only fields it doesn't use. If a future field is
+ever rejected instead, the CLI drops exactly the field(s) the API's error
+names and retries once, printing `note: retried after dropping field(s) the
+API rejected but does not need: <fields>` to stderr — it does not fail
+outright or retry silently.
+
 ### `list` vs `get`: projection, not nullability
 
 `brand list` returns a **12-key summary projection**; `brand get` returns
@@ -1753,6 +1766,12 @@ success before the change — or the re-import above — actually took effect.
 No `--confirm` either: unlike `brand update`, a campaign update carries no
 fee and no identity reset, so there is no API-justified reason to gate it.
 
+**A safety net, not a feature.** Like `brand update`, this read-modify-write
+PUT depends on production accepting read-only fields it doesn't use. If a
+field is ever rejected instead, the CLI drops exactly the named field(s)
+and retries once, noting the drop on stderr, rather than failing outright
+or silently swallowing the retry.
+
 ### `create --wait`: exit codes and the receipt guarantee
 
 | Outcome | Exit | What's on stdout |
@@ -1848,6 +1867,115 @@ filtering, and it isn't among the accepted query parameters for this
 endpoint in either spec file. Filter client-side on `--all`'s output
 instead.
 
+## 10DLC Numbers
+
+`band tendlc number` looks up 10DLC phone number registration status:
+`list`, `get <tn>`, and `history <tn>`. Unlike `brand`/`vetting`/`campaign`,
+these three aren't direct-customer-only — an imported number's registration
+record looks the same as a directly-registered one. Requires the same
+Registration Center feature and Campaign Management role as the rest of
+`tendlc`.
+
+### `list`: the projection is conditional, not fixed
+
+```
+$ band tendlc number list --plain --limit 2
+[
+  {
+    "createdDate": "2025-05-30T20:53:26.046Z",
+    "modifiedDate": "2025-08-01T19:21:43.987Z",
+    "nnid": "100000",
+    "phoneNumber": "+15555550100",
+    "status": "SUCCESS"
+  },
+  {
+    "createdDate": "2025-05-30T20:53:27.162Z",
+    "modifiedDate": "2025-11-07T21:03:41.065Z",
+    "nnid": "100001",
+    "phoneNumber": "+15555550101",
+    "status": "SUCCESS"
+  }
+]
+```
+
+Every record carries those five keys. A number already assigned to a
+campaign carries three more — `brandId`, `campaignId`,
+`customerProfileId` — rather than the same five with the extra keys
+present but empty:
+
+```
+{
+  "brandId": "BEXMPL1",
+  "campaignId": "CEXMPL1",
+  "createdDate": "2025-09-19T14:20:15.189Z",
+  "customerProfileId": "ExampleProfileId000001",
+  "modifiedDate": "2026-05-08T10:29:45.789Z",
+  "nnid": "100010",
+  "phoneNumber": "+15555550110",
+  "status": "SUCCESS"
+}
+```
+
+Measured across 23 numbers on a test account: 16 carried the base five
+keys, and the 7 assigned to a campaign carried all eight. Don't assume a
+record is missing the campaign fields — check for them rather than relying
+on their absence.
+
+### Filters: `--campaign-id-contains` works, there is deliberately no `--status`
+
+`--campaign-id-contains` genuinely narrows results: `campaignId[contains]`
+filters correctly against production — a campaign holding three numbers
+returned exactly three, and a substring matching no campaign returned zero.
+`campaignId[eq]` does not filter at all — like `status` below, it's
+accepted and silently ignored, which is why the flag is named for what it
+actually does (a substring match) rather than implying an exact match the
+API can't perform.
+
+`status` is a different story, and there is no `--status` flag at all.
+The API accepts a `status` filter and silently ignores it under **every**
+operator — `eq`, `contains`, even a value matching nothing at all — always
+returning every number on the account regardless. A filter that returns
+every record with a 200 and no error is worse than an absent flag, because
+the caller believes it worked. Filter client-side on `status` instead —
+it's present on every record, in both projection shapes.
+
+For the campaign-scoped view — a different endpoint, not this one with a
+filter — use `band tendlc campaign numbers <campaign-id>` (see
+[10DLC Campaigns](#10dlc-campaigns)).
+
+### `get <tn>`: may 404 for numbers `list` returns
+
+```
+$ band tendlc number get +15555550100 --plain
+Error: API request failed: API error 404: {"errors":[{"type":"not found","description":"+15555550100"}],"links":[]}
+$ echo $?
+3
+```
+
+On the one account this was tested against, `get` 404s for every number
+`list` returns, while `history` on the same phone number returns 200 for
+all of them. The cause is unconfirmed and may be account-specific — this
+API reports authorization failures as 403, not 404, so this isn't a
+permissions mask in disguise, but one account isn't enough to call it a
+confirmed API defect either. `list` and `history` both work normally; if
+`get` 404s for you too, fall back to `list` (filtered client-side, or with
+`--campaign-id-contains`) or `history`.
+
+### `history <tn>`
+
+```
+$ band tendlc number history +15555550100 --plain --limit 2
+[
+  {
+    "createdDate": "2025-08-01T19:21:43.987Z",
+    "message": "Published registration event for the TN for action: will do nothing"
+  }
+]
+```
+
+As with brand and campaign history, this is a free-text activity log,
+newest first, with no versioned snapshots and no per-entry fetch.
+
 ## Toll-Free Verification (TFV)
 
 These commands manage toll-free number verification via the Athena v2 API. A 403 means the TFV role isn't enabled on the credential — contact your Bandwidth account manager to enable it.
@@ -1873,7 +2001,7 @@ band tfv submit +18005551234 \
   --contact-first "Jane" \
   --contact-last "Doe" \
   --contact-email "jane@acme.com" \
-  --contact-phone "+19195551234" \
+  --contact-phone "+15555550100" \
   --message-volume 10000 \
   --use-case "2FA" \
   --use-case-summary "Two-factor auth codes for user login" \
@@ -1922,14 +2050,14 @@ TN Option Orders assign phone numbers to 10DLC campaigns (and can set other per-
 ### Assign a number to a campaign
 
 ```bash
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait --plain
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait --plain
 # → order completes when status is COMPLETE
 ```
 
 Multiple numbers in one order:
 
 ```bash
-band tnoption assign +19195551234 +19195551235 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 +15555550101 --campaign-id CA3XKE1 --wait
 ```
 
 ### Check order status
@@ -1944,14 +2072,14 @@ band tnoption get <order-id> --plain
 ```bash
 band tnoption list --plain
 band tnoption list --status FAILED --plain
-band tnoption list --tn +19195551234 --plain
+band tnoption list --tn +15555550100 --plain
 ```
 
 ### Common errors
 
 | Error code | Message | Cause | Fix |
 |---|---|---|---|
-| **1022** | "TelephoneNumber is in an invalid format" | Number not in E.164 format | Pass numbers with `+` prefix: `+19195551234` |
+| **1022** | "TelephoneNumber is in an invalid format" | Number not in E.164 format | Pass numbers with `+` prefix: `+15555550100` |
 | **12220** | "Campaign has been rejected by DCA2" | Campaign failed carrier compliance review | Fix campaign compliance in the Bandwidth App, then retry |
 | **5132** | "SMS attribute should be 'ON' for provisioning A2P" | SMS not enabled on the number's SIP peer/location | Enable SMS on the location in the Bandwidth App |
 | **5133** | "A2P provisioning requires A2P on corresponding Sip peer" | Location not configured for A2P messaging | Enable A2P on the location in the Bandwidth App |
@@ -1960,23 +2088,23 @@ band tnoption list --tn +19195551234 --plain
 
 ```bash
 # 1. Check if number is on a campaign
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 
 # 2. If not, find an available campaign
-band tendlc campaigns --plain
+band tendlc campaign list --plain
 
 # 3. Assign the number (use full E.164 format with + prefix)
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait
 
 # 4. If assign fails with 5132/5133, SMS or A2P isn't enabled on the
 #    number's location — this must be fixed in the Bandwidth App before retrying
 
 # 5. Verify assignment
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 # → status should be SUCCESS
 
 # 6. Now send
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
 
 ### Test SIP Trunking end-to-end
@@ -1989,7 +2117,7 @@ Use this workflow to verify that a SIP realm and credential authenticate correct
 # 1. Pick a from number — must be on your account and voice-capable
 FROM=$(band number list --plain | jq -r '.[0]')
 # On Bandwidth Build accounts, band number list is not available.
-# Pass the pre-provisioned number manually: FROM=+19195551234
+# Pass the pre-provisioned number manually: FROM=+15555550100
 
 # 2. Create an ephemeral realm (never the default — it cannot be deleted if it is)
 REALM=$(band sip realm create --name sip-test --default=false --wait --plain)
@@ -2110,7 +2238,7 @@ Every error in this table exits **4**, regardless of the HTTP status the API use
 - **No real-time call control.** The CLI can initiate calls and query state, but cannot receive or respond to mid-call callbacks. Dynamic call control requires a separate callback-handling server.
 - **No message delivery confirmation.** The CLI verifies your setup is correct before sending (app-location link, callback URL, campaign), but it cannot confirm whether a message was actually delivered. Delivery status (`message-delivered`, `message-failed`) arrives via webhooks on your callback server. The CLI's `message get` and `message list` return metadata only — not delivery status.
 - **No message content retrieval.** Bandwidth does not store message bodies. After sending, the message text is gone forever. `message get` and `message list` return timestamps, direction, and segment counts only.
-- **10DLC: brand, vetting, and campaign registration are all in the CLI for direct customers.** `band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage the full chain. The CLI also lists campaigns, checks number registration status, diagnoses failures (`band tendlc`), and assigns numbers to campaigns (`band tnoption assign`), and blocks a `message send` if the source number isn't on an approved campaign.
+- **10DLC: brand, vetting, and campaign registration are all in the CLI for direct customers.** `band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage the full chain. `band tendlc number` checks phone number registration status (`get`/`list`/`history`) for direct and import customers alike, `band tendlc campaign` lists campaigns and diagnoses failures, and `band tnoption assign` assigns numbers to campaigns; a `message send` is blocked if the source number isn't on an approved campaign.
 - **TFV is check-and-submit.** The CLI can check toll-free verification status and submit new requests (`band tfv`), but cannot approve or expedite reviews — those happen on the carrier side.
 - **Porting is port-IN only.** `band portin` covers the six end-to-end flows that complete via the public API: TF validation, on-net domestic, automated off-net (Level 3), TF Phase 1 (gated), bulk, and lifecycle ops (notes, supp, cancel, history, doc upload). Out of scope: port-out (no public API), manual TF, internal TF, NASC manual override, and international ports — these need ops or the Dashboard. `band portin create` exits 4 if the account doesn't have `TOLL_FREE_AUTOMATION_PHASE_1` for a TF order. `band portin supp` defends against the documented Bandwidth API behavior where a supp returns 200 on PUT but error code 7300 on the next GET (Neustar never received it) — exits 1 with a clear message rather than silently succeeding.
 - **10DLC, TFV, and short code commands are role-gated.** A 403 can mean the credential lacks the required role (Campaign Management, TFV), the account doesn't have the Registration Center feature, or messaging isn't enabled. The CLI provides a diagnostic message — if it says "access denied," escalate to the Bandwidth account manager rather than retrying.

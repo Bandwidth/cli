@@ -327,6 +327,21 @@ func IdentityFieldsChanged(current map[string]any, changed map[string]bool) []st
 	return out
 }
 
+// brandNeverDropFields is every JSON body key any `brand update` flag can
+// write — i.e. every value in brandFlagToField. UpdateBrand passes the
+// result to putReplaceWithReadOnlyRetry as the set of fields the retry must
+// never drop: a field the CLI models at all is mutable customer data (see
+// putReplaceWithReadOnlyRetry's INVARIANT and the --website example there),
+// so it is never eligible to be silently stripped and re-sent — regardless
+// of whether the caller's most recent invocation happened to touch it.
+func brandNeverDropFields() map[string]bool {
+	out := make(map[string]bool, len(brandFlagToField))
+	for _, field := range brandFlagToField {
+		out[field] = true
+	}
+	return out
+}
+
 // deepCopyBrandMap copies m so the result shares no mutable structure with it.
 // current is read from an api.Envelope the caller may reuse, so a shallow copy
 // would leave nested values (brand.accounts is a []any of maps) aliased

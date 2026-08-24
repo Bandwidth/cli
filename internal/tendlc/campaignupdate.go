@@ -328,6 +328,51 @@ func ImportedCampaignRejectedFlags(changed map[string]bool) []string {
 	return out
 }
 
+// campaignFlagReachableFields is every JSON body key any `campaign update`
+// flag can write — i.e. every value in campaignUpdateFlagToField. UpdateCampaign
+// unions the result with campaignNeverDropFields and passes the whole set to
+// putReplaceWithReadOnlyRetry as the fields the retry must never drop: a
+// field the CLI models at all is mutable customer data (see
+// putReplaceWithReadOnlyRetry's INVARIANT), so it is never eligible to be
+// silently stripped and re-sent — regardless of whether the caller's most
+// recent invocation happened to touch it.
+func campaignFlagReachableFields() map[string]bool {
+	out := make(map[string]bool, len(campaignUpdateFlagToField))
+	for _, field := range campaignUpdateFlagToField {
+		out[field] = true
+	}
+	return out
+}
+
+// campaignNeverDropFields are response fields that ride along unmodified in
+// the read-modify-write body without ever being reachable by any update
+// flag: termsAndConditions, subscriberOptin, subscriberOptout, and
+// subscriberHelp — the same 4 booleans campaignUpdateBoolFlags's doc comment
+// documents as measured NOT editable on update (as opposed to fields in
+// campaignReadOnlyFields, which are stripped before every PUT because they
+// are genuinely server-owned).
+//
+// campaignFlagReachableFields alone cannot protect these: because no update
+// flag ever writes them, they never appear in campaignUpdateFlagToField's
+// values, so a guard keyed only on "is this field reachable by some flag"
+// would leave them exactly as droppable as an unmodeled field. But they are
+// not read-only filler either — measured against production, a direct
+// campaign holding false for these returns 400 "is required" naming exactly
+// these pointers (the same shape ValidateCampaignCreate documents for
+// create; see campaignoptions.go). That reads exactly like the shape this
+// retry exists to handle — a 400 naming a field present in body — so
+// without this explicit list, the retry would strip all three compliance
+// attestations off an update that has nothing to do with them (e.g. a plain
+// --description change) and report success. This list is therefore unioned
+// into the retry's neverDrop set unconditionally by UpdateCampaign, not
+// merely when reachable by a flag.
+var campaignNeverDropFields = map[string]bool{
+	"termsAndConditions": true,
+	"subscriberOptin":    true,
+	"subscriberOptout":   true,
+	"subscriberHelp":     true,
+}
+
 // deepCopyCampaignMap copies m so the result shares no mutable structure with
 // it. current is read from an api.Envelope the caller may reuse, so a
 // shallow copy would leave nested values aliased between the outgoing body

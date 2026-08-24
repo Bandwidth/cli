@@ -165,7 +165,7 @@ func check10DLC(platClient *api.Client, acctID, number string) PreflightResult {
 	if len(campaigns) == 0 {
 		result.Ready = false
 		result.Message = "no 10DLC campaigns found on this account — the number must be assigned to an approved campaign before messages will deliver.\n" +
-			"Check registration: band tendlc campaigns"
+			"Check registration: band tendlc campaign list"
 		return result
 	}
 
@@ -198,8 +198,8 @@ func check10DLC(platClient *api.Client, acctID, number string) PreflightResult {
 	// Not found on any campaign
 	result.Ready = false
 	result.Message = fmt.Sprintf("number is not assigned to any active 10DLC campaign — delivery will fail (error 4476).\n"+
-		"Check registration status: band tendlc number %s\n"+
-		"List campaigns: band tendlc campaigns\n"+
+		"Check registration status: band tendlc number get %s\n"+
+		"List campaigns: band tendlc campaign list\n"+
 		"Assign to a campaign: band tnoption assign %s --campaign-id <campaign-id>", number, number)
 	return result
 }

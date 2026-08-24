@@ -27,11 +27,25 @@ func (s *Service) CreateCampaign(body map[string]any) (*api.Envelope, error) {
 // unchanged: it is not a replacement there. Campaigns carry no version
 // field, so there is no optimistic-locking check either way: a concurrent
 // edit between the GET and this PUT is lost silently.
+//
+// The PUT goes through putReplaceWithReadOnlyRetry, which retries once, with
+// the named fields stripped, if the API rejects a 400 on read-only keys
+// campaignReadOnlyFields already tried to remove — see that function for why.
+// The retry's neverDrop set is campaignFlagReachableFields() (every JSON key
+// any `campaign update` flag can write, not merely the ones changed THIS
+// call) unioned with campaignNeverDropFields (fields no update flag can ever
+// reach but that still hold real data), so neither category is ever silently
+// stripped and re-sent. See putReplaceWithReadOnlyRetry's INVARIANT for why
+// "changed this call" is not the right test.
 func (s *Service) UpdateCampaign(campaignID string, body map[string]any) (*api.Envelope, error) {
 	if campaignID == "" {
 		return nil, fmt.Errorf("campaign ID is required")
 	}
-	raw, err := s.client.PutRawJSON(s.campaignPath(campaignID), body)
+	neverDrop := campaignFlagReachableFields()
+	for f := range campaignNeverDropFields {
+		neverDrop[f] = true
+	}
+	raw, err := putReplaceWithReadOnlyRetry(s.client, s.campaignPath(campaignID), body, neverDrop)
 	if err != nil {
 		return nil, err
 	}

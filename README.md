@@ -3,7 +3,7 @@
 Manage phone numbers, voice calls, and messaging from your terminal. No dashboard clicking, no API wrangling — just straightforward commands that get things done.
 
 ```sh
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
 ```
 
 Built for humans, but agent-native from day one — every command supports `--plain` for flat JSON, `--if-not-exists` for safe retries, and `--wait` for async operations. If you're building an AI agent that provisions phone numbers or makes calls, this is the interface.
@@ -83,7 +83,7 @@ No TTY required. Accounts are auto-discovered from the OAuth2 token.
 You can sign up for a Bandwidth Build trial account from the CLI:
 
 ```sh
-band account register --phone +19195551234 --email you@example.com --first-name Jane --last-name Doe
+band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe
 ```
 
 You'll be prompted to accept the [Bandwidth Build Terms of Service](https://www.bandwidth.com/legal/build-terms-of-service/) before registration proceeds. For scripted usage, pass `--accept-tos`.
@@ -138,7 +138,7 @@ Search for available numbers, then order one:
 
 ```sh
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --subaccount <subaccount-id> --wait
+band number order +15555550100 --subaccount <subaccount-id> --wait
 ```
 
 The `--wait` flag blocks until the number is active, so you don't have to poll.
@@ -149,7 +149,7 @@ Phone numbers don't do anything on their own — you need to tell Bandwidth how 
 
 ```sh
 band vcp create --name "My VCP" --app-id <your-app-id>
-band vcp assign <vcp-id> +19195551234
+band vcp assign <vcp-id> +15555550100
 ```
 
 Now when someone calls that number, Bandwidth routes the call to your application's callback URL.
@@ -164,7 +164,7 @@ If `vcp create` fails with a 403, your account uses the older sub-account model 
 
 ```sh
 band call create \
-  --from +19195551234 \
+  --from +15555550100 \
   --to +15559876543 \
   --app-id <your-app-id> \
   --answer-url https://your-server.example.com/answer
@@ -196,7 +196,7 @@ The CLI can generate BXML for you locally. No API calls, no auth required — it
 band bxml speak "Thanks for calling. How can we help?"
 band bxml speak --voice julie "Press 1 for sales."
 band bxml gather --url https://example.com/gather --max-digits 1 --prompt "Press a key"
-band bxml transfer +19195551234 --caller-id +19195550000
+band bxml transfer +15555550100 --caller-id +15555550101
 band bxml record --url https://example.com/done --max-duration 60
 band bxml raw '<SpeakSentence>Hello</SpeakSentence>'   # validate and pretty-print XML
 ```
@@ -276,8 +276,8 @@ If you're sending from a standard 10-digit local number, it must be assigned to 
 You can check registration status with `band tendlc`:
 
 ```sh
-band tendlc number +19195551234 --plain    # check a specific number
-band tendlc campaigns --plain              # list campaigns on your account
+band tendlc number get +15555550100 --plain    # check a specific number
+band tendlc campaign list --plain              # list campaigns on your account
 ```
 
 These two commands are for **import** customers (accounts that register campaigns through TCR and import them to Bandwidth) — campaign registration for them still happens in the Bandwidth App; see [dev.bandwidth.com](https://dev.bandwidth.com/docs/messaging/campaign-management/) for the full guide. **Direct** customers register brands and campaigns via `band tendlc brand create` and `band tendlc campaign create` (see [AGENTS.md](AGENTS.md#10dlc-campaigns) for the create requirement tree). Once you have a campaign either way, assign numbers to it with `band tnoption assign`.
@@ -306,9 +306,9 @@ A fresh UP account typically has one sub-account and one location already create
 ```sh
 band number list                                              # list your numbers
 band number search --area-code 919 --quantity 5               # search available numbers
-band number order +19195551234 --subaccount <subaccount-id> --wait                         # order (blocks until active)
-band number activate +19195551234 --voice-inbound --wait      # turn on inbound voice
-band number release +19195551234                              # release a number
+band number order +15555550100 --subaccount <subaccount-id> --wait                         # order (blocks until active)
+band number activate +15555550100 --voice-inbound --wait      # turn on inbound voice
+band number release +15555550100                              # release a number
 ```
 
 ### Messaging
@@ -334,7 +334,7 @@ band message media upload image.png     # prints media URL to stdout
 ### Calls
 
 ```sh
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
 band call get <call-id>                             # check state
 band call hangup <call-id>                          # hang up
 band call update <call-id> --redirect-url <url>     # redirect active call
@@ -359,7 +359,7 @@ band subaccount create --name "My Subaccount"
 band location create --subaccount <subaccount-id> --name "My Location"
 band app create --name "My Voice App" --type voice --callback-url https://your-server.example.com/callbacks
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --subaccount <subaccount-id> --wait
+band number order +15555550100 --subaccount <subaccount-id> --wait
 ```
 
 Sub-accounts (formerly known as sites) are the top-level container. Locations (formerly known as SIP peers) sit inside sub-accounts and define where numbers get routed. The flow is: sub-account → location → application → number.
@@ -477,9 +477,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
 
-### 10DLC brands, vettings, and campaigns (direct customers)
+### 10DLC brands, vettings, campaigns, and numbers
 
-`band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage 10DLC brands and campaigns for accounts that register directly with TCR (not through import). Requires the Registration Center feature and Campaign Management role — check with `band tendlc status --plain`. A brand needs a customer profile first (`band customer-profile create`); see [AGENTS.md](AGENTS.md#10dlc-brands) for the full flag matrix, `--wait` semantics, and exit codes, and [AGENTS.md](AGENTS.md#10dlc-campaigns) for the campaign create requirement tree, the `imported` update branch, and the operational trap around editing a non-terminal campaign.
+`band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage 10DLC brands and campaigns for accounts that register directly with TCR (not through import); `band tendlc number` looks up phone number registration status and works for direct and import customers alike. Requires the Registration Center feature and Campaign Management role — check with `band tendlc status --plain`. A brand needs a customer profile first (`band customer-profile create`); see [AGENTS.md](AGENTS.md#10dlc-brands) for the full flag matrix, `--wait` semantics, and exit codes, [AGENTS.md](AGENTS.md#10dlc-campaigns) for the campaign create requirement tree, the `imported` update branch, and the operational trap around editing a non-terminal campaign, and [AGENTS.md](AGENTS.md#10dlc-numbers) for the conditional list projection and the `get` 404 caveat.
 
 | Command | What it does |
 |---------|-------------|
@@ -504,6 +504,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tendlc campaign update <id>` | Update a campaign (read-modify-write; imported campaigns accept only `--campaign-name`) |
 | `band tendlc campaign deactivate <id>` | Permanently deactivate a campaign (`--confirm` required; irreversible) |
 | `band tendlc campaign nudge <id> --intent <intent>` | Ask TCR to re-evaluate a campaign (not billable, no `--confirm`) |
+| `band tendlc number list` | List 10DLC phone number registrations (filter by `--campaign-id-contains`; no `--status` filter — the API silently ignores it, so filter client-side) |
+| `band tendlc number get <tn>` | Get one phone number's registration record (may 404 on some accounts even for numbers `list` returns) |
+| `band tendlc number history <tn>` | Show a phone number's activity log |
 
 ### SIP trunk authentication
 

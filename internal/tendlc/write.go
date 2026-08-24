@@ -26,11 +26,21 @@ func (s *Service) CreateBrand(body map[string]any) (*api.Envelope, error) {
 // which starts from the current resource so nothing is dropped. Brands carry
 // no version field, so there is no optimistic-locking check: a concurrent
 // edit between the GET and this PUT is lost silently.
+//
+// The PUT goes through putReplaceWithReadOnlyRetry, which retries once, with
+// the named fields stripped, if the API rejects a 400 on read-only keys
+// brandReadOnlyFields already tried to remove — see that function for why.
+// The retry's neverDrop set is brandNeverDropFields(): every JSON key any
+// `brand update` flag can write, not merely the ones changed THIS call — a
+// 400 naming a field reachable by any update flag (e.g. website, even when
+// this call never touched it) surfaces as a real validation failure instead
+// of being silently stripped and re-sent. See putReplaceWithReadOnlyRetry's
+// INVARIANT for why "changed this call" is not the right test.
 func (s *Service) UpdateBrand(brandID string, body map[string]any) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
-	raw, err := s.client.PutRawJSON(s.brandPath(brandID), body)
+	raw, err := putReplaceWithReadOnlyRetry(s.client, s.brandPath(brandID), body, brandNeverDropFields())
 	if err != nil {
 		return nil, err
 	}
