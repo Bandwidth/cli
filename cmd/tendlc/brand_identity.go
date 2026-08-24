@@ -28,7 +28,7 @@ endpoint returns 204 with no body — there is no ID or resource to poll, so
 there is no --wait here. The brand's own status is the signal.
 
 Requires --confirm.`,
-	Example: `  band tendlc brand reverify BGJR2BA --confirm --plain`,
+	Example: `  band tendlc brand reverify BEXMPL6 --confirm --plain`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requireConfirm(brandReverifyConfirm,
@@ -68,7 +68,7 @@ verification before the brand goes UNVERIFIED.
 
 Re-sending an email is neither destructive nor billable, so unlike most
 writes in this command set, this does not require --confirm.`,
-	Example: `  band tendlc brand resend-2fa BGJR2BA --plain`,
+	Example: `  band tendlc brand resend-2fa BEXMPL6 --plain`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := service(cmd)

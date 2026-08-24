@@ -48,8 +48,8 @@ IS success here, the only place in this command set where that is true — and
 only then does "deleted" flip to true. A --wait timeout (exit 5) prints the
 same unconfirmed receipt as no-wait; it never claims deleted:true merely
 because --wait gave up waiting.`,
-	Example: `  band tendlc brand delete BGJR2BA --confirm --plain
-  band tendlc brand delete BGJR2BA --confirm --wait --timeout 60 --plain`,
+	Example: `  band tendlc brand delete BEXMPL6 --confirm --plain
+  band tendlc brand delete BEXMPL6 --confirm --wait --timeout 60 --plain`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requireConfirm(brandDeleteConfirm,

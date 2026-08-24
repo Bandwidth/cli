@@ -27,7 +27,7 @@ func stubBrandIdentityServer(t *testing.T) (*httptest.Server, *[]string) {
 // server, so this fails loudly if the confirm gate ever moves after the
 // service/POST call.
 func TestBrandReverifyWithoutConfirmMakesNoRequests(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "brand", "reverify", "BGJR2BA")
+	_, _, err := runBrandCmd(t, nil, "brand", "reverify", "BEXMPL6")
 	if err == nil {
 		t.Fatal("want an error when --confirm is missing")
 	}
@@ -45,16 +45,16 @@ func TestBrandReverifyWithoutConfirmMakesNoRequests(t *testing.T) {
 func TestBrandReverifyWithConfirmPostsToIdentityReverify(t *testing.T) {
 	srv, paths := stubBrandIdentityServer(t)
 
-	out, _, err := runBrandCmd(t, srv, "brand", "reverify", "BGJR2BA", "--confirm", "--plain")
+	out, _, err := runBrandCmd(t, srv, "brand", "reverify", "BEXMPL6", "--confirm", "--plain")
 	if err != nil {
 		t.Fatalf("brand reverify --confirm: %v", err)
 	}
-	if len(*paths) != 1 || !strings.HasSuffix((*paths)[0], "/brands/BGJR2BA/identity/reverify") {
+	if len(*paths) != 1 || !strings.HasSuffix((*paths)[0], "/brands/BEXMPL6/identity/reverify") {
 		t.Fatalf("paths = %v, want exactly one POST to .../identity/reverify", *paths)
 	}
 	got := decodeStdout(t, out)
-	if got["id"] != "BGJR2BA" {
-		t.Errorf("stdout = %v, want id BGJR2BA", got)
+	if got["id"] != "BEXMPL6" {
+		t.Errorf("stdout = %v, want id BEXMPL6", got)
 	}
 	if got["reverificationRequested"] != true {
 		t.Errorf("stdout = %v, want reverificationRequested true", got)
@@ -62,7 +62,7 @@ func TestBrandReverifyWithConfirmPostsToIdentityReverify(t *testing.T) {
 	if got["status"] != "accepted" {
 		t.Errorf("stdout = %v, want status accepted", got)
 	}
-	if got["check"] != "band tendlc brand get BGJR2BA" {
+	if got["check"] != "band tendlc brand get BEXMPL6" {
 		t.Errorf("stdout = %v, want check pointing at brand get", got)
 	}
 }
@@ -73,16 +73,16 @@ func TestBrandReverifyWithConfirmPostsToIdentityReverify(t *testing.T) {
 func TestBrandResend2FANeedsNoConfirm(t *testing.T) {
 	srv, paths := stubBrandIdentityServer(t)
 
-	out, _, err := runBrandCmd(t, srv, "brand", "resend-2fa", "BGJR2BA", "--plain")
+	out, _, err := runBrandCmd(t, srv, "brand", "resend-2fa", "BEXMPL6", "--plain")
 	if err != nil {
 		t.Fatalf("brand resend-2fa: %v", err)
 	}
-	if len(*paths) != 1 || !strings.HasSuffix((*paths)[0], "/brands/BGJR2BA/identity/resend2faEmail") {
+	if len(*paths) != 1 || !strings.HasSuffix((*paths)[0], "/brands/BEXMPL6/identity/resend2faEmail") {
 		t.Fatalf("paths = %v, want exactly one POST to .../identity/resend2faEmail", *paths)
 	}
 	got := decodeStdout(t, out)
-	if got["id"] != "BGJR2BA" {
-		t.Errorf("stdout = %v, want id BGJR2BA", got)
+	if got["id"] != "BEXMPL6" {
+		t.Errorf("stdout = %v, want id BEXMPL6", got)
 	}
 	if got["emailResent"] != true {
 		t.Errorf("stdout = %v, want emailResent true", got)
@@ -119,8 +119,8 @@ func TestBrandIdentity403MapsToExitFour(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"reverify", []string{"brand", "reverify", "BGJR2BA", "--confirm"}},
-		{"resend-2fa", []string{"brand", "resend-2fa", "BGJR2BA"}},
+		{"reverify", []string{"brand", "reverify", "BEXMPL6", "--confirm"}},
+		{"resend-2fa", []string{"brand", "resend-2fa", "BEXMPL6"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

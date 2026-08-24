@@ -32,8 +32,8 @@ Unlike customer profiles, brands have no versioned snapshots and no
 per-version fetch — this is the only history view for a brand.
 
 Either the TCR brandId or the Bandwidth bandwidthId works as the positional.`,
-	Example: `  band tendlc brand history BGJR2BA --plain
-  band tendlc brand history BGJR2BA --all --plain`,
+	Example: `  band tendlc brand history BEXMPL6 --plain
+  band tendlc brand history BEXMPL6 --all --plain`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if brandHistoryAll && cmd.Flags().Changed("offset") {

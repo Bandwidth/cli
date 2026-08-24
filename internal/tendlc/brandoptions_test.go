@@ -24,7 +24,7 @@ func commonValid() BrandCreateOptions {
 		Email:                   "ops@acme.com",
 		CompanyName:             "Acme Corporation Inc",
 		Vertical:                "TECHNOLOGY",
-		EIN:                     "562242657",
+		EIN:                     "123456789",
 		EINIssuingCountryCodeA3: "USA",
 	}
 }
@@ -272,8 +272,8 @@ func TestBuildBrandCreateRequestIncludesSetOptionalFields(t *testing.T) {
 // Refresh reuses POST /brands with a body carrying only brandId. Sending
 // anything else would be read as a create.
 func TestBuildBrandRefreshRequestSendsOnlyBrandID(t *testing.T) {
-	body := BuildBrandRefreshRequest("BGJR2BA")
-	if len(body) != 1 || body["brandId"] != "BGJR2BA" {
-		t.Errorf("body = %v, want exactly {brandId: BGJR2BA}", body)
+	body := BuildBrandRefreshRequest("BEXMPL6")
+	if len(body) != 1 || body["brandId"] != "BEXMPL6" {
+		t.Errorf("body = %v, want exactly {brandId: BEXMPL6}", body)
 	}
 }

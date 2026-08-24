@@ -18,7 +18,7 @@ var brandGetCmd = &cobra.Command{
 Brands have two IDs: bandwidthId exists immediately, while brandId is assigned
 by TCR and is null until registration completes. Either identifier works
 here — pass whichever one you have.`,
-	Example: `  band tendlc brand get BGJR2BA --plain
+	Example: `  band tendlc brand get BEXMPL6 --plain
   band tendlc brand get WET8JUY8H0 --plain`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
