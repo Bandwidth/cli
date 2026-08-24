@@ -220,6 +220,60 @@ func TestFilterNumbers(t *testing.T) {
 	})
 }
 
+func TestStatusCommandRegistered(t *testing.T) {
+	c, _, err := Cmd.Find([]string{"status"})
+	if err != nil || c.Name() != "status" {
+		t.Fatalf("Find(status) = %v, err %v; want the status command", c, err)
+	}
+}
+
+func TestStatusResultShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantAccess string
+		wantReason string
+	}{
+		{"success", 200, `{"data":[]}`, "available", "probe_succeeded"},
+		{"role missing", 403, `{"errors":[{"description":"does not have access rights"}]}`,
+			"unavailable", "role_absent"},
+		{"registration center off", 403, `{"errors":[{"description":"not enabled for the Registration Center"}]}`,
+			"unavailable", "registration_center_not_enabled"},
+		{"campaign mgmt off", 403, `{"errors":[{"description":"10DLC is not enabled on account"}]}`,
+			"unavailable", "campaign_management_not_enabled"},
+		{"unrecognized 403", 403, `{"errors":[{"description":"something new"}]}`,
+			"unavailable", "access_denied"},
+		{"server error", 503, `{}`, "unknown", "probe_failed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := statusResult(tt.statusCode, tt.body)
+			if got["access"] != tt.wantAccess {
+				t.Errorf("access = %v, want %v", got["access"], tt.wantAccess)
+			}
+			if got["reason"] != tt.wantReason {
+				t.Errorf("reason = %v, want %v", got["reason"], tt.wantReason)
+			}
+		})
+	}
+}
+
+// mode is always present and always unknown — an omitted field invites
+// callers to guess a default.
+func TestStatusAlwaysReportsModeUnknown(t *testing.T) {
+	for _, code := range []int{200, 403, 503} {
+		got := statusResult(code, `{}`)
+		mode, ok := got["mode"].(map[string]string)
+		if !ok {
+			t.Fatalf("code %d: mode missing or wrong type: %#v", code, got["mode"])
+		}
+		if mode["status"] != "unknown" || mode["reason"] != "not_discoverable" {
+			t.Errorf("code %d: mode = %v, want unknown/not_discoverable", code, mode)
+		}
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsSubstring(s, sub))
 }

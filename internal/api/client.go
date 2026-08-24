@@ -1,3 +1,5 @@
+// Package api provides the shared HTTP client, response-envelope parsing,
+// and query encoding used by Bandwidth's platform API packages.
 package api
 
 import (
@@ -8,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +29,32 @@ func userAgent() string {
 type APIError struct {
 	StatusCode int
 	Body       string
+	// Header is the response header set. Populated whenever api.Client itself
+	// constructs the error (the doRaw and PostXMLReturnLocation paths), so
+	// callers can honor Retry-After and the X-Rate-Limit-* family, which only
+	// ever appear on the 429 that needs them. Code elsewhere that builds an
+	// APIError from a parsed response body rather than an *http.Response —
+	// internal/sip is the current example — may leave this nil. RetryAfter
+	// returns false in that case; treat that as "unknown," not "none sent."
+	Header http.Header
+}
+
+// RetryAfter reports the Retry-After delay if the server sent one. Only the
+// delta-seconds form is supported — Bandwidth's v2 A2P APIs do not send the
+// HTTP-date form.
+func (e *APIError) RetryAfter() (time.Duration, bool) {
+	if e.Header == nil {
+		return 0, false
+	}
+	v := strings.TrimSpace(e.Header.Get("Retry-After"))
+	if v == "" {
+		return 0, false
+	}
+	secs, err := strconv.Atoi(v)
+	if err != nil || secs < 0 {
+		return 0, false
+	}
+	return time.Duration(secs) * time.Second, true
 }
 
 func (e *APIError) Error() string {
@@ -136,7 +165,7 @@ func (c *Client) doRaw(req *http.Request) ([]byte, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(data)}
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(data), Header: resp.Header.Clone()}
 	}
 	return data, nil
 }
@@ -279,7 +308,7 @@ func (c *Client) PostXMLReturnLocation(path string, body XMLBody) (string, error
 		return "", fmt.Errorf("reading response body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+		return "", &APIError{StatusCode: resp.StatusCode, Body: string(respBody), Header: resp.Header.Clone()}
 	}
 	return resp.Header.Get("Location"), nil
 }
