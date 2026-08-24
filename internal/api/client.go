@@ -284,6 +284,36 @@ func (c *Client) PutRaw(path string, data []byte, contentType string) error {
 	return err
 }
 
+// PostRaw posts a JSON body and returns the raw response bytes, so callers can
+// parse an envelope without a typed target. JSON-only: returns an error
+// without making a request if c is configured for XML (see NewXMLClient).
+func (c *Client) PostRaw(path string, body interface{}) ([]byte, error) {
+	return c.doRawJSON("POST", path, body)
+}
+
+// PutRawJSON puts a JSON body and returns the raw response bytes. JSON-only:
+// returns an error without making a request if c is configured for XML (see
+// NewXMLClient).
+func (c *Client) PutRawJSON(path string, body interface{}) ([]byte, error) {
+	return c.doRawJSON("PUT", path, body)
+}
+
+func (c *Client) doRawJSON(method, path string, body interface{}) ([]byte, error) {
+	if c.contentType == "xml" {
+		return nil, fmt.Errorf("PostRaw/PutRawJSON send JSON; this client is configured for XML (use the XML methods instead)")
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("encoding request body: %w", err)
+	}
+	req, err := c.newRequest(method, path, bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.doRaw(req)
+}
+
 // PostXMLReturnLocation performs a POST with an XML body and returns the
 // Location response header. Useful for endpoints that respond 201 Created
 // with an empty body and put the new resource's URL in Location (the

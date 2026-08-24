@@ -10,7 +10,7 @@
 These principles guide how the CLI is built. If you're contributing changes, maintain them:
 
 - **`--plain` output must be stable and parseable.** Agents depend on flat JSON. Don't change the shape of `--plain` output without a migration path.
-- **`--if-not-exists` for idempotency.** Any create command should support this flag so agents can retry safely.
+- **`--if-not-exists` for idempotency, where a safe natural key exists.** Create commands support this flag when there's a stable identity to retry against. A command that lacks one omits the flag deliberately and documents why (see [Customer Profiles](#customer-profiles)) rather than risk a retry silently reusing the wrong resource.
 - **`--wait` for async operations.** Agents can't poll — give them a way to block until the operation completes.
 - **Structured exit codes.** Agents use exit codes for control flow, not string parsing. See [Exit Codes](#exit-codes).
 - **Update this file.** If you add, remove, or change a command, update this file alongside the README.
@@ -879,6 +879,93 @@ band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
 ```
 
 **If `band tendlc` returns 403:** Don't retry — escalate. Tell the user: "Your credential may not have the Campaign Management role, or your account may not have the Registration Center feature enabled. Contact your Bandwidth account manager to check your configuration."
+
+## Customer Profiles
+
+A customer profile is required to register a 10DLC brand, and **a profile backs
+exactly one brand** — reusing a profile ID on a second brand fails with
+`cannot be assigned to another brand`. Create a fresh profile per brand. The
+prerequisite chain is **customer profile → brand → campaign**; brand and
+campaign registration still happen in the Bandwidth App, not the CLI.
+
+Requires the **Customer Profiles Access role** — check with `band auth status --plain`.
+
+### Create, list, and get
+
+```bash
+band customer-profile create --name "Acme Corp" --plain
+# → {"accountId":"9900000","addressId":null,"contact":null,"createdDate":"...","id":"ExampleProfileId000002","modifiedDate":"...","name":"Acme Corp","softDeleted":false,"totalCampaigns":0,"version":0,"website":null}
+
+band customer-profile list --all --plain    # walks every page; cannot combine with --offset
+band customer-profile get ExampleProfileId000002 --plain
+```
+
+Keys come back alphabetical because the payload is a Go map — don't expect a
+"nicer" ordering; the docs match reality, not a prettified version of it.
+
+`list` excludes soft-deleted profiles; `get` still returns them, reporting
+`softDeleted: true`. Without `--all`, a truncated page warns on stderr.
+
+**`create` deliberately has no `--if-not-exists`** (see the [Design
+Principles](#design-principles) exception). A profile has no safe natural key
+to match on, and it's strictly 1:1 with a brand — a retry that silently reused
+an existing profile could link an old brand's profile to a new brand's data.
+Each brand needs its own freshly created profile; a retry must create, not reuse.
+
+**`create` is also non-idempotent, which cuts the other way after an
+ambiguous failure.** If a `create` call fails ambiguously — e.g. the
+connection drops after the POST reached the server but before the response
+reached you — do not blindly retry. A blind retry can create a *second*,
+duplicate profile if the first one actually succeeded. Instead, run `band
+customer-profile list --plain` and reconcile the results against what you
+just submitted (name, website, contact) to determine whether the first call
+already created a profile. If you cannot establish uniqueness that way, stop
+and escalate rather than guessing.
+
+### Update is read-modify-write
+
+The API replaces the whole record, so `update` reads the profile first and
+re-sends it with your changes applied. Fields you do not pass are preserved.
+**Passing a flag with an empty value clears that field** — it sends JSON
+`null`, not an empty string, because the API rejects empty strings. A
+concurrent edit between the read and the write is caught by the API's version
+check and exits **4** — retry the command.
+
+```bash
+band customer-profile update ExampleProfileId000002 --name "New Name" --plain
+band customer-profile update ExampleProfileId000002 --website "" --plain   # clears the website
+```
+
+### Delete is a soft delete
+
+`delete` requires `--confirm`. That's a flag, never a prompt, so agents and
+humans share one contract. The record leaves listings but stays retrievable by
+ID with `softDeleted: true`, and `restore` brings it back — no confirm needed.
+
+```bash
+band customer-profile delete ExampleProfileId000002 --confirm --plain
+# → {"deleted":true,"id":"ExampleProfileId000002","restore":"band customer-profile restore ExampleProfileId000002"}
+band customer-profile restore ExampleProfileId000002 --plain
+```
+
+Note these are two different fields on two different resources, not a typo of
+each other: `deleted: true` is the delete command's own receipt, confirming the
+204 completed synchronously. `softDeleted: true` is a field on the profile
+itself, seen when you `get` it afterward — there is no `deleted` field on the
+profile, and no `softDeleted` field on the receipt.
+
+### Version history
+
+`history list` and `history get` return a `{data, metadata}` envelope, newest
+first — the profile snapshot lives under `data`, and `version`, `operation`,
+`userName`, `createdDate` live under `metadata`. So the version is at
+`metadata.version`, NOT top-level the way it is on `customer-profile get`.
+Observed `metadata.operation` values: `CREATED`, `UPDATED`, `DELETED`.
+
+```bash
+band customer-profile history list ExampleProfileId000002 --plain
+band customer-profile history get ExampleProfileId000002 1 --plain
+```
 
 ## Toll-Free Verification (TFV)
 
