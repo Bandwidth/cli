@@ -36,6 +36,11 @@ func TestParseTimeFlag(t *testing.T) {
 		{input: "yesterday", wantErr: true},
 		{input: "2026-07-01", wantErr: true},
 		{input: "7w", wantErr: true},
+		// Beyond the one-year history cap; large enough values would
+		// otherwise overflow time.Duration and land in the future.
+		{input: "401d", wantErr: true},
+		{input: "106752d", wantErr: true},
+		{input: "9999999999999m", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -58,7 +63,7 @@ func TestParseTimeFlag(t *testing.T) {
 
 func TestBuildMonitorQuery(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
-	q, err := buildMonitorQuery("9901303", monitorFlags{
+	q, err := buildMonitorQuery(monitorFlags{
 		To:        "+18005551234,+18885551234",
 		Direction: "inbound",
 		CallType:  "tollfree-in",
@@ -68,7 +73,6 @@ func TestBuildMonitorQuery(t *testing.T) {
 		t.Fatalf("buildMonitorQuery error: %v", err)
 	}
 	want := map[string]string{
-		"accountId[eq]":     "9901303",
 		"toPhoneNumber[eq]": "+18005551234,+18885551234",
 		"direction[eq]":     "INBOUND",
 		"callType[eq]":      "TOLLFREE_IN",
@@ -82,9 +86,16 @@ func TestBuildMonitorQuery(t *testing.T) {
 	if q.Get("timestamp[lte]") != "" {
 		t.Error("timestamp[lte] should be unset when --until absent")
 	}
+	// accountId[eq] is added by the caller after auth resolves the account.
+	if q.Get("accountId[eq]") != "" {
+		t.Error("accountId[eq] should not be set by buildMonitorQuery")
+	}
 
-	if _, err := buildMonitorQuery("1", monitorFlags{Direction: "SIDEWAYS"}, now); err == nil {
+	if _, err := buildMonitorQuery(monitorFlags{Direction: "SIDEWAYS"}, now); err == nil {
 		t.Error("invalid direction should be a flag error")
+	}
+	if _, err := buildMonitorQuery(monitorFlags{CallType: "banana"}, now); err == nil {
+		t.Error("invalid call type should be a flag error")
 	}
 }
 
@@ -94,9 +105,17 @@ func TestNormalizeCallType(t *testing.T) {
 		"tollfree_in": "TOLLFREE_IN",
 		"local":       "LOCAL",
 	} {
-		if got := normalizeCallType(input); got != want {
+		got, err := normalizeCallType(input)
+		if err != nil {
+			t.Errorf("normalizeCallType(%q) error: %v", input, err)
+			continue
+		}
+		if got != want {
 			t.Errorf("normalizeCallType(%q) = %q, want %q", input, got, want)
 		}
+	}
+	if _, err := normalizeCallType("banana"); err == nil {
+		t.Error("normalizeCallType should reject values outside the enum")
 	}
 }
 

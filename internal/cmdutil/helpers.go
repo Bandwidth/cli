@@ -272,13 +272,27 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 }
 
 // InsightsClient returns a JSON client for the Bandwidth Insights API.
-// Insights is production-only (single published host); the OAuth token from
-// the standard auth flow is sent as a Bearer token, which the API accepts.
+// Insights is production-only (single published host), so — like
+// MessagingClient — the OAuth token must be minted against the PROD API host:
+// authenticate() would mint against the test realm under --environment test,
+// and a test-realm token is rejected by the prod Insights endpoint.
 func InsightsClient(accountIDOverride string) (*api.Client, string, error) {
-	tm, acctID, _, err := authenticate(accountIDOverride)
+	cfg, p, clientSecret, err := loadConfigAndAuth()
 	if err != nil {
 		return nil, "", err
 	}
+	acctID, err := resolveAccountID(cfg, p, accountIDOverride)
+	if err != nil {
+		return nil, "", err
+	}
+	env, err := resolveEnvironment(p.Environment)
+	if err != nil {
+		return nil, "", err
+	}
+	if env != "" && env != "prod" {
+		ui.Warnf("Bandwidth Insights has no test environment — this request hits PRODUCTION data regardless of --environment.")
+	}
+	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHostForEnvironment("prod"))
 	return api.NewClient(insightsHost()+"/api", tm), acctID, nil
 }
 

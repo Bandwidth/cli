@@ -83,6 +83,11 @@ and can be slow on large accounts — add other filters to narrow the scope.`,
 // relativeTimeRe matches the relative time shorthand: <n>d, <n>h, or <n>m.
 var relativeTimeRe = regexp.MustCompile(`^(\d+)([dhm])$`)
 
+// maxRelativeTime bounds the relative shorthand. The API returns at most one
+// year of history, so anything past ~400 days is either a typo or an integer
+// large enough to overflow time.Duration arithmetic — reject both.
+const maxRelativeTime = 400 * 24 * time.Hour
+
 // parseTimeFlag converts a --since/--until value to RFC3339. Relative values
 // are anchored at now; RFC3339 values pass through verbatim (the API handles
 // timezone interpretation).
@@ -101,6 +106,11 @@ func parseTimeFlag(value string, now time.Time) (string, error) {
 		case "m":
 			unit = time.Minute
 		}
+		// Bound before multiplying: a large enough n wraps time.Duration
+		// negative and would silently produce a timestamp in the future.
+		if int64(n) > int64(maxRelativeTime/unit) {
+			return "", cmdutil.NewFlagError(fmt.Sprintf("relative time %q is out of range: the API keeps at most one year of history", value))
+		}
 		return now.Add(-time.Duration(n) * unit).UTC().Format(time.RFC3339), nil
 	}
 	if _, err := time.Parse(time.RFC3339, value); err != nil {
@@ -109,18 +119,32 @@ func parseTimeFlag(value string, now time.Time) (string, error) {
 	return value, nil
 }
 
-// normalizeCallType uppercases and converts dashes to underscores: the query
-// filter enum uses TOLLFREE_IN while responses (and Bandwidth docs) render
-// TOLLFREE-IN, so accept either form.
-func normalizeCallType(v string) string {
-	return strings.ReplaceAll(strings.ToUpper(v), "-", "_")
+// callTypes is the API's callType filter enum (underscore form).
+var callTypes = map[string]bool{
+	"EMERGENCY": true, "INBOUND_TFOOS": true, "INFORMATION": true,
+	"INTERNATIONAL": true, "INTERNATIONAL_INTERNAL": true, "INTERSTATE": true,
+	"INTRASTATE": true, "INTL_BLOCK": true, "LOCAL": true, "OPERATOR": true,
+	"OTHER_N11": true, "SIPURI_EXT": true, "TOLLFREE_IN": true,
+	"TOLLFREE_OUT": true, "UNDETERMINED": true,
+}
+
+// normalizeCallType uppercases and converts dashes to underscores, then
+// validates against the API enum: the query filter uses TOLLFREE_IN while
+// responses (and Bandwidth docs) render TOLLFREE-IN, so accept either form.
+func normalizeCallType(v string) (string, error) {
+	n := strings.ReplaceAll(strings.ToUpper(v), "-", "_")
+	if !callTypes[n] {
+		return "", cmdutil.NewFlagError(fmt.Sprintf("invalid --call-type %q: use one of LOCAL, INTERSTATE, INTRASTATE, INTERNATIONAL, TOLLFREE-IN, TOLLFREE-OUT, EMERGENCY, ... (see the Insights API docs for the full list)", v))
+	}
+	return n, nil
 }
 
 // buildMonitorQuery renders the deepObject query parameters for a monitor
-// request. accountId[eq] is required by the API and always present.
-func buildMonitorQuery(acctID string, f monitorFlags, now time.Time) (url.Values, error) {
+// request and validates every flag. It runs before authentication so flag
+// misuse fails deterministically (exit 6) regardless of login state; the
+// caller adds the required accountId[eq] once auth has resolved the account.
+func buildMonitorQuery(f monitorFlags, now time.Time) (url.Values, error) {
 	q := url.Values{}
-	q.Set("accountId[eq]", acctID)
 	if f.To != "" {
 		q.Set("toPhoneNumber[eq]", f.To)
 	}
@@ -135,7 +159,11 @@ func buildMonitorQuery(acctID string, f monitorFlags, now time.Time) (url.Values
 		q.Set("direction[eq]", d)
 	}
 	if f.CallType != "" {
-		q.Set("callType[eq]", normalizeCallType(f.CallType))
+		ct, err := normalizeCallType(f.CallType)
+		if err != nil {
+			return nil, err
+		}
+		q.Set("callType[eq]", ct)
 	}
 	if f.Subaccount != "" {
 		q.Set("subAccount[eq]", f.Subaccount)
@@ -169,15 +197,18 @@ func unwrapMonitorData(result interface{}) interface{} {
 }
 
 func runMonitor(cmd *cobra.Command, endpoint string, flags *monitorFlags) error {
-	client, acctID, err := cmdutil.InsightsClient(cmdutil.AccountIDFlag(cmd))
+	// Validate flags before authenticating so misuse fails fast (exit 6)
+	// even when logged out.
+	q, err := buildMonitorQuery(*flags, time.Now())
 	if err != nil {
 		return err
 	}
 
-	q, err := buildMonitorQuery(acctID, *flags, time.Now())
+	client, acctID, err := cmdutil.InsightsClient(cmdutil.AccountIDFlag(cmd))
 	if err != nil {
 		return err
 	}
+	q.Set("accountId[eq]", acctID)
 
 	var result interface{}
 	if err := client.Get("/v1/monitors/voice/"+endpoint+"?"+q.Encode(), &result); err != nil {
