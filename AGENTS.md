@@ -207,7 +207,7 @@ All read operations (gets, lists, deletes) are safe to retry.
 Use `--wait` to block until completion:
 
 ```bash
-band number order +19195551234 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
+band number order +15555550100 --subaccount <subaccount-id> --wait   # blocks until number is active (30s default)
 band call create --from ... --to ... --wait --timeout 120       # blocks until call completes
 band transcription create <call-id> <rec-id> --wait             # blocks until transcription ready (60s default)
 ```
@@ -377,7 +377,7 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 Use when no credentials exist yet. The CLI submits the registration request; the remaining setup happens in the browser. **An agent cannot complete this flow autonomously** — it requires a human (or an agent with web/phone access) to finish.
 
 ```bash
-band account register --phone +19195551234 --email you@example.com --first-name Jane --last-name Doe --accept-tos
+band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe --accept-tos
 # → registration submitted; remaining steps happen outside the CLI:
 #   1. Check email for a registration link from Bandwidth
 #   2. Enter the OTP code sent via SMS to verify the phone number
@@ -489,8 +489,8 @@ band vcp list --plain                       # VCPs? (403 = legacy account, use s
 
 For messaging readiness, also check:
 ```bash
-band tendlc campaigns --plain               # any 10DLC campaigns? (403 = see note below)
-band tendlc number <number> --plain         # is a specific number registered?
+band tendlc campaign list --plain               # any 10DLC campaigns? (403 = see note below)
+band tendlc number get <number> --plain         # is a specific number registered?
 band tfv get <number> --plain               # toll-free verification status?
 ```
 
@@ -561,7 +561,7 @@ band message send --from <number> --to <destination> --app-id <app-id> --text "H
 |---|---|---|
 | `"not linked to any location"` | App not assigned to a location | `band app assign <app-id> --site <id> --location <id>` |
 | `"no working callback URL"` | Callback URL is placeholder or missing | `band app update <app-id> --callback-url <url>` |
-| `"not assigned to any active 10DLC campaign"` | Number not on a campaign | `band tendlc campaigns --plain` to list campaigns; `band tnoption assign <number> --campaign-id <id>` to assign |
+| `"not assigned to any active 10DLC campaign"` | Number not on a campaign | `band tendlc campaign list --plain` to list campaigns; `band tnoption assign <number> --campaign-id <id>` to assign |
 | `"toll-free verification status"` | TFV not approved | `band tfv get <number> --plain` to check status |
 
 ### Send a message
@@ -569,7 +569,7 @@ band message send --from <number> --to <destination> --app-id <app-id> --text "H
 Once provisioning is set up, sending is straightforward:
 
 ```bash
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello from the agent"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Hello from the agent"
 # → preflight checks pass (app linked, callback URL valid, number on campaign)
 # → returns JSON with message id, segmentCount, direction
 ```
@@ -580,30 +580,30 @@ band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text 
 
 ```bash
 MEDIA_URL=$(band message media upload image.png)
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Check this out" --media "$MEDIA_URL"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Check this out" --media "$MEDIA_URL"
 ```
 
 **Group messaging** uses the same `send` command with multiple recipients:
 
 ```bash
-band message send --from +19195551234 --to +15551234567,+15552345678 --app-id abc-123 --text "Team update"
+band message send --from +15555550100 --to +15551234567,+15552345678 --app-id abc-123 --text "Team update"
 ```
 
 **Listing messages** requires at least one filter and **millisecond-precision timestamps** (a common agent mistake):
 
 ```bash
 # Correct — milliseconds in the timestamp:
-band message list --from +19195551234 --start-date 2024-01-01T00:00:00.000Z --plain
+band message list --from +15555550100 --start-date 2024-01-01T00:00:00.000Z --plain
 # Wrong — this returns a 400:
-band message list --from +19195551234 --start-date 2024-01-01T00:00:00Z --plain
+band message list --from +15555550100 --start-date 2024-01-01T00:00:00Z --plain
 ```
 
 ### Make a call
 
 ```bash
-band number list --plain                # → ["+19195551234", ...]
+band number list --plain                # → ["+15555550100", ...]
 band app list --plain                   # → [{"ApplicationId":"abc-123", ...}, ...]
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url <url>
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url <url>
 # → returns JSON with callId
 
 # IMPORTANT: always verify the call actually connected
@@ -636,7 +636,7 @@ band transcription create <call-id> <rec-id> --wait --plain        # blocks unti
 
 **Look up a specific number's VCP:**
 ```bash
-band number get +19195551234 --plain    # → shows VCP assignment and voice settings
+band number get +15555550100 --plain    # → shows VCP assignment and voice settings
 ```
 
 **List all numbers on a VCP:**
@@ -666,13 +666,13 @@ band portin validate-tf +18005551234 --wait --plain
 
 ```bash
 band portin create \
-  --numbers +19195551234,+19195551235 \
+  --numbers +15555550100,+15555550100 \
   --site <site-id> --peer <peer-id> \
   --foc 2026-06-01T15:30:00Z \
   --loa-authorizing-person "Jane Doe" \
   --loa ./loa.pdf \
   --customer-order-id agent-run-42 --if-not-exists --plain
-# → {"orderId":"...","status":"DRAFT","numbers":["+19195551234","+19195551235"], ...}
+# → {"orderId":"...","status":"DRAFT","numbers":["+15555550100","+15555550100"], ...}
 
 ORDER_ID=$(... extract from above ...)
 band portin submit $ORDER_ID --wait --plain
@@ -861,8 +861,8 @@ A 403 from `band tendlc` can mean: credential lacks the Campaign Management role
 ### Check if a number is registered for 10DLC
 
 ```bash
-band tendlc number +19195551234 --plain
-# → { "phoneNumber": "+19195551234", "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }
+band tendlc number get +15555550100 --plain
+# → { "phoneNumber": "+15555550100", "campaignId": "CEXMPL1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }
 ```
 
 Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (registration failed).
@@ -870,23 +870,29 @@ Status values: `SUCCESS` (ready to send), `PROCESSING` (pending), `FAILURE` (reg
 ### List all 10DLC campaigns
 
 ```bash
-band tendlc campaigns --plain
-# → [{ "campaignId": "CA3XKE1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }, ...]
+band tendlc campaign list --plain
+# → [{ "campaignId": "CEXMPL1", "status": "SUCCESS", "brandId": "BEXMPL5", ... }, ...]
 ```
 
-### List all registered numbers (with filters)
+### List all registered numbers
 
 ```bash
-band tendlc numbers --plain                           # all registered numbers
-band tendlc numbers --campaign-id CA3XKE1 --plain     # numbers on a specific campaign
-band tendlc numbers --status SUCCESS --plain           # only successfully registered numbers
-band tendlc numbers --status FAILURE --plain           # numbers with registration failures
+band tendlc number list --plain                                  # all registered numbers
+band tendlc number list --campaign-id-contains CEXMPL1 --plain   # numbers on a specific campaign
+band tendlc number list --all --plain                            # walk every page
 ```
+
+**There is no `--status` filter, and that is deliberate.** The API accepts a `status`
+filter and silently ignores it: an account holding 21 `SUCCESS` and 2 `FAILURE`
+numbers returns all 23 for `status[eq]=SUCCESS`, for `status[eq]=FAILURE`, and even
+for a value matching nothing at all. Offering the flag would hand callers every
+record while implying it was filtered. Filter client-side on the `status` field
+instead — it is present on every record.
 
 ### List numbers on a specific campaign
 
 ```bash
-band tendlc campaigns numbers CA3XKE1 --plain
+band tendlc campaign numbers CA3XKE1 --plain
 ```
 
 ### Diagnose messaging send failures
@@ -895,13 +901,13 @@ When `message send` fails with "not assigned to any active 10DLC campaign":
 
 ```bash
 # 1. Check the specific number's registration
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 
 # 2. If not registered, list available campaigns
-band tendlc campaigns --plain
+band tendlc campaign list --plain
 
 # 3. Assign the number to a campaign
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait
 ```
 
 **If `band tendlc` returns 403:** Don't retry — escalate. Tell the user: "Your credential may not have the Campaign Management role, or your account may not have the Registration Center feature enabled. Contact your Bandwidth account manager to check your configuration."
@@ -1873,7 +1879,7 @@ band tfv submit +18005551234 \
   --contact-first "Jane" \
   --contact-last "Doe" \
   --contact-email "jane@acme.com" \
-  --contact-phone "+19195551234" \
+  --contact-phone "+15555550100" \
   --message-volume 10000 \
   --use-case "2FA" \
   --use-case-summary "Two-factor auth codes for user login" \
@@ -1922,14 +1928,14 @@ TN Option Orders assign phone numbers to 10DLC campaigns (and can set other per-
 ### Assign a number to a campaign
 
 ```bash
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait --plain
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait --plain
 # → order completes when status is COMPLETE
 ```
 
 Multiple numbers in one order:
 
 ```bash
-band tnoption assign +19195551234 +19195551235 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 +15555550100 --campaign-id CA3XKE1 --wait
 ```
 
 ### Check order status
@@ -1944,14 +1950,14 @@ band tnoption get <order-id> --plain
 ```bash
 band tnoption list --plain
 band tnoption list --status FAILED --plain
-band tnoption list --tn +19195551234 --plain
+band tnoption list --tn +15555550100 --plain
 ```
 
 ### Common errors
 
 | Error code | Message | Cause | Fix |
 |---|---|---|---|
-| **1022** | "TelephoneNumber is in an invalid format" | Number not in E.164 format | Pass numbers with `+` prefix: `+19195551234` |
+| **1022** | "TelephoneNumber is in an invalid format" | Number not in E.164 format | Pass numbers with `+` prefix: `+15555550100` |
 | **12220** | "Campaign has been rejected by DCA2" | Campaign failed carrier compliance review | Fix campaign compliance in the Bandwidth App, then retry |
 | **5132** | "SMS attribute should be 'ON' for provisioning A2P" | SMS not enabled on the number's SIP peer/location | Enable SMS on the location in the Bandwidth App |
 | **5133** | "A2P provisioning requires A2P on corresponding Sip peer" | Location not configured for A2P messaging | Enable A2P on the location in the Bandwidth App |
@@ -1960,23 +1966,23 @@ band tnoption list --tn +19195551234 --plain
 
 ```bash
 # 1. Check if number is on a campaign
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 
 # 2. If not, find an available campaign
-band tendlc campaigns --plain
+band tendlc campaign list --plain
 
 # 3. Assign the number (use full E.164 format with + prefix)
-band tnoption assign +19195551234 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait
 
 # 4. If assign fails with 5132/5133, SMS or A2P isn't enabled on the
 #    number's location — this must be fixed in the Bandwidth App before retrying
 
 # 5. Verify assignment
-band tendlc number +19195551234 --plain
+band tendlc number get +15555550100 --plain
 # → status should be SUCCESS
 
 # 6. Now send
-band message send --from +19195551234 --to +15559876543 --app-id abc-123 --text "Hello"
+band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text "Hello"
 ```
 
 ### Test SIP Trunking end-to-end
@@ -1989,7 +1995,7 @@ Use this workflow to verify that a SIP realm and credential authenticate correct
 # 1. Pick a from number — must be on your account and voice-capable
 FROM=$(band number list --plain | jq -r '.[0]')
 # On Bandwidth Build accounts, band number list is not available.
-# Pass the pre-provisioned number manually: FROM=+19195551234
+# Pass the pre-provisioned number manually: FROM=+15555550100
 
 # 2. Create an ephemeral realm (never the default — it cannot be deleted if it is)
 REALM=$(band sip realm create --name sip-test --default=false --wait --plain)

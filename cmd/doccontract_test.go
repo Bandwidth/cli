@@ -56,13 +56,7 @@ var knownDrift = map[string]bool{
 //     tendlc number +15555550100` exits 1 against the built binary) — and,
 //     like the three entries above, deferred to task 6's doc sweep rather
 //     than fixed here.
-var knownDriftCommands = map[string]bool{
-	"tendlc campaigns":         true,
-	"tendlc numbers":           true,
-	"tendlc campaigns numbers": true,
-	"number list is not":       true,
-	"tendlc number":            true,
-}
+var knownDriftCommands = map[string]bool{}
 
 // bandUsageRe captures everything after "band " to end of line (GREEDY — a
 // non-greedy capture would stop at the first space and truncate multi-word
@@ -465,6 +459,16 @@ func TestDocumentedCommandsAndFlagsExist(t *testing.T) {
 			t.Fatalf("reading %s: %v", doc, err)
 		}
 		for _, line := range strings.Split(string(raw), "\n") {
+			// Shell comments inside fenced blocks are prose, not runnable
+			// commands. They routinely mention a command mid-sentence — e.g.
+			// "# On Build accounts, band number list is not available." — and
+			// parsing them treats the following English words as a command
+			// path. Skipping them removes a whole class of false positive at
+			// the cost of not validating commands that appear only inside a
+			// comment, which are by definition not invocations.
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
 			// Table rows: only the command in column 1 is validated for existence;
 			// description-column flags are intentionally NOT checked (they're prose
 			// mentions, not usage). This avoids false positives from flags named in
