@@ -230,7 +230,7 @@ CLI will keep trying.
 **Always use `--plain` when parsing CLI output.** Default JSON reflects Bandwidth's API structure with deep nesting. `--plain` flattens it:
 
 ```bash
-band number list --plain        # → ["+19193554167", "+19198234157", ...]
+band number list --plain        # → ["+15555550100", "+15555550101", ...]
 band subaccount list --plain    # → [{"Id":"152681","Name":"Subacct"}]
 band app list --plain           # → [{"ApplicationId":"abc-123", ...}, ...]
 band app get <id> --plain       # → {"ApplicationId":"abc-123", "AppName":"My App", ...}
