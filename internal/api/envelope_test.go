@@ -24,7 +24,7 @@ func TestParseEnvelopeArrayData(t *testing.T) {
 // brand get returns data as an OBJECT, contradicting the published spec.
 // Verified live on 9901287. Prod wins.
 func TestParseEnvelopeObjectData(t *testing.T) {
-	body := []byte(`{"data":{"brandId":"B0IRNU4","universalEin":"US_562242657"}}`)
+	body := []byte(`{"data":{"brandId":"BEXMPL8","universalEin":"US_123456789"}}`)
 	env, err := ParseEnvelope(body)
 	if err != nil {
 		t.Fatalf("ParseEnvelope: %v", err)
@@ -33,11 +33,11 @@ func TestParseEnvelopeObjectData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Object: %v", err)
 	}
-	if obj["brandId"] != "B0IRNU4" {
-		t.Errorf("brandId = %v, want B0IRNU4", obj["brandId"])
+	if obj["brandId"] != "BEXMPL8" {
+		t.Errorf("brandId = %v, want BEXMPL8", obj["brandId"])
 	}
 	// Undocumented field must survive — responses are lossless.
-	if obj["universalEin"] != "US_562242657" {
+	if obj["universalEin"] != "US_123456789" {
 		t.Errorf("universalEin was dropped: %v", obj["universalEin"])
 	}
 }

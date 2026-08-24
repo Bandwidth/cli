@@ -70,13 +70,13 @@ func TestUpdateBrandPutsToBrandPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WABC123"}}`, &got)
 
-	if _, err := s.UpdateBrand("BGJR2BA", map[string]any{"displayName": "Acme"}); err != nil {
+	if _, err := s.UpdateBrand("BEXMPL6", map[string]any{"displayName": "Acme"}); err != nil {
 		t.Fatalf("UpdateBrand: %v", err)
 	}
 	if got.method != "PUT" {
 		t.Errorf("method = %q, want PUT", got.method)
 	}
-	if want := "/api/v2/accounts/9901287/tendlc/brands/BGJR2BA"; got.path != want {
+	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6"; got.path != want {
 		t.Errorf("path = %q, want %q", got.path, want)
 	}
 }
@@ -102,10 +102,10 @@ func TestReverifyAndResend2FAPostToIdentityPaths(t *testing.T) {
 		call func(*Service) error
 		want string
 	}{
-		{"reverify", func(s *Service) error { return s.ReverifyBrand("BGJR2BA") },
-			"/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/identity/reverify"},
-		{"resend2fa", func(s *Service) error { return s.Resend2FA("BGJR2BA") },
-			"/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/identity/resend2faEmail"},
+		{"reverify", func(s *Service) error { return s.ReverifyBrand("BEXMPL6") },
+			"/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/identity/reverify"},
+		{"resend2fa", func(s *Service) error { return s.Resend2FA("BEXMPL6") },
+			"/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/identity/resend2faEmail"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,10 +130,10 @@ func TestBrandHistoryEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.BrandHistory("BGJR2BA", 10, 20); err != nil {
+	if _, err := s.BrandHistory("BEXMPL6", 10, 20); err != nil {
 		t.Fatalf("BrandHistory: %v", err)
 	}
-	if want := "/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/history"; got.path != want {
+	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/history"; got.path != want {
 		t.Errorf("path = %q, want %q", got.path, want)
 	}
 	if got.query != "limit=10&offset=20" {
@@ -145,10 +145,10 @@ func TestListVettingsEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.ListVettings("BGJR2BA", 10, 0); err != nil {
+	if _, err := s.ListVettings("BEXMPL6", 10, 0); err != nil {
 		t.Fatalf("ListVettings: %v", err)
 	}
-	if want := "/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/vettings"; got.path != want {
+	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/vettings"; got.path != want {
 		t.Errorf("path = %q, want %q", got.path, want)
 	}
 }
@@ -158,7 +158,7 @@ func TestRequestVettingPostsBody(t *testing.T) {
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
 
 	body := map[string]any{"evpId": "AEGIS", "vettingClass": "STANDARD"}
-	if _, err := s.RequestVetting("BGJR2BA", body); err != nil {
+	if _, err := s.RequestVetting("BEXMPL6", body); err != nil {
 		t.Fatalf("RequestVetting: %v", err)
 	}
 	if got.method != "POST" {
@@ -173,13 +173,13 @@ func TestImportVettingPutsToVettingPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
 
-	if _, err := s.ImportVetting("BGJR2BA", "978de74a-7191", map[string]any{"evpId": "AEGIS"}); err != nil {
+	if _, err := s.ImportVetting("BEXMPL6", "978de74a-7191", map[string]any{"evpId": "AEGIS"}); err != nil {
 		t.Fatalf("ImportVetting: %v", err)
 	}
 	if got.method != "PUT" {
 		t.Errorf("method = %q, want PUT", got.method)
 	}
-	if want := "/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/vettings/978de74a-7191"; got.path != want {
+	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/vettings/978de74a-7191"; got.path != want {
 		t.Errorf("path = %q, want %q", got.path, want)
 	}
 }
@@ -250,10 +250,10 @@ func TestVettingIDIsPathEscaped(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
 
-	if _, err := s.ImportVetting("BGJR2BA", "v/1 2", map[string]any{"evpId": "AEGIS"}); err != nil {
+	if _, err := s.ImportVetting("BEXMPL6", "v/1 2", map[string]any{"evpId": "AEGIS"}); err != nil {
 		t.Fatalf("ImportVetting: %v", err)
 	}
-	if want := "/api/v2/accounts/9901287/tendlc/brands/BGJR2BA/vettings/v%2F1%202"; got.escapedPath != want {
+	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/vettings/v%2F1%202"; got.escapedPath != want {
 		t.Errorf("escaped path = %q, want %q", got.escapedPath, want)
 	}
 }

@@ -78,7 +78,7 @@ func stubVettingRequestThenPoll(t *testing.T, idKey, idValue, status string) *ht
 // both, and no request is made — runBrandCmd's `service` seam Fatals if
 // invoked with a nil server.
 func TestVettingRequestMissingRequiredFlagsAggregate(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BGJR2BA", "--confirm")
+	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BEXMPL6", "--confirm")
 	if err == nil {
 		t.Fatal("want an error for missing --evp and --class")
 	}
@@ -95,7 +95,7 @@ func TestVettingRequestMissingRequiredFlagsAggregate(t *testing.T) {
 // the published enumVettingClass, and this must not be "corrected" away.
 func TestVettingRequestAcceptsRCSClass(t *testing.T) {
 	srv, bodies, _ := stubVettingRequestCapturing(t, "vettingBandwidthId", "V1")
-	_, _, err := runBrandCmd(t, srv, "vetting", "request", "BGJR2BA",
+	_, _, err := runBrandCmd(t, srv, "vetting", "request", "BEXMPL6",
 		"--evp", "AEGIS", "--class", "RCS", "--confirm")
 	if err != nil {
 		t.Fatalf("vetting request --class RCS: %v", err)
@@ -115,7 +115,7 @@ func TestVettingRequestAcceptsRCSClass(t *testing.T) {
 // Test 3: an invalid --class exits 6 listing the valid classes, with zero
 // requests made.
 func TestVettingRequestRejectsInvalidClass(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BGJR2BA",
+	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BEXMPL6",
 		"--evp", "AEGIS", "--class", "NOT_A_CLASS", "--confirm")
 	if err == nil {
 		t.Fatal("want an error for an invalid --class")
@@ -133,7 +133,7 @@ func TestVettingRequestRejectsInvalidClass(t *testing.T) {
 // Test 4: an invalid --evp exits 6 listing the valid providers, with zero
 // requests made.
 func TestVettingRequestRejectsInvalidEvp(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BGJR2BA",
+	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BEXMPL6",
 		"--evp", "NOPE", "--class", "STANDARD", "--confirm")
 	if err == nil {
 		t.Fatal("want an error for an invalid --evp")
@@ -154,7 +154,7 @@ func TestVettingRequestRejectsInvalidEvp(t *testing.T) {
 // shipped and both got a regression guard for; this was the one instance
 // left unguarded at the final whole-branch review (item C3).
 func TestVettingRequestAggregatesOneMissingOneInvalidFlag(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BGJR2BA",
+	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BEXMPL6",
 		"--class", "NOT_A_CLASS", "--confirm")
 	if err == nil {
 		t.Fatal("want an error for a missing --evp combined with an invalid --class")
@@ -173,7 +173,7 @@ func TestVettingRequestAggregatesOneMissingOneInvalidFlag(t *testing.T) {
 // Test 5: vetting request without --confirm exits 6, makes ZERO HTTP
 // requests, and the message mentions the order is billable.
 func TestVettingRequestWithoutConfirmMakesNoRequests(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BGJR2BA", "--evp", "AEGIS", "--class", "STANDARD")
+	_, _, err := runBrandCmd(t, nil, "vetting", "request", "BEXMPL6", "--evp", "AEGIS", "--class", "STANDARD")
 	if err == nil {
 		t.Fatal("want an error when --confirm is missing")
 	}
@@ -189,7 +189,7 @@ func TestVettingRequestWithoutConfirmMakesNoRequests(t *testing.T) {
 // prints the 202 receipt on stdout.
 func TestVettingRequestWithConfirmPostsBodyAndPrintsReceipt(t *testing.T) {
 	srv, bodies, paths := stubVettingRequestCapturing(t, "vettingBandwidthId", "V1")
-	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BGJR2BA",
+	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BEXMPL6",
 		"--evp", "AEGIS", "--class", "STANDARD", "--confirm")
 	if err != nil {
 		t.Fatalf("vetting request --confirm: %v", err)
@@ -197,8 +197,8 @@ func TestVettingRequestWithConfirmPostsBodyAndPrintsReceipt(t *testing.T) {
 	if len(*bodies) != 1 {
 		t.Fatalf("want exactly one POST, got %d", len(*bodies))
 	}
-	if !strings.HasSuffix((*paths)[0], "/brands/BGJR2BA/vettings") {
-		t.Errorf("path = %q, want POST to .../brands/BGJR2BA/vettings", (*paths)[0])
+	if !strings.HasSuffix((*paths)[0], "/brands/BEXMPL6/vettings") {
+		t.Errorf("path = %q, want POST to .../brands/BEXMPL6/vettings", (*paths)[0])
 	}
 	var sent map[string]any
 	if err := json.Unmarshal([]byte((*bodies)[0]), &sent); err != nil {
@@ -221,15 +221,15 @@ func TestVettingRequestWithConfirmPostsBodyAndPrintsReceipt(t *testing.T) {
 func TestVettingImportPutsEvpAndOnlyIncludesTokenWhenPassed(t *testing.T) {
 	t.Run("without token", func(t *testing.T) {
 		srv, bodies, paths := stubVettingImportCapturing(t, "bandwidthId", "V1")
-		_, _, err := runBrandCmd(t, srv, "vetting", "import", "BGJR2BA", "V1", "--evp", "CV")
+		_, _, err := runBrandCmd(t, srv, "vetting", "import", "BEXMPL6", "V1", "--evp", "CV")
 		if err != nil {
 			t.Fatalf("vetting import: %v", err)
 		}
 		if len(*bodies) != 1 {
 			t.Fatalf("want exactly one PUT, got %d", len(*bodies))
 		}
-		if !strings.HasSuffix((*paths)[0], "/brands/BGJR2BA/vettings/V1") {
-			t.Errorf("path = %q, want PUT to .../brands/BGJR2BA/vettings/V1", (*paths)[0])
+		if !strings.HasSuffix((*paths)[0], "/brands/BEXMPL6/vettings/V1") {
+			t.Errorf("path = %q, want PUT to .../brands/BEXMPL6/vettings/V1", (*paths)[0])
 		}
 		var sent map[string]any
 		if err := json.Unmarshal([]byte((*bodies)[0]), &sent); err != nil {
@@ -245,7 +245,7 @@ func TestVettingImportPutsEvpAndOnlyIncludesTokenWhenPassed(t *testing.T) {
 
 	t.Run("with token", func(t *testing.T) {
 		srv, bodies, _ := stubVettingImportCapturing(t, "bandwidthId", "V1")
-		_, _, err := runBrandCmd(t, srv, "vetting", "import", "BGJR2BA", "V1",
+		_, _, err := runBrandCmd(t, srv, "vetting", "import", "BEXMPL6", "V1",
 			"--evp", "CV", "--vetting-token", "TOK123")
 		if err != nil {
 			t.Fatalf("vetting import --vetting-token: %v", err)
@@ -273,7 +273,7 @@ func TestVettingImportHasNoConfirmFlag(t *testing.T) {
 // Test 8: vetting list on a brand with one ACTIVE vetting prints it, and the
 // truncation warning goes to stderr only.
 func TestVettingListPrintsEntryAndWarnsOnTruncationViaStderrOnly(t *testing.T) {
-	out, _, err := runBrandCmd(t, stubVettingList(t), "vetting", "list", "BGJR2BA")
+	out, _, err := runBrandCmd(t, stubVettingList(t), "vetting", "list", "BEXMPL6")
 	if err != nil {
 		t.Fatalf("vetting list: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestVettingListPrintsEntryAndWarnsOnTruncationViaStderrOnly(t *testing.T) {
 		t.Errorf("stdout = %q, want the ACTIVE vetting entry", out)
 	}
 
-	out, errOut, err := runBrandCmd(t, stubVettingListTruncated(t), "vetting", "list", "BGJR2BA", "--limit", "1")
+	out, errOut, err := runBrandCmd(t, stubVettingListTruncated(t), "vetting", "list", "BEXMPL6", "--limit", "1")
 	if err != nil {
 		t.Fatalf("vetting list (truncated): %v", err)
 	}
@@ -322,7 +322,7 @@ func TestVettingCommandsRejectWrongPositionalCount(t *testing.T) {
 // field the API actually sent.
 func TestVettingRequestReceiptPreservesAPIFieldName(t *testing.T) {
 	srv, _, _ := stubVettingRequestCapturing(t, "vettingBandwidthId", "V-XYZ")
-	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BGJR2BA",
+	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BEXMPL6",
 		"--evp", "AEGIS", "--class", "STANDARD", "--confirm")
 	if err != nil {
 		t.Fatalf("vetting request: %v", err)
@@ -344,7 +344,7 @@ func TestVettingRequestReceiptPreservesAPIFieldName(t *testing.T) {
 // keys and print the final ACTIVE resource.
 func TestVettingRequestWaitPollsToActive(t *testing.T) {
 	srv := stubVettingRequestThenPoll(t, "vettingBandwidthId", "V1", "ACTIVE")
-	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BGJR2BA",
+	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BEXMPL6",
 		"--evp", "AEGIS", "--class", "STANDARD", "--confirm", "--wait", "--timeout", "5")
 	if err != nil {
 		t.Fatalf("vetting request --wait: %v", err)
@@ -366,9 +366,9 @@ func TestVettingRoleGate403MapsToExitFour(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"list", []string{"vetting", "list", "BGJR2BA"}},
-		{"request", []string{"vetting", "request", "BGJR2BA", "--evp", "AEGIS", "--class", "STANDARD", "--confirm"}},
-		{"import", []string{"vetting", "import", "BGJR2BA", "V1", "--evp", "AEGIS"}},
+		{"list", []string{"vetting", "list", "BEXMPL6"}},
+		{"request", []string{"vetting", "request", "BEXMPL6", "--evp", "AEGIS", "--class", "STANDARD", "--confirm"}},
+		{"import", []string{"vetting", "import", "BEXMPL6", "V1", "--evp", "AEGIS"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -398,7 +398,7 @@ func TestVettingRequestNoVettingIDPrintsBodyWithKeyPreserved(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":{"orders":[{"orderId":"O1"}]}}`))
 	})
 
-	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BGJR2BA",
+	out, _, err := runBrandCmd(t, srv, "vetting", "request", "BEXMPL6",
 		"--evp", "AEGIS", "--class", "STANDARD", "--confirm", "--plain")
 	if err == nil {
 		t.Fatal("want an error when the response carries no vetting ID")

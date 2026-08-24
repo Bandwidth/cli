@@ -48,11 +48,11 @@ func TestListWithFilterBuildsQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.List(25, 5, []api.Filter{{Field: "brandId", Op: api.OpEq, Value: "B0IRNU4"}})
+	_, err := svc.List(25, 5, []api.Filter{{Field: "brandId", Op: api.OpEq, Value: "BEXMPL8"}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if want := "brandId%5Beq%5D=B0IRNU4&limit=25&offset=5"; gotQuery != want {
+	if want := "brandId%5Beq%5D=BEXMPL8&limit=25&offset=5"; gotQuery != want {
 		t.Errorf("query = %q, want %q", gotQuery, want)
 	}
 }

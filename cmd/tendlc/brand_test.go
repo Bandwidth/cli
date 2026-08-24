@@ -75,7 +75,7 @@ func newBrandStub(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 // page. Good enough for tests that just need brand list to succeed.
 func stubBrandList(t *testing.T) *httptest.Server {
 	return newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"bandwidthId":"WET8JUY8H0","brandId":"BGJR2BA"}],` +
+		_, _ = w.Write([]byte(`{"data":[{"bandwidthId":"WET8JUY8H0","brandId":"BEXMPL6"}],` +
 			`"page":{"pageNumber":0,"pageSize":50,"totalElements":1,"totalPages":1}}`))
 	})
 }
@@ -106,7 +106,7 @@ func stubBrandGetCapturing(t *testing.T) (*httptest.Server, *[]string) {
 	var paths []string
 	srv := newBrandStub(t, func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
-		_, _ = w.Write([]byte(`{"data":{"bandwidthId":"WET8JUY8H0","brandId":"BGJR2BA"}}`))
+		_, _ = w.Write([]byte(`{"data":{"bandwidthId":"WET8JUY8H0","brandId":"BEXMPL6"}}`))
 	})
 	return srv, &paths
 }
@@ -329,12 +329,12 @@ func TestBrandListAllWalksEveryPage(t *testing.T) {
 
 func TestBrandGetAcceptsEitherIdentifier(t *testing.T) {
 	srv, paths := stubBrandGetCapturing(t)
-	for _, id := range []string{"BGJR2BA", "WET8JUY8H0"} {
+	for _, id := range []string{"BEXMPL6", "WET8JUY8H0"} {
 		if _, _, err := runBrandCmd(t, srv, "brand", "get", id); err != nil {
 			t.Fatalf("brand get %s: %v", id, err)
 		}
 	}
-	if len(*paths) != 2 || !strings.HasSuffix((*paths)[0], "/brands/BGJR2BA") || !strings.HasSuffix((*paths)[1], "/brands/WET8JUY8H0") {
+	if len(*paths) != 2 || !strings.HasSuffix((*paths)[0], "/brands/BEXMPL6") || !strings.HasSuffix((*paths)[1], "/brands/WET8JUY8H0") {
 		t.Errorf("paths = %v; get must pass the ID through unchanged", *paths)
 	}
 }
@@ -361,7 +361,7 @@ func TestBrandCommandsRejectStrayPositionals(t *testing.T) {
 }
 
 func TestBrandHistoryReturnsMessageLog(t *testing.T) {
-	out, _, err := runBrandCmd(t, stubBrandHistory(t), "brand", "history", "BGJR2BA")
+	out, _, err := runBrandCmd(t, stubBrandHistory(t), "brand", "history", "BEXMPL6")
 	if err != nil {
 		t.Fatalf("brand history: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestBrandHistoryReturnsMessageLog(t *testing.T) {
 // TestBrandHistoryAllWalksEveryPage is TestBrandListAllWalksEveryPage's twin
 // for `brand history --all`.
 func TestBrandHistoryAllWalksEveryPage(t *testing.T) {
-	out, errOut, err := runBrandCmd(t, stubBrandHistoryTwoPages(t), "brand", "history", "BGJR2BA",
+	out, errOut, err := runBrandCmd(t, stubBrandHistoryTwoPages(t), "brand", "history", "BEXMPL6",
 		"--all", "--limit", "1", "--plain")
 	if err != nil {
 		t.Fatalf("brand history --all: %v", err)

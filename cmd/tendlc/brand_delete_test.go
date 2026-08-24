@@ -43,7 +43,7 @@ func stubBrandDeleteStillExistsServer(t *testing.T, deleteStatus int) (*httptest
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"data":{"brandId":"BGJR2BA","bandwidthId":"WET8JUY8H0"}}`))
+		_, _ = w.Write([]byte(`{"data":{"brandId":"BEXMPL6","bandwidthId":"WET8JUY8H0"}}`))
 	})
 	return srv, &methods
 }
@@ -53,7 +53,7 @@ func stubBrandDeleteStillExistsServer(t *testing.T, deleteStatus int) (*httptest
 // server, so this fails loudly (not silently) if the confirm gate ever moves
 // after the service/DELETE call.
 func TestBrandDeleteWithoutConfirmMakesNoRequests(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "brand", "delete", "BGJR2BA")
+	_, _, err := runBrandCmd(t, nil, "brand", "delete", "BEXMPL6")
 	if err == nil {
 		t.Fatal("want an error when --confirm is missing")
 	}
@@ -86,7 +86,7 @@ func TestBrandDeleteWithoutConfirmMakesNoRequests(t *testing.T) {
 func TestBrandDeleteWithConfirmIssuesDeleteAndPrintsReceipt(t *testing.T) {
 	srv, methods := stubBrandDeleteServer(t, http.StatusNoContent)
 
-	out, _, err := runBrandCmd(t, srv, "brand", "delete", "BGJR2BA", "--confirm", "--plain")
+	out, _, err := runBrandCmd(t, srv, "brand", "delete", "BEXMPL6", "--confirm", "--plain")
 	if err != nil {
 		t.Fatalf("brand delete --confirm: %v", err)
 	}
@@ -94,8 +94,8 @@ func TestBrandDeleteWithConfirmIssuesDeleteAndPrintsReceipt(t *testing.T) {
 		t.Fatalf("want exactly one DELETE, got %v", *methods)
 	}
 	got := decodeStdout(t, out)
-	if got["id"] != "BGJR2BA" {
-		t.Errorf("stdout = %v, want id BGJR2BA", got)
+	if got["id"] != "BEXMPL6" {
+		t.Errorf("stdout = %v, want id BEXMPL6", got)
 	}
 	if got["deleted"] != false {
 		t.Errorf("stdout = %v, want deleted false — accepted is not confirmed, and there was no --wait to confirm it", got)
@@ -116,7 +116,7 @@ func TestBrandDeleteWithConfirmIssuesDeleteAndPrintsReceipt(t *testing.T) {
 func TestBrandDeleteWaitTreats404AsSuccess(t *testing.T) {
 	srv, methods := stubBrandDeleteServer(t, http.StatusNoContent)
 
-	out, _, err := runBrandCmd(t, srv, "brand", "delete", "BGJR2BA", "--confirm", "--wait", "--timeout", "5", "--plain")
+	out, _, err := runBrandCmd(t, srv, "brand", "delete", "BEXMPL6", "--confirm", "--wait", "--timeout", "5", "--plain")
 	if err != nil {
 		t.Fatalf("brand delete --confirm --wait: %v", err)
 	}
@@ -124,8 +124,8 @@ func TestBrandDeleteWaitTreats404AsSuccess(t *testing.T) {
 		t.Fatalf("want a DELETE then at least one GET, got %v", *methods)
 	}
 	got := decodeStdout(t, out)
-	if got["id"] != "BGJR2BA" {
-		t.Errorf("stdout = %v, want id BGJR2BA", got)
+	if got["id"] != "BEXMPL6" {
+		t.Errorf("stdout = %v, want id BEXMPL6", got)
 	}
 	if got["deleted"] != true {
 		t.Errorf("stdout = %v, want deleted true — the follow-up 404 confirmed it", got)
@@ -142,7 +142,7 @@ func TestBrandDeleteWaitTreats404AsSuccess(t *testing.T) {
 func TestBrandDeleteWaitTimeoutKeepsReceiptHonest(t *testing.T) {
 	srv, methods := stubBrandDeleteStillExistsServer(t, http.StatusNoContent)
 
-	out, _, err := runBrandCmd(t, srv, "brand", "delete", "BGJR2BA", "--confirm", "--wait", "--timeout", "0", "--plain")
+	out, _, err := runBrandCmd(t, srv, "brand", "delete", "BEXMPL6", "--confirm", "--wait", "--timeout", "0", "--plain")
 	if err == nil {
 		t.Fatal("want a timeout error")
 	}
@@ -153,8 +153,8 @@ func TestBrandDeleteWaitTimeoutKeepsReceiptHonest(t *testing.T) {
 		t.Fatalf("want a DELETE then at least one GET, got %v", *methods)
 	}
 	got := decodeStdout(t, out)
-	if got["id"] != "BGJR2BA" {
-		t.Errorf("stdout = %v, want id BGJR2BA", got)
+	if got["id"] != "BEXMPL6" {
+		t.Errorf("stdout = %v, want id BEXMPL6", got)
 	}
 	if got["deleted"] != false {
 		t.Errorf("stdout = %v, want deleted false — the timeout means completion was never confirmed, and exit 5 must not be paired with deleted:true", got)

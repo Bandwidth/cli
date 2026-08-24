@@ -63,7 +63,7 @@ var restoreCmd = &cobra.Command{
 
 Sends softDeleted: false. Note the published API docs describe restoring with
 {"deleted": false} — that form returns 404 "Customer profile not found" even
-though the record is retrievable. Reported as MV-23429.
+though the record is retrievable. Reported to the API team.
 
 No --confirm needed: restoring is not destructive.`,
 	Example: `  band customer-profile restore 3IIzIFnRRQBE3AMzPpMTNo --plain`,

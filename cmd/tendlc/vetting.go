@@ -236,8 +236,8 @@ var vettingListCmd = &cobra.Command{
 
 The positional here is a BRAND ID. Vettings are brand-scoped; there is no
 campaign vetting endpoint.`,
-	Example: `  band tendlc vetting list BGJR2BA --plain
-  band tendlc vetting list BGJR2BA --all --plain`,
+	Example: `  band tendlc vetting list BEXMPL6 --plain
+  band tendlc vetting list BEXMPL6 --all --plain`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if vettingListAll && cmd.Flags().Changed("offset") {
@@ -311,8 +311,8 @@ class-level error.
 
 This places a billable order with an external vetting provider, so
 --confirm is required.`,
-	Example: `  band tendlc vetting request BGJR2BA --evp AEGIS --class STANDARD --confirm --plain
-  band tendlc vetting request BGJR2BA --evp AEGIS --class STANDARD --confirm --wait --plain`,
+	Example: `  band tendlc vetting request BEXMPL6 --evp AEGIS --class STANDARD --confirm --plain
+  band tendlc vetting request BEXMPL6 --evp AEGIS --class STANDARD --confirm --wait --plain`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := validateVettingRequest(vettingRequestEvp, vettingRequestClass); err != nil {
@@ -384,8 +384,8 @@ assigned by the external provider.
 
 Recording an already-performed vetting is not billable, so unlike 'vetting
 request' this takes no --confirm.`,
-	Example: `  band tendlc vetting import BGJR2BA V123 --evp AEGIS --plain
-  band tendlc vetting import BGJR2BA V123 --evp AEGIS --vetting-token TOK123 --plain`,
+	Example: `  band tendlc vetting import BEXMPL6 V123 --evp AEGIS --plain
+  band tendlc vetting import BEXMPL6 V123 --evp AEGIS --vetting-token TOK123 --plain`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if vettingImportEvp == "" {

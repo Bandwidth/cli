@@ -20,19 +20,19 @@ import (
 func liveBrandForUpdate(brandType, businessContactEmail string) map[string]any {
 	return map[string]any{
 		"bandwidthId":             "WET8JUY8H0",
-		"brandId":                 "BGJR2BA",
+		"brandId":                 "BEXMPL6",
 		"brandIdentityStatus":     "VERIFIED",
 		"brandType":               brandType,
 		"companyName":             "Bandwidth Inc",
-		"displayName":             "Bandwidth Acceptance Test",
+		"displayName":             "Example Brand",
 		"street":                  "1000 Bandwidth Way",
 		"city":                    "Raleigh",
 		"state":                   "NC",
 		"postalCode":              "27606",
 		"countryCodeA3":           "USA",
 		"phone":                   "+12025551234",
-		"email":                   "npatel@bandwidth.com",
-		"ein":                     "562242657",
+		"email":                   "ops@example.com",
+		"ein":                     "123456789",
 		"einIssuingCountryCodeA3": "USA",
 		"vertical":                "PROFESSIONAL",
 		"website":                 "https://bandwidth.com",
@@ -91,7 +91,7 @@ func stubBrandUpdateServer(t *testing.T, getBody map[string]any, putStatus int) 
 // cannot pass by accident even if the "nothing to update" check moved after
 // the service/GET call.
 func TestBrandUpdateNoFieldFlagsExitsSixWithZeroRequests(t *testing.T) {
-	_, _, err := runBrandCmd(t, nil, "brand", "update", "BGJR2BA")
+	_, _, err := runBrandCmd(t, nil, "brand", "update", "BEXMPL6")
 	if err == nil {
 		t.Fatal("want an error when no field flags are passed")
 	}
@@ -111,7 +111,7 @@ func TestBrandUpdateNoFieldFlagsExitsSixWithZeroRequests(t *testing.T) {
 func TestBrandUpdateRenameOnlyPreservesEveryOtherField(t *testing.T) {
 	srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
 
-	_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--display-name", "Renamed", "--plain")
+	_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--display-name", "Renamed", "--plain")
 	if err != nil {
 		t.Fatalf("brand update: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestBrandUpdateRenameOnlyPreservesEveryOtherField(t *testing.T) {
 func TestBrandUpdateCompanyNameWithoutConfirmRefuses(t *testing.T) {
 	srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
 
-	_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--company-name", "New Co", "--plain")
+	_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--company-name", "New Co", "--plain")
 	if err == nil {
 		t.Fatal("want an error when an identity field changes without --confirm")
 	}
@@ -164,7 +164,7 @@ func TestBrandUpdateCompanyNameWithoutConfirmRefuses(t *testing.T) {
 func TestBrandUpdateCompanyNameWithConfirmProceeds(t *testing.T) {
 	srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
 
-	_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--company-name", "New Co", "--confirm", "--plain")
+	_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--company-name", "New Co", "--confirm", "--plain")
 	if err != nil {
 		t.Fatalf("brand update --confirm: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestBrandUpdateCompanyNameWithConfirmProceeds(t *testing.T) {
 func TestBrandUpdateWebsiteOnlyNeedsNoConfirm(t *testing.T) {
 	srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
 
-	_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--website", "https://acme.example", "--plain")
+	_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--website", "https://acme.example", "--plain")
 	if err != nil {
 		t.Fatalf("brand update --website: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestBrandUpdateWebsiteOnlyNeedsNoConfirm(t *testing.T) {
 func TestBrandUpdateBusinessContactEmailConfirmDependsOnBrandType(t *testing.T) {
 	t.Run("PRIVATE_PROFIT needs no confirm", func(t *testing.T) {
 		srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "old@acme.com"), http.StatusOK)
-		_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA",
+		_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6",
 			"--business-contact-email", "new@acme.com", "--plain")
 		if err != nil {
 			t.Fatalf("brand update: %v", err)
@@ -211,7 +211,7 @@ func TestBrandUpdateBusinessContactEmailConfirmDependsOnBrandType(t *testing.T) 
 
 	t.Run("PUBLIC_PROFIT needs confirm", func(t *testing.T) {
 		srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PUBLIC_PROFIT", "old@acme.com"), http.StatusOK)
-		_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA",
+		_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6",
 			"--business-contact-email", "new@acme.com", "--plain")
 		if err == nil {
 			t.Fatal("want an error requiring --confirm on a PUBLIC_PROFIT brand")
@@ -226,7 +226,7 @@ func TestBrandUpdateBusinessContactEmailConfirmDependsOnBrandType(t *testing.T) 
 			t.Errorf("want zero PUT requests, got %d", len(*bodies))
 		}
 
-		if _, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA",
+		if _, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6",
 			"--business-contact-email", "new@acme.com", "--confirm", "--plain"); err != nil {
 			t.Fatalf("brand update --confirm: %v", err)
 		}
@@ -242,7 +242,7 @@ func TestBrandUpdateBusinessContactEmailConfirmDependsOnBrandType(t *testing.T) 
 func TestBrandUpdateClearingRequiredFieldExitsSixBeforePut(t *testing.T) {
 	srv, bodies := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
 
-	_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--display-name", "", "--plain")
+	_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--display-name", "", "--plain")
 	if err == nil {
 		t.Fatal("want an error when clearing a universally-required field")
 	}
@@ -268,7 +268,7 @@ func TestBrandUpdateHasNoWaitFlag(t *testing.T) {
 func TestBrandUpdateConflictOnPutMapsToTCRHint(t *testing.T) {
 	srv, _ := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusConflict)
 
-	_, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--website", "https://acme.example", "--plain")
+	_, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--website", "https://acme.example", "--plain")
 	if err == nil {
 		t.Fatal("want an error on a 409 PUT")
 	}
@@ -297,7 +297,7 @@ func TestBrandUpdateConflictOnPutMapsToTCRHint(t *testing.T) {
 func TestBrandUpdatePrintsAcceptanceReceiptWithIDsAndLatencyNote(t *testing.T) {
 	srv, _ := stubBrandUpdateServer(t, liveBrandForUpdate("PRIVATE_PROFIT", "biz@acme.com"), http.StatusOK)
 
-	out, _, err := runBrandCmd(t, srv, "brand", "update", "BGJR2BA", "--website", "https://acme.example", "--plain")
+	out, _, err := runBrandCmd(t, srv, "brand", "update", "BEXMPL6", "--website", "https://acme.example", "--plain")
 	if err != nil {
 		t.Fatalf("brand update: %v", err)
 	}
@@ -305,8 +305,8 @@ func TestBrandUpdatePrintsAcceptanceReceiptWithIDsAndLatencyNote(t *testing.T) {
 	if got["bandwidthId"] != "WET8JUY8H0" {
 		t.Errorf("stdout = %v, want bandwidthId WET8JUY8H0", got)
 	}
-	if got["brandId"] != "BGJR2BA" {
-		t.Errorf("stdout = %v, want brandId BGJR2BA", got)
+	if got["brandId"] != "BEXMPL6" {
+		t.Errorf("stdout = %v, want brandId BEXMPL6", got)
 	}
 	if got["status"] != "accepted" {
 		t.Errorf("stdout = %v, want status accepted", got)

@@ -42,11 +42,11 @@ func TestListBrandsBuildsPathAndQuery(t *testing.T) {
 
 func TestGetBrandReturnsObjectEnvelope(t *testing.T) {
 	svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"data":{"brandId":"B0IRNU4"}}`))
+		_, _ = w.Write([]byte(`{"data":{"brandId":"BEXMPL8"}}`))
 	})
 	defer done()
 
-	env, err := svc.GetBrand("B0IRNU4")
+	env, err := svc.GetBrand("BEXMPL8")
 	if err != nil {
 		t.Fatalf("GetBrand: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestGetBrandReturnsObjectEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Object: %v", err)
 	}
-	if obj["brandId"] != "B0IRNU4" {
+	if obj["brandId"] != "BEXMPL8" {
 		t.Errorf("brandId = %v", obj["brandId"])
 	}
 }

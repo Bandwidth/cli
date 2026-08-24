@@ -362,12 +362,12 @@ func TestBrandCreateRejectsStrayPositional(t *testing.T) {
 	}
 }
 
-// Test 10: refresh posts exactly {"brandId": "BGJR2BA"} — no other keys. A
+// Test 10: refresh posts exactly {"brandId": "BEXMPL6"} — no other keys. A
 // refresh body carrying any extra key turns it back into a create.
 func TestBrandRefreshPostsExactBody(t *testing.T) {
 	srv, bodies := stubBrandCreateCapturing(t, "WET8JUY8H0")
 
-	out, _, err := runBrandCmd(t, srv, "brand", "refresh", "BGJR2BA")
+	out, _, err := runBrandCmd(t, srv, "brand", "refresh", "BEXMPL6")
 	if err != nil {
 		t.Fatalf("brand refresh: %v", err)
 	}
@@ -378,8 +378,8 @@ func TestBrandRefreshPostsExactBody(t *testing.T) {
 	if err := json.Unmarshal([]byte((*bodies)[0]), &sent); err != nil {
 		t.Fatalf("request body is not JSON: %v", err)
 	}
-	if len(sent) != 1 || sent["brandId"] != "BGJR2BA" {
-		t.Errorf("posted body = %v, want exactly {\"brandId\":\"BGJR2BA\"}", sent)
+	if len(sent) != 1 || sent["brandId"] != "BEXMPL6" {
+		t.Errorf("posted body = %v, want exactly {\"brandId\":\"BEXMPL6\"}", sent)
 	}
 	got := decodeStdout(t, out)
 	if got["bandwidthId"] != "WET8JUY8H0" {

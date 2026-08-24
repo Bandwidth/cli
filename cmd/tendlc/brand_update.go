@@ -78,8 +78,8 @@ responds — and is rejected outright if the brand has an active campaign or
 an active Standard/Enhanced/Political vetting). Changing mobile-phone sets
 identity status to UNVERIFIED. Changing business-contact-email on a
 PUBLIC_PROFIT brand revokes Auth+ compliance.`,
-	Example: `  band tendlc brand update BGJR2BA --website "https://acme.example" --plain
-  band tendlc brand update BGJR2BA --company-name "Acme Corp 2" --confirm --plain`,
+	Example: `  band tendlc brand update BEXMPL6 --website "https://acme.example" --plain
+  band tendlc brand update BEXMPL6 --company-name "Acme Corp 2" --confirm --plain`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		changed := map[string]bool{}
