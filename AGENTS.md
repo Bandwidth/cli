@@ -1339,6 +1339,13 @@ decision rather than merely motivating it — a poll here would hit a brand
 still holding its pre-update state and report success before the change
 actually took effect.
 
+**A safety net, not a feature.** The read-modify-write PUT above depends on
+production accepting read-only fields it doesn't use. If a future field is
+ever rejected instead, the CLI drops exactly the field(s) the API's error
+names and retries once, printing `note: retried after dropping field(s) the
+API rejected but does not need: <fields>` to stderr — it does not fail
+outright or retry silently.
+
 ### `list` vs `get`: projection, not nullability
 
 `brand list` returns a **12-key summary projection**; `brand get` returns
@@ -1759,6 +1766,12 @@ success before the change — or the re-import above — actually took effect.
 No `--confirm` either: unlike `brand update`, a campaign update carries no
 fee and no identity reset, so there is no API-justified reason to gate it.
 
+**A safety net, not a feature.** Like `brand update`, this read-modify-write
+PUT depends on production accepting read-only fields it doesn't use. If a
+field is ever rejected instead, the CLI drops exactly the named field(s)
+and retries once, noting the drop on stderr, rather than failing outright
+or silently swallowing the retry.
+
 ### `create --wait`: exit codes and the receipt guarantee
 
 | Outcome | Exit | What's on stdout |
@@ -1853,6 +1866,115 @@ under both `eq` and `contains`, returning every campaign rather than
 filtering, and it isn't among the accepted query parameters for this
 endpoint in either spec file. Filter client-side on `--all`'s output
 instead.
+
+## 10DLC Numbers
+
+`band tendlc number` looks up 10DLC phone number registration status:
+`list`, `get <tn>`, and `history <tn>`. Unlike `brand`/`vetting`/`campaign`,
+these three aren't direct-customer-only — an imported number's registration
+record looks the same as a directly-registered one. Requires the same
+Registration Center feature and Campaign Management role as the rest of
+`tendlc`.
+
+### `list`: the projection is conditional, not fixed
+
+```
+$ band tendlc number list --plain --limit 2
+[
+  {
+    "createdDate": "2025-05-30T20:53:26.046Z",
+    "modifiedDate": "2025-08-01T19:21:43.987Z",
+    "nnid": "100000",
+    "phoneNumber": "+15555550100",
+    "status": "SUCCESS"
+  },
+  {
+    "createdDate": "2025-05-30T20:53:27.162Z",
+    "modifiedDate": "2025-11-07T21:03:41.065Z",
+    "nnid": "100001",
+    "phoneNumber": "+15555550101",
+    "status": "SUCCESS"
+  }
+]
+```
+
+Every record carries those five keys. A number already assigned to a
+campaign carries three more — `brandId`, `campaignId`,
+`customerProfileId` — rather than the same five with the extra keys
+present but empty:
+
+```
+{
+  "brandId": "BEXMPL1",
+  "campaignId": "CEXMPL1",
+  "createdDate": "2025-09-19T14:20:15.189Z",
+  "customerProfileId": "ExampleProfileId000001",
+  "modifiedDate": "2026-05-08T10:29:45.789Z",
+  "nnid": "100010",
+  "phoneNumber": "+15555550110",
+  "status": "SUCCESS"
+}
+```
+
+Measured across 23 numbers on a test account: 16 carried the base five
+keys, and the 7 assigned to a campaign carried all eight. Don't assume a
+record is missing the campaign fields — check for them rather than relying
+on their absence.
+
+### Filters: `--campaign-id-contains` works, there is deliberately no `--status`
+
+`--campaign-id-contains` genuinely narrows results: `campaignId[contains]`
+filters correctly against production — a campaign holding three numbers
+returned exactly three, and a substring matching no campaign returned zero.
+`campaignId[eq]` does not filter at all — like `status` below, it's
+accepted and silently ignored, which is why the flag is named for what it
+actually does (a substring match) rather than implying an exact match the
+API can't perform.
+
+`status` is a different story, and there is no `--status` flag at all.
+The API accepts a `status` filter and silently ignores it under **every**
+operator — `eq`, `contains`, even a value matching nothing at all — always
+returning every number on the account regardless. A filter that returns
+every record with a 200 and no error is worse than an absent flag, because
+the caller believes it worked. Filter client-side on `status` instead —
+it's present on every record, in both projection shapes.
+
+For the campaign-scoped view — a different endpoint, not this one with a
+filter — use `band tendlc campaign numbers <campaign-id>` (see
+[10DLC Campaigns](#10dlc-campaigns)).
+
+### `get <tn>`: may 404 for numbers `list` returns
+
+```
+$ band tendlc number get +15555550100 --plain
+Error: API request failed: API error 404: {"errors":[{"type":"not found","description":"+15555550100"}],"links":[]}
+$ echo $?
+3
+```
+
+On the one account this was tested against, `get` 404s for every number
+`list` returns, while `history` on the same phone number returns 200 for
+all of them. The cause is unconfirmed and may be account-specific — this
+API reports authorization failures as 403, not 404, so this isn't a
+permissions mask in disguise, but one account isn't enough to call it a
+confirmed API defect either. `list` and `history` both work normally; if
+`get` 404s for you too, fall back to `list` (filtered client-side, or with
+`--campaign-id-contains`) or `history`.
+
+### `history <tn>`
+
+```
+$ band tendlc number history +15555550100 --plain --limit 2
+[
+  {
+    "createdDate": "2025-08-01T19:21:43.987Z",
+    "message": "Published registration event for the TN for action: will do nothing"
+  }
+]
+```
+
+As with brand and campaign history, this is a free-text activity log,
+newest first, with no versioned snapshots and no per-entry fetch.
 
 ## Toll-Free Verification (TFV)
 
@@ -2116,7 +2238,7 @@ Every error in this table exits **4**, regardless of the HTTP status the API use
 - **No real-time call control.** The CLI can initiate calls and query state, but cannot receive or respond to mid-call callbacks. Dynamic call control requires a separate callback-handling server.
 - **No message delivery confirmation.** The CLI verifies your setup is correct before sending (app-location link, callback URL, campaign), but it cannot confirm whether a message was actually delivered. Delivery status (`message-delivered`, `message-failed`) arrives via webhooks on your callback server. The CLI's `message get` and `message list` return metadata only — not delivery status.
 - **No message content retrieval.** Bandwidth does not store message bodies. After sending, the message text is gone forever. `message get` and `message list` return timestamps, direction, and segment counts only.
-- **10DLC: brand, vetting, and campaign registration are all in the CLI for direct customers.** `band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage the full chain. The CLI also lists campaigns, checks number registration status, diagnoses failures (`band tendlc`), and assigns numbers to campaigns (`band tnoption assign`), and blocks a `message send` if the source number isn't on an approved campaign.
+- **10DLC: brand, vetting, and campaign registration are all in the CLI for direct customers.** `band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage the full chain. `band tendlc number` checks phone number registration status (`get`/`list`/`history`) for direct and import customers alike, `band tendlc campaign` lists campaigns and diagnoses failures, and `band tnoption assign` assigns numbers to campaigns; a `message send` is blocked if the source number isn't on an approved campaign.
 - **TFV is check-and-submit.** The CLI can check toll-free verification status and submit new requests (`band tfv`), but cannot approve or expedite reviews — those happen on the carrier side.
 - **Porting is port-IN only.** `band portin` covers the six end-to-end flows that complete via the public API: TF validation, on-net domestic, automated off-net (Level 3), TF Phase 1 (gated), bulk, and lifecycle ops (notes, supp, cancel, history, doc upload). Out of scope: port-out (no public API), manual TF, internal TF, NASC manual override, and international ports — these need ops or the Dashboard. `band portin create` exits 4 if the account doesn't have `TOLL_FREE_AUTOMATION_PHASE_1` for a TF order. `band portin supp` defends against the documented Bandwidth API behavior where a supp returns 200 on PUT but error code 7300 on the next GET (Neustar never received it) — exits 1 with a clear message rather than silently succeeding.
 - **10DLC, TFV, and short code commands are role-gated.** A 403 can mean the credential lacks the required role (Campaign Management, TFV), the account doesn't have the Registration Center feature, or messaging isn't enabled. The CLI provides a diagnostic message — if it says "access denied," escalate to the Bandwidth account manager rather than retrying.

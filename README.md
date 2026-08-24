@@ -477,9 +477,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
 
-### 10DLC brands, vettings, and campaigns (direct customers)
+### 10DLC brands, vettings, campaigns, and numbers
 
-`band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage 10DLC brands and campaigns for accounts that register directly with TCR (not through import). Requires the Registration Center feature and Campaign Management role — check with `band tendlc status --plain`. A brand needs a customer profile first (`band customer-profile create`); see [AGENTS.md](AGENTS.md#10dlc-brands) for the full flag matrix, `--wait` semantics, and exit codes, and [AGENTS.md](AGENTS.md#10dlc-campaigns) for the campaign create requirement tree, the `imported` update branch, and the operational trap around editing a non-terminal campaign.
+`band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage 10DLC brands and campaigns for accounts that register directly with TCR (not through import); `band tendlc number` looks up phone number registration status and works for direct and import customers alike. Requires the Registration Center feature and Campaign Management role — check with `band tendlc status --plain`. A brand needs a customer profile first (`band customer-profile create`); see [AGENTS.md](AGENTS.md#10dlc-brands) for the full flag matrix, `--wait` semantics, and exit codes, [AGENTS.md](AGENTS.md#10dlc-campaigns) for the campaign create requirement tree, the `imported` update branch, and the operational trap around editing a non-terminal campaign, and [AGENTS.md](AGENTS.md#10dlc-numbers) for the conditional list projection and the `get` 404 caveat.
 
 | Command | What it does |
 |---------|-------------|
@@ -504,6 +504,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tendlc campaign update <id>` | Update a campaign (read-modify-write; imported campaigns accept only `--campaign-name`) |
 | `band tendlc campaign deactivate <id>` | Permanently deactivate a campaign (`--confirm` required; irreversible) |
 | `band tendlc campaign nudge <id> --intent <intent>` | Ask TCR to re-evaluate a campaign (not billable, no `--confirm`) |
+| `band tendlc number list` | List 10DLC phone number registrations (filter by `--campaign-id-contains`; no `--status` filter — the API silently ignores it, so filter client-side) |
+| `band tendlc number get <tn>` | Get one phone number's registration record (may 404 on some accounts even for numbers `list` returns) |
+| `band tendlc number history <tn>` | Show a phone number's activity log |
 
 ### SIP trunk authentication
 

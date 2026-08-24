@@ -15,15 +15,8 @@ import (
 //   - "location create::subaccount": tracked by the --site→--subaccount rename
 //     spec (docs/superpowers/specs/2026-05-07-subaccount-rename.md). Remove when
 //     that PR lands.
-//   - "tendlc numbers::campaign-id" and "tendlc numbers::status": the legacy
-//     `band tendlc numbers` command (and its --campaign-id/--status flags) was
-//     removed in the 10DLC PR5 cutover (task 3 of
-//     .superpowers/sdd/2026-08-21-tendlc-pr5-cutover); AGENTS.md's doc sweep is
-//     task 6 of that same plan. Remove when that PR lands.
 var knownDrift = map[string]bool{
 	"location create::subaccount": true,
-	"tendlc numbers::campaign-id": true,
-	"tendlc numbers::status":      true,
 }
 
 // knownDriftCommands lists command paths that are known drift and
