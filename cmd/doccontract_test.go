@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -43,11 +44,24 @@ var knownDrift = map[string]bool{
 //     following prose words ("list", "is", "not") as if they were further
 //     command-path tokens, same as it would a real subcommand name. Task 6
 //     rewords this line too; remove this entry alongside it.
+//   - "tendlc number": the legacy bare `band tendlc number <phone>` — a
+//     *different* command from the still-current `number get <phone>` — was
+//     also removed in task 3 of the same plan. This one resolves fully
+//     (`tendlc number` is a real command, the dispatcher parent), so it's
+//     invisible to the path-boundary checks above; argsGateRejects (added
+//     when this genuine gap was found during review) is what actually
+//     catches it, by calling numberCmd's real Args (cobra.NoArgs) against
+//     the documented phone-number argument and observing it reject. This is
+//     real drift, not a gate false positive — confirmed by hand (`band
+//     tendlc number +15555550100` exits 1 against the built binary) — and,
+//     like the three entries above, deferred to task 6's doc sweep rather
+//     than fixed here.
 var knownDriftCommands = map[string]bool{
 	"tendlc campaigns":         true,
 	"tendlc numbers":           true,
 	"tendlc campaigns numbers": true,
 	"number list is not":       true,
+	"tendlc number":            true,
 }
 
 // bandUsageRe captures everything after "band " to end of line (GREEDY — a
@@ -134,6 +148,203 @@ func resolvedCommandAbsorbsRemainder(cmd *cobra.Command, path []string, matched 
 	return usePlaceholderRe.MatchString(cmd.Use)
 }
 
+// shellFields splits s into whitespace-separated fields, but treats content
+// inside a matching quote pair ("...", '...') or placeholder pair (<...>,
+// [...]) as belonging to a SINGLE field, the way a shell (for quotes) or a
+// human reading a placeholder (for brackets) would. This matters because
+// Args validators in this codebase only count arguments (see argsGateRejects),
+// so `band bxml speak "Thanks for calling. How can we help?"` must count as
+// one argument, not seven.
+//
+// ok is false if a quote or bracket is left unclosed by end of line. That
+// happens legitimately and often: a command mentioned inside a single- or
+// double-quoted phrase whose OPENING delimiter is prose that occurs before
+// "band" — e.g. `Confirm with 'band tendlc brand get WEXAMPLE02' — a 404
+// means it is gone.` — leaves an odd, unmatched quote count from this
+// string's point of view (the capture starts at "band ", after the real
+// opening quote). Callers must treat ok==false as "can't parse this line
+// with confidence" and skip it, not as evidence of drift.
+func shellFields(s string) (fields []string, ok bool) {
+	var b strings.Builder
+	inField := false
+	var closing byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case closing != 0:
+			b.WriteByte(c)
+			if c == closing {
+				closing = 0
+			}
+		case c == '"' || c == '\'':
+			closing = c
+			b.WriteByte(c)
+			inField = true
+		case c == '<':
+			closing = '>'
+			b.WriteByte(c)
+			inField = true
+		case c == '[':
+			closing = ']'
+			b.WriteByte(c)
+			inField = true
+		case c == ' ' || c == '\t':
+			if inField {
+				fields = append(fields, b.String())
+				b.Reset()
+				inField = false
+			}
+		default:
+			b.WriteByte(c)
+			inField = true
+		}
+	}
+	if closing != 0 {
+		return nil, false
+	}
+	if inField {
+		fields = append(fields, b.String())
+	}
+	return fields, true
+}
+
+// splitPositionalArgs walks fields (everything after a resolved command) and
+// separates flags — and, critically, their VALUES — from genuine positional
+// arguments, consulting the resolved command's real flag definitions (the
+// same source cobra itself uses) rather than guessing from a "--" prefix
+// alone. That distinction matters because flags and positional args
+// interleave in real examples: `band bxml speak --voice julie "Press 1 for
+// sales."` has exactly one positional argument (the quoted string), but a
+// naive scan that stops at the first "--x" token would see zero.
+//
+// A flag's pflag.Flag.NoOptDefVal is empty only when the flag REQUIRES an
+// explicit value (e.g. a string flag): in that case the next field is
+// consumed as its value and excluded from the result. Bool flags set
+// NoOptDefVal ("true") so `--wait` alone doesn't eat the next token.
+//
+// ok is false when a flag can't be resolved against the command (unknown to
+// Flags/InheritedFlags/the root persistent flags) — in that case we don't
+// know whether it consumes the next token, so the caller should not trust
+// the result rather than guess.
+func splitPositionalArgs(cmd *cobra.Command, fields []string) (args []string, ok bool) {
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if strings.HasPrefix(f, "#") {
+			break // trailing shell comment
+		}
+		if !strings.HasPrefix(f, "-") || f == "-" {
+			args = append(args, f)
+			continue
+		}
+		if strings.Contains(f, "=") {
+			continue // "--flag=value" is one self-contained token
+		}
+		name := strings.TrimLeft(f, "-")
+		fl := cmd.Flags().Lookup(name)
+		if fl == nil {
+			fl = cmd.InheritedFlags().Lookup(name)
+		}
+		if fl == nil {
+			fl = rootCmd.PersistentFlags().Lookup(name)
+		}
+		if fl == nil {
+			return nil, false // unresolvable flag; don't guess
+		}
+		if fl.NoOptDefVal == "" && i+1 < len(fields) {
+			i++ // this flag requires an explicit value; skip it too
+		}
+	}
+	return args, true
+}
+
+// argsGateRejects is the second, authoritative gate on top of
+// resolvedCommandAbsorbsRemainder. That heuristic only asks "does this
+// remainder *look* positional" (via the resolved command's Use string) —
+// which is blind to the case where `path` resolves fully (matched ==
+// len(path), so there's no `path` remainder for the heuristic to examine at
+// all) but the resolved command's actual runtime Args validator no longer
+// accepts what follows it in the doc line. That's exactly the shape of the
+// drift this PR creates: `band tendlc number <phone>` resolves completely to
+// the `number` dispatcher (matched == len(path) == 2), yet `number`'s Args
+// is cobra.NoArgs as of the 10DLC PR5 cutover (task 3 of
+// .superpowers/sdd/2026-08-21-tendlc-pr5-cutover), which restructured it to
+// require an explicit get/list/history subcommand instead of a bare
+// phone-number argument.
+//
+// It re-resolves the command from s's raw fields rather than reusing the
+// caller's `path`/`matched`: `path` was built from commandTokenRe, a regex
+// that (being ignorant of the real command tree) can incorrectly exclude a
+// real subcommand name that doesn't fit its lowercase-letters-and-hyphens
+// shape — e.g. "resend-2fa" (has a digit) — which would otherwise make this
+// gate blame the PARENT command for rejecting what is actually a perfectly
+// valid subcommand name.
+//
+// This deliberately ABSTAINS (returns nil — "no drift found") rather than
+// flag, whenever it can't parse the line with confidence:
+//   - shellFields reports an unterminated quote/bracket (see its doc comment);
+//   - splitPositionalArgs can't resolve a flag;
+//   - there's no remainder at all — a bare mention like "`band portin get`",
+//     naming a command without demonstrating a full invocation, is normal
+//     technical writing and must not be required to show every argument;
+//   - a positional token is a literal "..." or contains a "," — both strong
+//     signals of deliberately elided/abbreviated example text (e.g. `band
+//     tendlc campaign create <tier 1+2 fields, both booleans true> --plain`)
+//     rather than a literal, runnable argument list;
+//   - a positional token is a lone "\" — a shell line-continuation marker
+//     from a multi-line example, meaning the real argument is on the next
+//     line and this test only ever looks at one line at a time.
+//
+// Abstaining trades a known blind spot (a genuinely bogus example of one of
+// these shapes would also slip through unflagged) for not flagging real,
+// legitimate documentation — the right side to err on: a gate that cries
+// wolf on correct docs gets ignored or its escape hatch gets widened, which
+// is strictly worse than a gate with a named, narrow blind spot.
+//
+// Checked every `Args:` site in cmd/ as of this task (98 positional-taking
+// commands): all are cobra.ExactArgs/MinimumNArgs/MaximumNArgs/RangeArgs/
+// NoArgs, which only count arguments, never inspect their values — so this
+// gate never needs to worry about a value-inspecting validator (e.g.
+// cobra.OnlyValidArgs) rejecting a correct placeholder like "<brand-id>".
+// Re-check this claim if such a validator is ever added.
+func argsGateRejects(s string) error {
+	fields, ok := shellFields(s)
+	if !ok {
+		return nil
+	}
+	cmd, matched := resolveCommand(fields)
+	if matched == 0 || matched >= len(fields) {
+		return nil
+	}
+	pos, ok := splitPositionalArgs(cmd, fields[matched:])
+	if !ok || len(pos) == 0 {
+		return nil
+	}
+	for _, a := range pos {
+		if a == "..." || a == `\` || strings.Contains(a, ",") {
+			return nil
+		}
+		// A "<...>"/"[...]" placeholder that itself spans multiple words
+		// (e.g. "<all common fields + company/vertical/ein>", "<tier 1+2
+		// fields, both booleans true>") isn't a single positional value —
+		// every genuine one-argument placeholder in this codebase's Use
+		// strings is one hyphenated word ("<brand-id>", "<phone-number>").
+		// A multi-word one is prose shorthand for "insert several flags
+		// here", not a literal argument; quoted multi-word strings (merged
+		// above by shellFields) are unaffected since they don't start with
+		// "<"/"[".
+		if (strings.HasPrefix(a, "<") || strings.HasPrefix(a, "[")) && strings.ContainsAny(a, " \t") {
+			return nil
+		}
+	}
+	if cmd.Args == nil {
+		return nil
+	}
+	if err := cmd.Args(cmd, pos); err != nil {
+		return fmt.Errorf("resolved command %q rejects the documented arguments %v: %w", cmd.CommandPath(), pos, err)
+	}
+	return nil
+}
+
 // commandPathTokens splits s into whitespace-separated fields and returns the
 // leading run of fields that look like command tokens (per commandTokenRe).
 // The first field that isn't command-shaped (a flag, placeholder, ID, phone
@@ -159,11 +370,13 @@ func flagExists(c *cobra.Command, name string) bool {
 	return rootCmd.PersistentFlags().Lookup(name) != nil
 }
 
-// TestParserDistinguishesSubcommandsFromPositionals exercises the boundary
-// logic (resolveCommand + resolvedCommandAbsorbsRemainder) directly against
-// the real command tree, independent of any doc file. It proves the fix
-// actually catches the class of drift this PR creates (a stale reference to
-// a deleted multi-word command) without also flagging legitimate positional
+// TestParserDistinguishesSubcommandsFromPositionals exercises the full
+// three-gate boundary logic (resolveCommand + resolvedCommandAbsorbsRemainder
+// + argsGateRejects) directly against the real command tree, independent of
+// any doc file. It proves the fix actually catches the class of drift this
+// PR creates — both the stale-multi-word-command shape (caught by the first
+// two gates) and the fully-resolves-but-rejects-the-args shape (caught only
+// by argsGateRejects) — without also flagging legitimate positional
 // arguments that happen to be lowercase words.
 func TestParserDistinguishesSubcommandsFromPositionals(t *testing.T) {
 	tests := []struct {
@@ -184,6 +397,18 @@ func TestParserDistinguishesSubcommandsFromPositionals(t *testing.T) {
 		{
 			name:        "wholly bogus top-level command",
 			commandLine: "notacommand",
+			wantFlagged: true,
+		},
+		{
+			// The legacy bare `number <phone>` (a different command from the
+			// current `number get <phone>`) — resolves fully to the `number`
+			// dispatcher (matched == len(path)), so the Use-heuristic gate
+			// alone can't see anything wrong; only argsGateRejects, which
+			// calls numberCmd's real Args (cobra.NoArgs) against the
+			// documented phone number, catches it. Reserved-range number
+			// (555-01xx block), not a real one.
+			name:        "deleted bare `tendlc number <phone>`: resolves fully but numberCmd's Args rejects it",
+			commandLine: "tendlc number +15555550100",
 			wantFlagged: true,
 		},
 		{
@@ -216,11 +441,18 @@ func TestParserDistinguishesSubcommandsFromPositionals(t *testing.T) {
 			}
 			cmd, matched := resolveCommand(path)
 			// Mirrors exactly what TestDocumentedCommandsAndFlagsExist does
-			// with the result of resolveCommand.
+			// with the result of resolveCommand: gate 1 (existence), gate 2
+			// (Use-heuristic), then gate 3 (the real Args validator) only if
+			// gates 1 and 2 both passed.
 			flagged := matched == 0 || !resolvedCommandAbsorbsRemainder(cmd, path, matched)
+			var argsErr error
+			if !flagged {
+				argsErr = argsGateRejects(tt.commandLine)
+				flagged = argsErr != nil
+			}
 			if flagged != tt.wantFlagged {
-				t.Errorf("band %s: flagged = %v, want %v (matched=%d, path=%v, resolved=%q)",
-					tt.commandLine, flagged, tt.wantFlagged, matched, path, cmd.CommandPath())
+				t.Errorf("band %s: flagged = %v, want %v (matched=%d, path=%v, resolved=%q, argsGateRejects=%v)",
+					tt.commandLine, flagged, tt.wantFlagged, matched, path, cmd.CommandPath(), argsErr)
 			}
 		})
 	}
@@ -270,6 +502,10 @@ func TestDocumentedCommandsAndFlagsExist(t *testing.T) {
 				if !resolvedCommandAbsorbsRemainder(cmd, path, matched) {
 					t.Errorf("%s documents `band %s …` but only `band %s` resolves; %q has no declared positional args to absorb %q",
 						doc, cmdName, strings.Join(path[:matched], " "), cmd.CommandPath(), strings.Join(path[matched:], " "))
+					continue
+				}
+				if err := argsGateRejects(rest); err != nil {
+					t.Errorf("%s documents `band %s …` but %v", doc, cmdName, err)
 				}
 				continue
 			}
@@ -305,6 +541,10 @@ func TestDocumentedCommandsAndFlagsExist(t *testing.T) {
 			if !resolvedCommandAbsorbsRemainder(cmd, path, matched) {
 				t.Errorf("%s documents `band %s …` but only `band %s` resolves; %q has no declared positional args to absorb %q",
 					doc, cmdName, strings.Join(path[:matched], " "), cmd.CommandPath(), strings.Join(path[matched:], " "))
+				continue
+			}
+			if err := argsGateRejects(capture); err != nil {
+				t.Errorf("%s documents `band %s …` but %v", doc, cmdName, err)
 				continue
 			}
 			for _, fm := range flagRe.FindAllStringSubmatch(capture, -1) {
