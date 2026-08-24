@@ -27,11 +27,15 @@ func (s *Service) CreateCampaign(body map[string]any) (*api.Envelope, error) {
 // unchanged: it is not a replacement there. Campaigns carry no version
 // field, so there is no optimistic-locking check either way: a concurrent
 // edit between the GET and this PUT is lost silently.
+//
+// The PUT goes through putReplaceWithReadOnlyRetry, which retries once, with
+// the named fields stripped, if the API rejects a 400 on read-only keys
+// campaignReadOnlyFields already tried to remove — see that function for why.
 func (s *Service) UpdateCampaign(campaignID string, body map[string]any) (*api.Envelope, error) {
 	if campaignID == "" {
 		return nil, fmt.Errorf("campaign ID is required")
 	}
-	raw, err := s.client.PutRawJSON(s.campaignPath(campaignID), body)
+	raw, err := putReplaceWithReadOnlyRetry(s.client, s.campaignPath(campaignID), body)
 	if err != nil {
 		return nil, err
 	}
