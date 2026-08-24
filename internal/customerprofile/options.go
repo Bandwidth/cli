@@ -143,7 +143,7 @@ func ValidateUpdate(body map[string]any) error {
 //
 // Sends softDeleted:false. The published docs say to send {"deleted": false},
 // which returns 404 "Customer profile not found" even though GET returns the
-// record — measured against production, reported as MV-23429.
+// record — measured against production, reported to the API team.
 func BuildRestoreRequest(current map[string]any) (map[string]any, error) {
 	body, err := BuildUpdateRequest(current, UpdateOptions{}, map[string]bool{})
 	if err != nil {

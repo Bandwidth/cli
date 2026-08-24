@@ -230,7 +230,7 @@ func BuildBrandCreateRequest(o BrandCreateOptions) map[string]any {
 // package that puts an identifier there instead of in the URL. Measured
 // against production: `brand refresh WET8JUY8H0` (a bandwidthId, not a TCR
 // brandId) resolved correctly and returned {bandwidthId: WET8JUY8H0, brandId:
-// BGJR2BA}, so the "every command accepts either ID" claim holds here too —
+// BEXMPL6}, so the "every command accepts either ID" claim holds here too —
 // it was previously assumed, not verified, for this one command.
 func BuildBrandRefreshRequest(brandID string) map[string]any {
 	return map[string]any{"brandId": brandID}

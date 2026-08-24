@@ -184,7 +184,7 @@ of a new registration. Sending any other key would turn it back into a
 create, so nothing else is added. Use it after making a change directly in
 TCR, or to pick up a brandId that was still null when the brand was
 created.`,
-	Example: `  band tendlc brand refresh BGJR2BA --plain`,
+	Example: `  band tendlc brand refresh BEXMPL6 --plain`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := service(cmd)
