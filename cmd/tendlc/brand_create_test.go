@@ -288,6 +288,15 @@ func TestBrandCreateWaitErrorExitsConflictWithRemediation(t *testing.T) {
 	if !strings.Contains(errOut, "refresh") {
 		t.Errorf("stderr should carry ERROR remediation, got %q", errOut)
 	}
+	// Load-bearing, mirroring the campaign twin's regression test: remediation
+	// must carry the REAL brand ID substituted in at the call site, not the
+	// literal placeholder text "<brand-id>" that BrandRemediation embeds.
+	if !strings.Contains(errOut, "refresh WNEW1") {
+		t.Errorf("stderr = %q, want the real brand ID substituted into the refresh command", errOut)
+	}
+	if strings.Contains(errOut, "<brand-id>") {
+		t.Errorf("stderr = %q, must not contain the literal placeholder text", errOut)
+	}
 }
 
 // Test 7: a pre-flight 404 on the customer profile stops the create at exit

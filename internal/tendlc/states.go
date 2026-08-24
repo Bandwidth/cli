@@ -68,6 +68,35 @@ func ClassifyVetting(status string) StateClass {
 	}
 }
 
+// ClassifyCampaignStatus maps a campaign's status to a polling outcome.
+//
+// Unlike ClassifyBrandIdentity, this does NOT treat any failure-looking value
+// as pending. Campaigns genuinely return REGISTERING on the read path while
+// registration is in progress — it is in the documented enum and has been
+// observed live — so REGISTERING/UNREGISTERING are unambiguous in-progress
+// states, and DECLINED/EXPIRED/SUSPENDED/ERROR are unambiguous terminal
+// failures. The brand-side UNVERIFIED workaround exists specifically because
+// brands do NOT return REGISTERING on their read path, making a registering
+// brand indistinguishable from a rejected one by status alone; that ambiguity
+// does not exist here. Do not "harmonize" this classifier with
+// ClassifyBrandIdentity by making campaign failure states pending — that
+// would reintroduce the false-success risk this function exists to avoid.
+func ClassifyCampaignStatus(status string) StateClass {
+	switch status {
+	case "REGISTERED":
+		return StateSuccess
+	case "DECLINED", "EXPIRED", "SUSPENDED", "ERROR":
+		return StateFailure
+	default:
+		// Covers REGISTERING, UNREGISTERING, and any unlisted value. Unknown
+		// values keep polling rather than being guessed as success, for the
+		// same reason as ClassifyBrandIdentity's default: a false success
+		// reports a failed registration as done, while a false pending only
+		// costs a timeout.
+		return StatePending
+	}
+}
+
 // BrandRemediation returns what to do about a brand that settled into a
 // business-failure state, or "" for any state that is not one.
 //
@@ -83,7 +112,28 @@ func BrandRemediation(status string) string {
 	switch status {
 	case "ERROR":
 		return "the registry reported an error on this brand. Re-pull its current state from TCR with " +
-			"'band tendlc brand refresh', and contact your Bandwidth account manager if it persists."
+			"'band tendlc brand refresh <brand-id>', and contact your Bandwidth account manager if it persists."
+	default:
+		return ""
+	}
+}
+
+// CampaignRemediation returns what to do about a campaign that settled into
+// a business-failure state, or "" for any state that is not one (including
+// success and pending states — see ClassifyCampaignStatus).
+func CampaignRemediation(status string) string {
+	switch status {
+	case "DECLINED":
+		return "the campaign was rejected. An appeal may be possible: run " +
+			"'band tendlc campaign nudge <campaign-id> --intent APPEAL_REJECTION'."
+	case "EXPIRED":
+		return "the registration lapsed and cannot be revived with a nudge. Re-create the campaign."
+	case "SUSPENDED":
+		return "the campaign was suspended by a carrier or the registry. This is not self-service — " +
+			"contact your Bandwidth account manager."
+	case "ERROR":
+		return "the registry reported an error on this campaign. Re-pull its current state with " +
+			"'band tendlc campaign sync <campaign-id>', and contact your Bandwidth account manager if it persists."
 	default:
 		return ""
 	}

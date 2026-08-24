@@ -34,9 +34,25 @@ var testRoot = testutil.NewTestRoot(Cmd)
 // resetFlags restores every flag on cmd and all its descendants to its
 // default value and clears the Changed bit, so state set by one test (e.g.
 // --offset from a pagination test) cannot leak into the next.
+//
+// Slice-typed flags (StringSliceVar, e.g. campaign create's --sub-usecase)
+// need special handling: pflag's stringSliceValue.Set APPENDS once its
+// internal (unexported, never-reset-by-us) "changed" flag has gone true even
+// once — which happens the very first time any test passes --sub-usecase, or
+// even just from this function calling Set(f.DefValue) on it. Every run after
+// that would append "[]" (the string form of the empty default) onto the
+// existing slice instead of clearing it, so a later test's --usecase error
+// message would grow a longer and longer garbage --sub-usecase list each
+// time. pflag.SliceValue.Replace bypasses that append/replace decision
+// entirely and fully overwrites the slice, so it is used here instead of
+// Set whenever the flag implements that interface.
 func resetFlags(cmd *cobra.Command) {
 	reset := func(f *pflag.Flag) {
-		_ = f.Value.Set(f.DefValue)
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace(nil)
+		} else {
+			_ = f.Value.Set(f.DefValue)
+		}
 		f.Changed = false
 	}
 	cmd.Flags().VisitAll(reset)

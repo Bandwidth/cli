@@ -2,6 +2,7 @@ package tendlc
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -146,7 +147,11 @@ submitted first. Retrying blind risks a second brand against the same profile.`,
 			},
 			Remediate: func(o map[string]any) string {
 				status, _ := o["brandIdentityStatus"].(string)
-				return tendlcsvc.BrandRemediation(status)
+				// BrandRemediation embeds a literal "<brand-id>" placeholder in its
+				// ERROR text because the classifier only ever sees a status string,
+				// not the ID. The ID is known here, so it is substituted at this
+				// call site rather than changing the classifier's signature.
+				return strings.ReplaceAll(tendlcsvc.BrandRemediation(status), "<brand-id>", bandwidthID)
 			},
 			LastSeenStatus: func(o map[string]any) string {
 				status, _ := o["brandIdentityStatus"].(string)
