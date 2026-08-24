@@ -78,6 +78,7 @@ import them from TCR — is not probed and cannot be discovered: an account is o
 or the other, and that is a property of your Bandwidth setup. If you don't know
 which yours is, ask your Bandwidth account contact rather than guessing.`,
 	Example: `  band tendlc status --plain`,
+	Args:    cobra.NoArgs,
 	// Contract: probe success is coupled to envelope decoding. svc.ListBrands
 	// parses the response body before returning, so a 200 whose body is not
 	// valid JSON (or whose envelope shape has changed) surfaces as an error

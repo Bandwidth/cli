@@ -196,6 +196,25 @@ func TestTendlcStatus_MalformedSuccessBody(t *testing.T) {
 	assertModeUnknown(t, got)
 }
 
+// TestTendlcStatus_RejectsStrayPositional guards status.go's Args: cobra.NoArgs
+// — before this, statusCmd was the only command in the tree with no Args
+// guard at all, so `band tendlc status whatever` silently ignored the extra
+// token and exited 0 instead of failing on the unrecognized argument. No
+// stub service is installed: this must fail argument validation before ever
+// calling `service`.
+func TestTendlcStatus_RejectsStrayPositional(t *testing.T) {
+	root := testutil.NewTestRoot(statusCmd)
+	root.SetArgs([]string{"status", "whatever"})
+
+	var err error
+	testutil.CaptureStdout(t, func() {
+		err = root.Execute()
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a non-nil error for a stray positional")
+	}
+}
+
 // TestTendlcStatus_TransportFailure is the regression lock for the bug where
 // a bare transport error (never wrapped in *api.APIError) produced EMPTY
 // stdout: RunE fell straight through to roleGateError without emitting

@@ -340,10 +340,17 @@ func TestNumberRoleGate403MapsToExitFour(t *testing.T) {
 
 // TestNumberCommandTreeHasNoLegacyFlatGet guards Task 3's removal of the
 // legacy flat `band tendlc number <tn>` command: numberCmd (Use: "number")
-// is now a plain parent, declared the same way as brandCmd and campaignCmd,
-// with no RunE of its own. A bare `number <tn>` therefore resolves to
-// numberCmd itself with an unconsumed positional, not to a get-style
-// command — there is no more shorthand for `number get <tn>`. This also
+// is now a parent with only list/get/history children. Like brandCmd and
+// campaignCmd, it DOES have its own RunE (calling cmd.Help()) -- deliberately,
+// not decoratively: cobra's execute() checks Runnable() before it ever
+// consults Args, so a parent with no RunE always short-circuits to
+// flag.ErrHelp regardless of its Args setting, and removing this RunE would
+// silently reintroduce the exit-0 bug this command tree was fixed to avoid.
+// See numberCmd's own doc comment in number.go for the full explanation; do
+// not remove it on the theory that a "plain parent" needs no RunE. A bare
+// `number <tn>` resolves to numberCmd itself with an unconsumed positional,
+// not to a get-style command — there is no more shorthand for
+// `number get <tn>`. This also
 // guards against a regression back to the pre-Task-3 collision risk: if a
 // future change ever adds a second sibling command also named "number",
 // this test's child-count assertion below would catch it, since cobra's

@@ -87,15 +87,26 @@ func errorBodyNaming(pointers ...string) string {
 
 func TestPutRetry_ReadOnlyFieldWeSent_RetriesOnceAndSucceeds(t *testing.T) {
 	client, bodies, count := newRetryStub(t, []retryStubResponse{
-		{status: 400, body: errorBodyNaming("/legacyFlag")},
+		{status: 400, body: errorBodyNaming("/website")},
 		{status: 202, body: `{"data":{"bandwidthId":"BEXMPL1"}}`},
 	})
 
-	body := map[string]any{"displayName": "Acme", "legacyFlag": true}
+	// "website" is deliberately a real, caller-settable brand field (see
+	// brandFlagToField), not an invented name like the old "legacyFlag" this
+	// test used to use. Every prior fixture in this file named a field no
+	// caller could ever actually set, which is exactly why the retry's
+	// blindness to caller-set fields went uncaught: nothing here exercised
+	// that shape. This test still passes a nil neverDrop, i.e. it simulates a
+	// caller who did NOT ask about website this call — some other field was
+	// changed, and website merely rode along from the read-modify-write and
+	// happened to be named in the error. Dropping it here is correct;
+	// TestPutRetry_CallerSetField_NoRetry below is its mirror image, where
+	// website WAS what the caller asked to set.
+	body := map[string]any{"displayName": "Acme", "website": "not a url"}
 	var raw []byte
 	var err error
 	stderr := captureStderr(t, func() {
-		raw, err = putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+		raw, err = putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 	})
 
 	if err != nil {
@@ -108,19 +119,104 @@ func TestPutRetry_ReadOnlyFieldWeSent_RetriesOnceAndSucceeds(t *testing.T) {
 		t.Fatalf("request count = %d, want exactly 2", *count)
 	}
 	second := (*bodies)[1]
-	if _, present := second["legacyFlag"]; present {
-		t.Errorf("second request body = %v, want legacyFlag stripped", second)
+	if _, present := second["website"]; present {
+		t.Errorf("second request body = %v, want website stripped", second)
 	}
 	if second["displayName"] != "Acme" {
 		t.Errorf("second request body = %v, want displayName preserved", second)
 	}
-	if !strings.Contains(stderr, "legacyFlag") {
+	if !strings.Contains(stderr, "website") {
 		t.Errorf("stderr = %q, want it to name the dropped field", stderr)
 	}
 
 	// The retry must not mutate the caller's own body map.
-	if _, present := body["legacyFlag"]; !present {
-		t.Error("caller's body map was mutated; legacyFlag should still be present in the original map")
+	if _, present := body["website"]; !present {
+		t.Error("caller's body map was mutated; website should still be present in the original map")
+	}
+}
+
+// TestPutRetry_CallerSetField_NoRetry is the mirror image of
+// TestPutRetry_ReadOnlyFieldWeSent_RetriesOnceAndSucceeds: same field name,
+// same 400, but this time neverDrop marks "website" as a field the caller
+// explicitly asked this call to set (as UpdateBrand would, via
+// changedBrandJSONFields). This is the CRITICAL data-loss shape: "band
+// tendlc brand update BEXMPL1 --website 'not a url'" must surface the API's
+// own rejection of the caller's value, never silently drop --website and
+// report success with the brand's site cleared.
+func TestPutRetry_CallerSetField_NoRetry(t *testing.T) {
+	client, _, count := newRetryStub(t, []retryStubResponse{
+		{status: 400, body: errorBodyNaming("/website")},
+	})
+
+	body := map[string]any{"displayName": "Acme", "website": "not a url"}
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, map[string]bool{"website": true})
+
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	apiErr, ok := err.(*api.APIError)
+	if !ok || apiErr.StatusCode != 400 {
+		t.Fatalf("err = %v, want the original 400 *api.APIError", err)
+	}
+	if !strings.Contains(apiErr.Body, "website") {
+		t.Errorf("err body = %q, want it to still name website", apiErr.Body)
+	}
+	if *count != 1 {
+		t.Errorf("request count = %d, want exactly 1 (no retry — the caller set this field)", *count)
+	}
+}
+
+// TestPutRetry_CampaignCallerSetField_NoRetry is the campaign-path twin of
+// TestPutRetry_CallerSetField_NoRetry: "description" is a real, caller-
+// settable campaign field (see campaignUpdateFlagToField), and neverDrop
+// simulates UpdateCampaign's changedCampaignJSONFields marking it as changed
+// this call.
+func TestPutRetry_CampaignCallerSetField_NoRetry(t *testing.T) {
+	client, _, count := newRetryStub(t, []retryStubResponse{
+		{status: 400, body: errorBodyNaming("/description")},
+	})
+
+	body := map[string]any{"campaignName": "Acme Alerts", "description": ""}
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, map[string]bool{"description": true})
+
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if *count != 1 {
+		t.Errorf("request count = %d, want exactly 1 (no retry — the caller set this field)", *count)
+	}
+}
+
+// TestPutRetry_SubscriberOptin_NoRetry is the measured real-world shape: a
+// direct campaign holding false for subscriberOptin returns 400 "is
+// required" naming it (see campaignNeverDropFields), even though no update
+// flag can ever set it and the caller changed something unrelated
+// (description). Before this guard, that 400 named a field present in body
+// and was indistinguishable from the retry's intended case, so the retry
+// silently stripped the compliance attestation and reported success.
+// neverDrop here is exactly what UpdateCampaign builds: changedCampaignJSONFields
+// (which cannot include subscriberOptin — no flag ever writes it) unioned
+// with campaignNeverDropFields.
+func TestPutRetry_SubscriberOptin_NoRetry(t *testing.T) {
+	client, _, count := newRetryStub(t, []retryStubResponse{
+		{status: 400, body: errorBodyNaming("/subscriberOptin")},
+	})
+
+	body := map[string]any{"description": "Updated description", "subscriberOptin": false}
+	neverDrop := changedCampaignJSONFields(map[string]bool{"description": true})
+	for f := range campaignNeverDropFields {
+		neverDrop[f] = true
+	}
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, neverDrop)
+
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "subscriberOptin") {
+		t.Errorf("err = %v, want it to still name subscriberOptin", err)
+	}
+	if *count != 1 {
+		t.Errorf("request count = %d, want exactly 1 (no retry — subscriberOptin is never droppable)", *count)
 	}
 }
 
@@ -130,7 +226,7 @@ func TestPutRetry_FieldNotSent_PassesThroughNoSecondRequest(t *testing.T) {
 	})
 
 	body := map[string]any{"displayName": "Acme"}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -153,7 +249,7 @@ func TestPutRetry_GenericBadRequest_NoUsablePointers_NoRetry(t *testing.T) {
 	})
 
 	body := map[string]any{"displayName": ""}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -170,7 +266,7 @@ func TestPutRetry_RetryAlsoFails_OriginalErrorSurfaces(t *testing.T) {
 	})
 
 	body := map[string]any{"displayName": "Acme", "legacyFlag": true}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -192,7 +288,7 @@ func TestPutRetry_NestedPointer_NoRetry(t *testing.T) {
 	})
 
 	body := map[string]any{"accounts": []any{map[string]any{"customerProfileId": "CEXMPL1"}}}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -208,7 +304,7 @@ func TestPutRetry_409_NoRetry(t *testing.T) {
 	})
 
 	body := map[string]any{"legacyFlag": true}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -230,7 +326,7 @@ func TestPutRetry_HappyPath_NoStderrNote(t *testing.T) {
 	body := map[string]any{"displayName": "Acme"}
 	var err error
 	stderr := captureStderr(t, func() {
-		_, err = putReplaceWithReadOnlyRetry(client, "/thing/1", body)
+		_, err = putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
 	})
 
 	if err != nil {

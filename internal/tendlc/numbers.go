@@ -38,8 +38,8 @@ func (s *Service) ListPhoneNumbers(limit, offset int, filters []api.Filter) (*ap
 // numbers tested, while PhoneNumberHistory on the same path prefix returned
 // 200 for all four. The cause is unconfirmed — only one account was
 // available to test against, and this API reports authorization failures as
-// 403, so a 404 here is not a permissions mask in disguise. The currently
-// shipped `band tendlc number <tn>` command already fails the same way.
+// 403, so a 404 here is not a permissions mask in disguise. `band tendlc
+// number get <tn>`, which calls this, inherits the same 404.
 func (s *Service) GetPhoneNumber(phoneNumber string) (*api.Envelope, error) {
 	if phoneNumber == "" {
 		return nil, fmt.Errorf("phone number is required")

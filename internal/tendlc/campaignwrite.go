@@ -31,11 +31,20 @@ func (s *Service) CreateCampaign(body map[string]any) (*api.Envelope, error) {
 // The PUT goes through putReplaceWithReadOnlyRetry, which retries once, with
 // the named fields stripped, if the API rejects a 400 on read-only keys
 // campaignReadOnlyFields already tried to remove — see that function for why.
-func (s *Service) UpdateCampaign(campaignID string, body map[string]any) (*api.Envelope, error) {
+// changed is the same caller-set flag map BuildCampaignUpdateRequest was
+// built from; it is translated to the JSON keys the retry must never drop,
+// and unioned with campaignNeverDropFields (fields no update flag can ever
+// reach but that still hold real data), so neither category is ever
+// silently stripped and re-sent.
+func (s *Service) UpdateCampaign(campaignID string, body map[string]any, changed map[string]bool) (*api.Envelope, error) {
 	if campaignID == "" {
 		return nil, fmt.Errorf("campaign ID is required")
 	}
-	raw, err := putReplaceWithReadOnlyRetry(s.client, s.campaignPath(campaignID), body)
+	neverDrop := changedCampaignJSONFields(changed)
+	for f := range campaignNeverDropFields {
+		neverDrop[f] = true
+	}
+	raw, err := putReplaceWithReadOnlyRetry(s.client, s.campaignPath(campaignID), body, neverDrop)
 	if err != nil {
 		return nil, err
 	}

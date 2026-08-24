@@ -122,7 +122,7 @@ campaigns, so there is no API-justified reason to gate this behind a flag.`,
 			return err
 		}
 
-		updated, err := svc.UpdateCampaign(args[0], body)
+		updated, err := svc.UpdateCampaign(args[0], body, changed)
 		if err != nil {
 			return campaignUpdateConflictHint(args[0], err)
 		}

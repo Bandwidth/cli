@@ -20,35 +20,10 @@ var knownDrift = map[string]bool{
 }
 
 // knownDriftCommands lists command paths that are known drift and
-// intentionally not yet reconciled — either a documented command path that
-// no longer resolves, or (see the last entry) a prose false positive the
-// parser can't tell apart from a real one.
-// REMOVE entries here as the underlying drift is fixed.
-//   - "tendlc campaigns", "tendlc numbers", "tendlc campaigns numbers": the
-//     legacy `band tendlc campaigns`/`numbers`/`campaigns numbers` commands
-//     were removed in the 10DLC PR5 cutover (task 3 of
-//     .superpowers/sdd/2026-08-21-tendlc-pr5-cutover). Fixing the parser to
-//     catch this exact class of drift is task 4 of that plan; the doc sweep
-//     that removes these references (and these three entries) is task 6.
-//   - "number list is not": not command drift at all — a false positive from
-//     AGENTS.md's "# On Bandwidth Build accounts, band number list is not
-//     available." comment. The line has no backtick/code-span markers, so
-//     bandUsageRe (which matches "band " anywhere in a line) tokenizes the
-//     following prose words ("list", "is", "not") as if they were further
-//     command-path tokens, same as it would a real subcommand name. Task 6
-//     rewords this line too; remove this entry alongside it.
-//   - "tendlc number": the legacy bare `band tendlc number <phone>` — a
-//     *different* command from the still-current `number get <phone>` — was
-//     also removed in task 3 of the same plan. This one resolves fully
-//     (`tendlc number` is a real command, the dispatcher parent), so it's
-//     invisible to the path-boundary checks above; argsGateRejects (added
-//     when this genuine gap was found during review) is what actually
-//     catches it, by calling numberCmd's real Args (cobra.NoArgs) against
-//     the documented phone-number argument and observing it reject. This is
-//     real drift, not a gate false positive — confirmed by hand (`band
-//     tendlc number +15555550100` exits 1 against the built binary) — and,
-//     like the three entries above, deferred to task 6's doc sweep rather
-//     than fixed here.
+// intentionally not yet reconciled. It is intentionally EMPTY: the 10DLC
+// PR5 cutover's doc sweep reconciled every entry this map used to carry, and
+// it must stay empty — do not re-add a command path here as a shortcut past
+// a doc-test failure; fix the doc (or the command) instead.
 var knownDriftCommands = map[string]bool{}
 
 // bandUsageRe captures everything after "band " to end of line (GREEDY — a

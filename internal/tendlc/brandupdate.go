@@ -327,6 +327,25 @@ func IdentityFieldsChanged(current map[string]any, changed map[string]bool) []st
 	return out
 }
 
+// changedBrandJSONFields translates changed — keyed by CLI flag name, the
+// same map BuildBrandUpdateRequest takes — into the JSON body keys those
+// flags write, via brandFlagToField. UpdateBrand passes the result to
+// putReplaceWithReadOnlyRetry as the set of fields the retry must never drop:
+// a field the caller just told this call to set is never eligible to be
+// silently stripped and re-sent, no matter what an error names.
+func changedBrandJSONFields(changed map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(changed))
+	for flag, isChanged := range changed {
+		if !isChanged {
+			continue
+		}
+		if field, ok := brandFlagToField[flag]; ok {
+			out[field] = true
+		}
+	}
+	return out
+}
+
 // deepCopyBrandMap copies m so the result shares no mutable structure with it.
 // current is read from an api.Envelope the caller may reuse, so a shallow copy
 // would leave nested values (brand.accounts is a []any of maps) aliased

@@ -31,6 +31,22 @@ import (
 // read-only field", and looping or guessing there would turn a clear error
 // into a confusing double-request.
 //
+// INVARIANT: the retry may only ever drop a field the caller did not ask
+// about. That is the entire case the design contemplates — an API-side
+// change to how some field the CLI merely echoes back is handled, never a
+// value the caller explicitly asked this call to set. neverDrop is how that
+// invariant is enforced: it is the set of JSON body keys this call must never
+// remove, regardless of what the error names. UpdateBrand and UpdateCampaign
+// each build it from two things: the JSON keys backing whatever flags the
+// caller actually passed THIS call (so "brand update --website bad-url" can
+// never have website silently dropped and re-sent), and, for campaigns, a
+// fixed set of fields that are never reachable by any update flag at all but
+// are still real data, not read-only filler (see campaignNeverDropFields).
+// Without the second category, a field the CLI never lets the caller touch
+// would look, from here, indistinguishable from a genuinely-inert read-only
+// field — which is exactly the shape production returns for a direct
+// campaign's subscriberOptin/subscriberOptout/subscriberHelp attestations.
+//
 // On success after a retry, a note naming the dropped fields goes to stderr:
 // a silent self-heal would hide an API change worth knowing about. On a
 // retry that also fails, the ORIGINAL error is returned, not the retry's —
@@ -41,7 +57,7 @@ import (
 // own copy: both are already identical PUT-then-parse-envelope shapes, and
 // this series has already had one bug from a fix landing on one arm and not
 // its twin.
-func putReplaceWithReadOnlyRetry(client *api.Client, path string, body map[string]any) ([]byte, error) {
+func putReplaceWithReadOnlyRetry(client *api.Client, path string, body map[string]any, neverDrop map[string]bool) ([]byte, error) {
 	raw, err := client.PutRawJSON(path, body)
 	if err == nil {
 		return raw, nil
@@ -55,14 +71,23 @@ func putReplaceWithReadOnlyRetry(client *api.Client, path string, body map[strin
 	named := topLevelPointerFields(apiErr.Body)
 	var drop []string
 	for _, f := range named {
+		if neverDrop[f] {
+			// The caller either explicitly asked to set this field this
+			// call, or it is a field that is never reachable by any flag but
+			// still holds real data (see neverDrop's callers). Either way,
+			// dropping it would silently discard something that matters more
+			// than the retry's convenience.
+			continue
+		}
 		if _, present := body[f]; present {
 			drop = append(drop, f)
 		}
 	}
 	if len(drop) == 0 {
-		// Nothing named in the error is a field we sent: this is a genuine
-		// validation failure (or names only nested pointers), not the shape
-		// this retry exists for.
+		// Nothing named in the error is a droppable field we sent: this is a
+		// genuine validation failure (a field the caller set, a protected
+		// field, or a pointer naming only nested data), not the shape this
+		// retry exists for.
 		return nil, err
 	}
 

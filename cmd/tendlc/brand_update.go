@@ -132,7 +132,7 @@ PUBLIC_PROFIT brand revokes Auth+ compliance.`,
 			return err
 		}
 
-		updated, err := svc.UpdateBrand(args[0], body)
+		updated, err := svc.UpdateBrand(args[0], body, changed)
 		if err != nil {
 			return brandUpdateConflictHint(args[0], err)
 		}

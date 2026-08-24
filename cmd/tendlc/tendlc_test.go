@@ -195,11 +195,21 @@ func TestIsNotFound(t *testing.T) {
 // No stub server is passed (srv is nil in every case): all three must fail
 // before ever reaching a RunE that would call `service`, so this needs no
 // live API call and no credentials.
+//
+// {"brand", "STRAY"} and {"vetting", "STRAY"} extend this to the other two
+// parents named in the doc comment above (Cmd itself is exercised by
+// "campaigns"/"numbers"; numberCmd by "number +15555550100"; campaignCmd by
+// "campaign STRAY" below) -- without this, brandCmd or vettingCmd losing its
+// RunE would silently regress to exit 0 on a stray positional with nothing
+// in this suite catching it.
 func TestRemovedLegacyCommandsExitNonZero(t *testing.T) {
 	cases := [][]string{
 		{"campaigns"},
 		{"numbers"},
 		{"number", "+15555550100"},
+		{"brand", "STRAY"},
+		{"campaign", "STRAY"},
+		{"vetting", "STRAY"},
 	}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

@@ -2057,7 +2057,7 @@ band tnoption assign +15555550100 --campaign-id CA3XKE1 --wait --plain
 Multiple numbers in one order:
 
 ```bash
-band tnoption assign +15555550100 +15555550100 --campaign-id CA3XKE1 --wait
+band tnoption assign +15555550100 +15555550101 --campaign-id CA3XKE1 --wait
 ```
 
 ### Check order status
