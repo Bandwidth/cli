@@ -3,6 +3,7 @@ package tollfree
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/spf13/cobra"
 
@@ -35,6 +36,11 @@ is not enabled — ask your Bandwidth account manager to enable it.`,
 // maxTemplateNumbers is the API's documented per-request limit.
 const maxTemplateNumbers = 5000
 
+// nanpE164Re matches a full NANP number in E.164. ClassifyNumber checks only
+// length and area code, so this guards against non-digit input (e.g. vanity
+// letters) reaching the API.
+var nanpE164Re = regexp.MustCompile(`^\+1\d{10}$`)
+
 // normalizeTollFreeNumbers converts each argument to E.164, rejects numbers
 // that are not NANP toll-free, and drops duplicates while preserving order.
 func normalizeTollFreeNumbers(args []string) ([]string, error) {
@@ -42,8 +48,8 @@ func normalizeTollFreeNumbers(args []string) ([]string, error) {
 	out := make([]string, 0, len(args))
 	for _, a := range args {
 		n := cmdutil.NormalizeE164(a)
-		if cmdutil.ClassifyNumber(n) != cmdutil.NumberTypeTollFree {
-			return nil, cmdutil.NewFlagError(fmt.Sprintf("%s is not a toll-free number (toll-free prefixes: 800, 888, 877, 866, 855, 844, 833)", a))
+		if !nanpE164Re.MatchString(n) || cmdutil.ClassifyNumber(n) != cmdutil.NumberTypeTollFree {
+			return nil, cmdutil.NewFlagError(fmt.Sprintf("%s is not a toll-free number (toll-free prefixes: 800, 888, 877, 866, 855, 844, 833; digits only)", a))
 		}
 		if seen[n] {
 			continue

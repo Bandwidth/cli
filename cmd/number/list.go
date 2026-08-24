@@ -162,18 +162,26 @@ func wrapTNsError(err error, acctID string, isBuild bool) error {
 const pagedListSize = 1000
 
 // fetchPagedNumbers pages through a filtered list endpoint and returns the
-// merged E.164 numbers. The endpoints use 1-based page/size query params and
-// signal the last page by returning fewer rows than requested.
+// merged E.164 numbers. The page parameter advances per the endpoint's
+// dialect (see pageStyle). Termination prefers the response's TotalCount —
+// stopping on a short batch alone would misread a full final page as "more
+// to come" and issue a needless (and failable) extra request when the match
+// count is an exact multiple of the page size.
 func fetchPagedNumbers(client *api.Client, query *listQuery) ([]string, error) {
 	var all []string
-	for page := 1; page <= tnsMaxPages; page++ {
+	for requests := 0; requests < tnsMaxPages; requests++ {
 		q := url.Values{}
 		for k, vs := range query.Query {
 			for _, v := range vs {
 				q.Add(k, v)
 			}
 		}
-		q.Set("page", strconv.Itoa(page))
+		switch query.PageStyle {
+		case pageByNumber:
+			q.Set("page", strconv.Itoa(requests+1))
+		default: // pageByFirstElementID: 1, 1001, 2001, ...
+			q.Set("page", strconv.Itoa(len(all)+1))
+		}
 		q.Set("size", strconv.Itoa(pagedListSize))
 
 		var result interface{}
@@ -183,12 +191,48 @@ func fetchPagedNumbers(client *api.Client, query *listQuery) ([]string, error) {
 
 		batch := extractFullNumbers(result)
 		all = append(all, batch...)
+
+		if total, ok := extractTotalCount(result); ok && len(all) >= total {
+			return all, nil
+		}
 		if len(batch) < pagedListSize {
 			return all, nil
 		}
 	}
 	return nil, fmt.Errorf("listing phone numbers: exceeded %d pages (%d numbers); "+
 		"narrow the query or contact support", tnsMaxPages, tnsMaxPages*pagedListSize)
+}
+
+// extractTotalCount finds the response's TotalCount field. The XML decoder
+// yields it as a string; a missing or unparseable value returns ok=false so
+// the caller falls back to short-batch termination.
+func extractTotalCount(v interface{}) (int, bool) {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		if tc, ok := x["TotalCount"]; ok {
+			switch t := tc.(type) {
+			case string:
+				if n, err := strconv.Atoi(t); err == nil {
+					return n, true
+				}
+			case float64:
+				return int(t), true
+			}
+			return 0, false
+		}
+		for _, child := range x {
+			if n, ok := extractTotalCount(child); ok {
+				return n, ok
+			}
+		}
+	case []interface{}:
+		for _, item := range x {
+			if n, ok := extractTotalCount(item); ok {
+				return n, ok
+			}
+		}
+	}
+	return 0, false
 }
 
 // extractFullNumbers walks a decoded /tns response and returns each

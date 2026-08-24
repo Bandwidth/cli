@@ -51,6 +51,11 @@ func TestNormalizeTollFreeNumbers(t *testing.T) {
 			args:    []string{"+448005551234"},
 			wantErr: true,
 		},
+		{
+			name:    "vanity letters rejected",
+			args:    []string{"800ABC-DEFG"},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

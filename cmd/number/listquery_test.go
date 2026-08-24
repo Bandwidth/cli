@@ -109,6 +109,49 @@ func TestBuildListQuery(t *testing.T) {
 	}
 }
 
+func TestBuildListQueryPageStyle(t *testing.T) {
+	// inserviceNumbers and discnumbers page by first-element ID; the sippeer
+	// tns endpoint pages by page number. Getting this wrong re-fetches or
+	// skips records, so pin the mapping.
+	if q := buildListQuery("123", listOptions{State: "NC"}); q.PageStyle != pageByFirstElementID {
+		t.Error("account inserviceNumbers should page by first-element ID")
+	}
+	if q := buildListQuery("123", listOptions{Subaccount: "407"}); q.PageStyle != pageByFirstElementID {
+		t.Error("site inserviceNumbers should page by first-element ID")
+	}
+	if q := buildListQuery("123", listOptions{Disconnected: true}); q.PageStyle != pageByFirstElementID {
+		t.Error("discnumbers should page by first-element ID")
+	}
+	if q := buildListQuery("123", listOptions{Subaccount: "407", Location: "500017"}); q.PageStyle != pageByNumber {
+		t.Error("sippeer tns should page by page number")
+	}
+}
+
+func TestExtractTotalCount(t *testing.T) {
+	// XML decoding yields TotalCount as a string.
+	resp := map[string]interface{}{
+		"TNs": map[string]interface{}{
+			"TotalCount": "54",
+			"TelephoneNumbers": map[string]interface{}{
+				"TelephoneNumber": "+14158714245",
+			},
+		},
+	}
+	if n, ok := extractTotalCount(resp); !ok || n != 54 {
+		t.Errorf("extractTotalCount = %d, %v; want 54, true", n, ok)
+	}
+
+	if _, ok := extractTotalCount(map[string]interface{}{"NoCount": "x"}); ok {
+		t.Error("missing TotalCount should return ok=false")
+	}
+	if _, ok := extractTotalCount(map[string]interface{}{"TotalCount": "not-a-number"}); ok {
+		t.Error("unparseable TotalCount should return ok=false")
+	}
+	if n, ok := extractTotalCount(map[string]interface{}{"TotalCount": float64(7)}); !ok || n != 7 {
+		t.Errorf("numeric TotalCount = %d, %v; want 7, true", n, ok)
+	}
+}
+
 func TestCollectBareNumbers(t *testing.T) {
 	// XML-decoded shape of the inserviceNumbers/discnumbers response:
 	// TNs > TelephoneNumbers > TelephoneNumber as bare string(s).

@@ -45,11 +45,24 @@ func (o listOptions) validate() error {
 	return nil
 }
 
+// pageStyle names the pagination dialect a list endpoint speaks. The
+// Dashboard read endpoints disagree: inserviceNumbers and discnumbers define
+// `page` as the 1-based ID of the FIRST ELEMENT of the page (1, 1001, 2001,
+// ...), while the sippeer tns endpoint defines it as an ordinary page number
+// (1, 2, 3, ...).
+type pageStyle int
+
+const (
+	pageByFirstElementID pageStyle = iota
+	pageByNumber
+)
+
 // listQuery describes one page-parameterized list request. Page and size are
 // appended by the fetch loop, not here.
 type listQuery struct {
-	Path  string
-	Query url.Values
+	Path      string
+	Query     url.Values
+	PageStyle pageStyle
 }
 
 // buildListQuery maps validated options onto the Dashboard list endpoints.
@@ -57,7 +70,7 @@ type listQuery struct {
 // because /tns works for credentials without the inservice role).
 func buildListQuery(acctID string, o listOptions) *listQuery {
 	if o.Disconnected {
-		return &listQuery{Path: fmt.Sprintf("/accounts/%s/discnumbers", acctID), Query: url.Values{}}
+		return &listQuery{Path: fmt.Sprintf("/accounts/%s/discnumbers", acctID), Query: url.Values{}, PageStyle: pageByFirstElementID}
 	}
 
 	q := url.Values{}
@@ -73,7 +86,7 @@ func buildListQuery(acctID string, o listOptions) *listQuery {
 
 	switch {
 	case o.Subaccount != "" && o.Location != "":
-		return &listQuery{Path: fmt.Sprintf("/accounts/%s/sites/%s/sippeers/%s/tns", acctID, o.Subaccount, o.Location), Query: q}
+		return &listQuery{Path: fmt.Sprintf("/accounts/%s/sites/%s/sippeers/%s/tns", acctID, o.Subaccount, o.Location), Query: q, PageStyle: pageByNumber}
 	case o.Subaccount != "":
 		// The site-level endpoint documents this parameter as "rateCenter";
 		// the account-level endpoint documents it as "ratecenter". Follow
@@ -81,12 +94,12 @@ func buildListQuery(acctID string, o listOptions) *listQuery {
 		if o.RateCenter != "" {
 			q.Set("rateCenter", o.RateCenter)
 		}
-		return &listQuery{Path: fmt.Sprintf("/accounts/%s/sites/%s/inserviceNumbers", acctID, o.Subaccount), Query: q}
+		return &listQuery{Path: fmt.Sprintf("/accounts/%s/sites/%s/inserviceNumbers", acctID, o.Subaccount), Query: q, PageStyle: pageByFirstElementID}
 	case o.geoFiltered():
 		if o.RateCenter != "" {
 			q.Set("ratecenter", o.RateCenter)
 		}
-		return &listQuery{Path: fmt.Sprintf("/accounts/%s/inserviceNumbers", acctID), Query: q}
+		return &listQuery{Path: fmt.Sprintf("/accounts/%s/inserviceNumbers", acctID), Query: q, PageStyle: pageByFirstElementID}
 	default:
 		return nil
 	}
