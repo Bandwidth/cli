@@ -666,13 +666,13 @@ band portin validate-tf +18005551234 --wait --plain
 
 ```bash
 band portin create \
-  --numbers +15555550100,+15555550100 \
+  --numbers +15555550100,+15555550101 \
   --site <site-id> --peer <peer-id> \
   --foc 2026-06-01T15:30:00Z \
   --loa-authorizing-person "Jane Doe" \
   --loa ./loa.pdf \
   --customer-order-id agent-run-42 --if-not-exists --plain
-# → {"orderId":"...","status":"DRAFT","numbers":["+15555550100","+15555550100"], ...}
+# → {"orderId":"...","status":"DRAFT","numbers":["+15555550100","+15555550101"], ...}
 
 ORDER_ID=$(... extract from above ...)
 band portin submit $ORDER_ID --wait --plain

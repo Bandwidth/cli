@@ -196,7 +196,7 @@ The CLI can generate BXML for you locally. No API calls, no auth required — it
 band bxml speak "Thanks for calling. How can we help?"
 band bxml speak --voice julie "Press 1 for sales."
 band bxml gather --url https://example.com/gather --max-digits 1 --prompt "Press a key"
-band bxml transfer +15555550100 --caller-id +19195550000
+band bxml transfer +15555550100 --caller-id +15555550101
 band bxml record --url https://example.com/done --max-duration 60
 band bxml raw '<SpeakSentence>Hello</SpeakSentence>'   # validate and pretty-print XML
 ```

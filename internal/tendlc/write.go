@@ -30,16 +30,17 @@ func (s *Service) CreateBrand(body map[string]any) (*api.Envelope, error) {
 // The PUT goes through putReplaceWithReadOnlyRetry, which retries once, with
 // the named fields stripped, if the API rejects a 400 on read-only keys
 // brandReadOnlyFields already tried to remove — see that function for why.
-// changed is the same caller-set flag map BuildBrandUpdateRequest was built
-// from; it is translated to the JSON keys the retry must never drop, so a 400
-// naming a field the caller just asked to set (e.g. --website) surfaces as
-// the caller's own validation error instead of being silently stripped and
-// re-sent.
-func (s *Service) UpdateBrand(brandID string, body map[string]any, changed map[string]bool) (*api.Envelope, error) {
+// The retry's neverDrop set is brandNeverDropFields(): every JSON key any
+// `brand update` flag can write, not merely the ones changed THIS call — a
+// 400 naming a field reachable by any update flag (e.g. website, even when
+// this call never touched it) surfaces as a real validation failure instead
+// of being silently stripped and re-sent. See putReplaceWithReadOnlyRetry's
+// INVARIANT for why "changed this call" is not the right test.
+func (s *Service) UpdateBrand(brandID string, body map[string]any) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
-	raw, err := putReplaceWithReadOnlyRetry(s.client, s.brandPath(brandID), body, changedBrandJSONFields(changed))
+	raw, err := putReplaceWithReadOnlyRetry(s.client, s.brandPath(brandID), body, brandNeverDropFields())
 	if err != nil {
 		return nil, err
 	}

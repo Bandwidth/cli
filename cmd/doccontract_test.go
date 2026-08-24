@@ -44,6 +44,18 @@ var backtickBandRe = regexp.MustCompile("`(band [^`]+)`")
 // so the first non-matching token ends the command path.
 var commandTokenRe = regexp.MustCompile(`^[a-z][a-z-]*$`)
 
+// trailingPunctRe matches punctuation glued onto the end of a token by
+// ordinary prose — a trailing comma, period, semicolon, colon, or
+// close-paren, as in "Use `band tendlc campaigns,` then assign the number."
+// A real command or subcommand name never itself ends in one of these, so it
+// is stripped before a token is judged against commandTokenRe (and before an
+// already-resolved remainder is judged for ambiguity in argsGateRejects).
+// Without this, a stale command word with a punctuation mark stuck to it —
+// exactly the shape a deleted/renamed command reference takes in running
+// prose — silently ends the command path one token early instead of being
+// evaluated as the word it actually names.
+var trailingPunctRe = regexp.MustCompile(`[,.;:)]+$`)
+
 // usePlaceholderRe matches a "<...>" or "[...]" placeholder in a cobra
 // Use string, e.g. "get <brand-id>" or "release [number]". This codebase
 // consistently declares positional args this way (verified against every
@@ -248,10 +260,17 @@ func splitPositionalArgs(cmd *cobra.Command, fields []string) (args []string, ok
 //   - there's no remainder at all — a bare mention like "`band portin get`",
 //     naming a command without demonstrating a full invocation, is normal
 //     technical writing and must not be required to show every argument;
-//   - a positional token is a literal "..." or contains a "," — both strong
-//     signals of deliberately elided/abbreviated example text (e.g. `band
-//     tendlc campaign create <tier 1+2 fields, both booleans true> --plain`)
-//     rather than a literal, runnable argument list;
+//   - a positional token is a literal "..." — a strong signal of
+//     deliberately elided example text;
+//   - a positional token still contains a "," after trailing punctuation is
+//     stripped (trailingPunctRe) — an INTERNAL comma is a strong signal of
+//     deliberately elided/abbreviated example text (e.g. `band tendlc
+//     campaign create <tier 1+2 fields, both booleans true> --plain`, though
+//     that particular case is already one merged token via the bracket rule
+//     below). A comma stuck only to the END of an otherwise-plain word — e.g.
+//     a stale `campaigns,` in running prose — is NOT ambiguous in this way
+//     and is evaluated normally, not abstained on: that was exactly the gap
+//     that let a deleted command slip through undetected;
 //   - a positional token is a lone "\" — a shell line-continuation marker
 //     from a multi-line example, meaning the real argument is on the next
 //     line and this test only ever looks at one line at a time.
@@ -282,7 +301,10 @@ func argsGateRejects(s string) error {
 		return nil
 	}
 	for _, a := range pos {
-		if a == "..." || a == `\` || strings.Contains(a, ",") {
+		if a == "..." || a == `\` {
+			return nil
+		}
+		if strings.Contains(trailingPunctRe.ReplaceAllString(a, ""), ",") {
 			return nil
 		}
 		// A "<...>"/"[...]" placeholder that itself spans multiple words
@@ -311,9 +333,19 @@ func argsGateRejects(s string) error {
 // leading run of fields that look like command tokens (per commandTokenRe).
 // The first field that isn't command-shaped (a flag, placeholder, ID, phone
 // number, etc.) ends the path.
+//
+// Each field has trailing prose punctuation (trailingPunctRe) stripped
+// before the commandTokenRe check, and the STRIPPED form is what goes into
+// path — a deleted/renamed command mentioned as "`band tendlc campaigns,`
+// then ..." must be evaluated as "campaigns", not silently end the path one
+// token early at "tendlc" just because a comma is stuck to the next word.
+// This does not risk misclassifying a flag, placeholder, ID, or phone number
+// as command-shaped: all of those fail commandTokenRe on their FIRST
+// character, which stripping a trailing character never changes.
 func commandPathTokens(s string) []string {
 	var path []string
 	for _, f := range strings.Fields(s) {
+		f = trailingPunctRe.ReplaceAllString(f, "")
 		if !commandTokenRe.MatchString(f) {
 			break
 		}
@@ -349,6 +381,19 @@ func TestParserDistinguishesSubcommandsFromPositionals(t *testing.T) {
 		{
 			name:        "deleted `tendlc campaigns` with a trailing subcommand-shaped word",
 			commandLine: "tendlc campaigns list",
+			wantFlagged: true,
+		},
+		{
+			// The planted punctuation-bypass shape: "Use `band tendlc
+			// campaigns,` then assign the number." A comma glued directly onto
+			// the deleted command word, with no trailing subcommand-shaped
+			// word at all, used to make commandPathTokens stop at "tendlc"
+			// (the comma fails commandTokenRe) and made argsGateRejects
+			// abstain unconditionally on any remainder containing a comma —
+			// so this slipped through undetected before trailingPunctRe
+			// stripping was added to both.
+			name:        "deleted `tendlc campaigns,` with a comma glued directly onto the stale word",
+			commandLine: "tendlc campaigns,",
 			wantFlagged: true,
 		},
 		{

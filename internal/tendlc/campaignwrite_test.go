@@ -50,7 +50,7 @@ func TestUpdateCampaignPutsToCampaignPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"CEXMPL1"}}`, &got)
 
-	if _, err := s.UpdateCampaign("CEXMPL1", map[string]any{"campaignName": "Acme Alerts"}, nil); err != nil {
+	if _, err := s.UpdateCampaign("CEXMPL1", map[string]any{"campaignName": "Acme Alerts"}); err != nil {
 		t.Fatalf("UpdateCampaign: %v", err)
 	}
 	if got.method != "PUT" {
@@ -138,7 +138,7 @@ func TestEmptyCampaignIDsRejectedWithoutRequest(t *testing.T) {
 	s := stubService(t, 200, `{"data":{}}`, &got)
 
 	calls := map[string]func() error{
-		"UpdateCampaign":     func() error { _, err := s.UpdateCampaign("", map[string]any{}, nil); return err },
+		"UpdateCampaign":     func() error { _, err := s.UpdateCampaign("", map[string]any{}); return err },
 		"DeactivateCampaign": func() error { return s.DeactivateCampaign("") },
 		"NudgeCampaign":      func() error { return s.NudgeCampaign("", map[string]any{}) },
 		"CampaignPhoneNumbers": func() error {

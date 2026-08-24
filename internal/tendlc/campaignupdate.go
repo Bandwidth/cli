@@ -328,21 +328,18 @@ func ImportedCampaignRejectedFlags(changed map[string]bool) []string {
 	return out
 }
 
-// changedCampaignJSONFields translates changed — keyed by CLI flag name, the
-// same map BuildCampaignUpdateRequest takes — into the JSON body keys those
-// flags write, via campaignUpdateFlagToField. UpdateCampaign passes the
-// result to putReplaceWithReadOnlyRetry (unioned with
-// campaignNeverDropFields) as part of the set of fields the retry must never
-// drop.
-func changedCampaignJSONFields(changed map[string]bool) map[string]bool {
-	out := make(map[string]bool, len(changed))
-	for flag, isChanged := range changed {
-		if !isChanged {
-			continue
-		}
-		if field, ok := campaignUpdateFlagToField[flag]; ok {
-			out[field] = true
-		}
+// campaignFlagReachableFields is every JSON body key any `campaign update`
+// flag can write — i.e. every value in campaignUpdateFlagToField. UpdateCampaign
+// unions the result with campaignNeverDropFields and passes the whole set to
+// putReplaceWithReadOnlyRetry as the fields the retry must never drop: a
+// field the CLI models at all is mutable customer data (see
+// putReplaceWithReadOnlyRetry's INVARIANT), so it is never eligible to be
+// silently stripped and re-sent — regardless of whether the caller's most
+// recent invocation happened to touch it.
+func campaignFlagReachableFields() map[string]bool {
+	out := make(map[string]bool, len(campaignUpdateFlagToField))
+	for _, field := range campaignUpdateFlagToField {
+		out[field] = true
 	}
 	return out
 }
@@ -355,19 +352,20 @@ func changedCampaignJSONFields(changed map[string]bool) map[string]bool {
 // campaignReadOnlyFields, which are stripped before every PUT because they
 // are genuinely server-owned).
 //
-// changedCampaignJSONFields alone cannot protect these: because no update
-// flag ever reaches them, they can never appear in the changed map, so a
-// guard keyed only on "did the caller ask about this field" would leave them
-// exactly as droppable as before. But they are not read-only filler either —
-// measured against production, a direct campaign holding false for these
-// returns 400 "is required" naming exactly these pointers (the same shape
-// ValidateCampaignCreate documents for create; see campaignoptions.go). That
-// reads exactly like the shape this retry exists to handle — a 400 naming a
-// field present in body — so without this explicit list, the retry would
-// strip all three compliance attestations off an update that has nothing to
-// do with them (e.g. a plain --description change) and report success. This
-// list is therefore excluded from the retry's drop set unconditionally, not
-// merely when unchanged this call.
+// campaignFlagReachableFields alone cannot protect these: because no update
+// flag ever writes them, they never appear in campaignUpdateFlagToField's
+// values, so a guard keyed only on "is this field reachable by some flag"
+// would leave them exactly as droppable as an unmodeled field. But they are
+// not read-only filler either — measured against production, a direct
+// campaign holding false for these returns 400 "is required" naming exactly
+// these pointers (the same shape ValidateCampaignCreate documents for
+// create; see campaignoptions.go). That reads exactly like the shape this
+// retry exists to handle — a 400 naming a field present in body — so
+// without this explicit list, the retry would strip all three compliance
+// attestations off an update that has nothing to do with them (e.g. a plain
+// --description change) and report success. This list is therefore unioned
+// into the retry's neverDrop set unconditionally by UpdateCampaign, not
+// merely when reachable by a flag.
 var campaignNeverDropFields = map[string]bool{
 	"termsAndConditions": true,
 	"subscriberOptin":    true,

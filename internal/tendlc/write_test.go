@@ -70,7 +70,7 @@ func TestUpdateBrandPutsToBrandPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WABC123"}}`, &got)
 
-	if _, err := s.UpdateBrand("BGJR2BA", map[string]any{"displayName": "Acme"}, nil); err != nil {
+	if _, err := s.UpdateBrand("BGJR2BA", map[string]any{"displayName": "Acme"}); err != nil {
 		t.Fatalf("UpdateBrand: %v", err)
 	}
 	if got.method != "PUT" {
@@ -192,7 +192,7 @@ func TestEmptyIDsRejectedWithoutRequest(t *testing.T) {
 	s := stubService(t, 200, `{"data":{}}`, &got)
 
 	calls := map[string]func() error{
-		"UpdateBrand":   func() error { _, err := s.UpdateBrand("", map[string]any{}, nil); return err },
+		"UpdateBrand":   func() error { _, err := s.UpdateBrand("", map[string]any{}); return err },
 		"DeleteBrand":   func() error { return s.DeleteBrand("") },
 		"ReverifyBrand": func() error { return s.ReverifyBrand("") },
 		"Resend2FA":     func() error { return s.Resend2FA("") },

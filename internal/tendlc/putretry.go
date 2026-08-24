@@ -31,21 +31,31 @@ import (
 // read-only field", and looping or guessing there would turn a clear error
 // into a confusing double-request.
 //
-// INVARIANT: the retry may only ever drop a field the caller did not ask
-// about. That is the entire case the design contemplates — an API-side
-// change to how some field the CLI merely echoes back is handled, never a
-// value the caller explicitly asked this call to set. neverDrop is how that
-// invariant is enforced: it is the set of JSON body keys this call must never
-// remove, regardless of what the error names. UpdateBrand and UpdateCampaign
-// each build it from two things: the JSON keys backing whatever flags the
-// caller actually passed THIS call (so "brand update --website bad-url" can
-// never have website silently dropped and re-sent), and, for campaigns, a
-// fixed set of fields that are never reachable by any update flag at all but
-// are still real data, not read-only filler (see campaignNeverDropFields).
-// Without the second category, a field the CLI never lets the caller touch
-// would look, from here, indistinguishable from a genuinely-inert read-only
-// field — which is exactly the shape production returns for a direct
-// campaign's subscriberOptin/subscriberOptout/subscriberHelp attestations.
+// INVARIANT: the retry may only ever drop a field the CLI does not model at
+// all. Anything reachable by an update flag is mutable customer data whether
+// or not the caller happened to touch it THIS invocation — an earlier version
+// of this invariant was "don't drop what the caller changed this call", and
+// that is not sufficient: an unchanged field still holds real, previously-set
+// customer data. Concretely: a brand has website "https://example.com", set
+// months ago. The caller runs "brand update --display-name 'New Name'",
+// touching nothing else. The PUT 400s naming "/website" because the stored
+// value no longer passes current validation. website is not read-only, and
+// the caller didn't touch it this call — but it is still reachable by
+// --website, so it is still real data, and dropping it would silently null
+// the brand's site on a request that never mentioned it. The only field that
+// is genuinely safe to drop is one the CLI never models at all — the entire
+// case this retry was designed for. neverDrop is how the invariant is
+// enforced: it is the set of JSON body keys this call must never remove,
+// regardless of what the error names. UpdateBrand and UpdateCampaign each
+// build it from the WHOLE update flag surface (every JSON key any update flag
+// can write, not merely the ones changed this call) and, for campaigns, union
+// it with a fixed set of fields that are never reachable by any update flag
+// at all but are still real data, not read-only filler (see
+// campaignNeverDropFields). Without that second category, a field the CLI
+// never lets the caller touch would look, from here, indistinguishable from a
+// genuinely-inert read-only field — which is exactly the shape production
+// returns for a direct campaign's
+// subscriberOptin/subscriberOptout/subscriberHelp attestations.
 //
 // On success after a retry, a note naming the dropped fields goes to stderr:
 // a silent self-heal would hide an API change worth knowing about. On a
