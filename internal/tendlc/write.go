@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 
@@ -11,8 +12,8 @@ import (
 // an existing brand from TCR (all customers, body = {"brandId": id}). Both are
 // POST /brands; which one happens is decided by the body, not the path.
 // Returns 202 with a bandwidthId — the TCR brandId may not exist yet.
-func (s *Service) CreateBrand(body map[string]any) (*api.Envelope, error) {
-	raw, err := s.client.PostRaw(s.base()+"/brands", body)
+func (s *Service) CreateBrand(ctx context.Context, body map[string]any) (*api.Envelope, error) {
+	raw, err := s.client.PostRaw(ctx, s.base()+"/brands", body)
 	if err != nil {
 		return nil, err
 	}
@@ -36,11 +37,11 @@ func (s *Service) CreateBrand(body map[string]any) (*api.Envelope, error) {
 // this call never touched it) surfaces as a real validation failure instead
 // of being silently stripped and re-sent. See putReplaceWithReadOnlyRetry's
 // INVARIANT for why "changed this call" is not the right test.
-func (s *Service) UpdateBrand(brandID string, body map[string]any) (*api.Envelope, error) {
+func (s *Service) UpdateBrand(ctx context.Context, brandID string, body map[string]any) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
-	raw, err := putReplaceWithReadOnlyRetry(s.client, s.brandPath(brandID), body, brandNeverDropFields())
+	raw, err := putReplaceWithReadOnlyRetry(ctx, s.client, s.brandPath(brandID), body, brandNeverDropFields())
 	if err != nil {
 		return nil, err
 	}
@@ -53,58 +54,58 @@ func (s *Service) UpdateBrand(brandID string, body map[string]any) (*api.Envelop
 // claim it does, but measured against production, both test profiles
 // survived with softDeleted: false. Delete the profile separately if it is
 // no longer needed.
-func (s *Service) DeleteBrand(brandID string) error {
+func (s *Service) DeleteBrand(ctx context.Context, brandID string) error {
 	if brandID == "" {
 		return fmt.Errorf("brand ID is required")
 	}
-	return s.client.Delete(s.brandPath(brandID), nil)
+	return s.client.Delete(ctx, s.brandPath(brandID), nil)
 }
 
 // ReverifyBrand resubmits the brand for identity verification. This incurs a
 // $4 fee and resets brandIdentityStatus toward re-registration — documented
 // as REGISTERING, but production reads it back as UNVERIFIED until TCR
 // responds. Returns 204.
-func (s *Service) ReverifyBrand(brandID string) error {
+func (s *Service) ReverifyBrand(ctx context.Context, brandID string) error {
 	if brandID == "" {
 		return fmt.Errorf("brand ID is required")
 	}
-	return s.client.Post(s.brandPath(brandID)+"/identity/reverify", nil, nil)
+	return s.client.Post(ctx, s.brandPath(brandID)+"/identity/reverify", nil, nil)
 }
 
 // Resend2FA re-sends the Business Authentication 2FA email to the brand's
 // business contact. Returns 204.
-func (s *Service) Resend2FA(brandID string) error {
+func (s *Service) Resend2FA(ctx context.Context, brandID string) error {
 	if brandID == "" {
 		return fmt.Errorf("brand ID is required")
 	}
-	return s.client.Post(s.brandPath(brandID)+"/identity/resend2faEmail", nil, nil)
+	return s.client.Post(ctx, s.brandPath(brandID)+"/identity/resend2faEmail", nil, nil)
 }
 
 // BrandHistory returns the brand's activity log: free-text {createdDate,
 // message} entries, newest first. Unlike customer profiles there are no
 // versioned snapshots and no per-version fetch.
-func (s *Service) BrandHistory(brandID string, limit, offset int) (*api.Envelope, error) {
+func (s *Service) BrandHistory(ctx context.Context, brandID string, limit, offset int) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
-	return s.get(s.brandPath(brandID) + "/history" + api.EncodeQuery(limit, offset, nil))
+	return s.get(ctx, s.brandPath(brandID)+"/history"+api.EncodeQuery(limit, offset, nil))
 }
 
 // ListVettings returns the external vettings on a brand. Vettings are
 // brand-scoped: there is no campaign vetting endpoint.
-func (s *Service) ListVettings(brandID string, limit, offset int) (*api.Envelope, error) {
+func (s *Service) ListVettings(ctx context.Context, brandID string, limit, offset int) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
-	return s.get(s.brandPath(brandID) + "/vettings" + api.EncodeQuery(limit, offset, nil))
+	return s.get(ctx, s.brandPath(brandID)+"/vettings"+api.EncodeQuery(limit, offset, nil))
 }
 
 // RequestVetting orders a new external vetting for a brand. Billable.
-func (s *Service) RequestVetting(brandID string, body map[string]any) (*api.Envelope, error) {
+func (s *Service) RequestVetting(ctx context.Context, brandID string, body map[string]any) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
-	raw, err := s.client.PostRaw(s.brandPath(brandID)+"/vettings", body)
+	raw, err := s.client.PostRaw(ctx, s.brandPath(brandID)+"/vettings", body)
 	if err != nil {
 		return nil, err
 	}
@@ -112,14 +113,14 @@ func (s *Service) RequestVetting(brandID string, body map[string]any) (*api.Enve
 }
 
 // ImportVetting records an externally-performed vetting against a brand.
-func (s *Service) ImportVetting(brandID, vettingID string, body map[string]any) (*api.Envelope, error) {
+func (s *Service) ImportVetting(ctx context.Context, brandID, vettingID string, body map[string]any) (*api.Envelope, error) {
 	if brandID == "" {
 		return nil, fmt.Errorf("brand ID is required")
 	}
 	if vettingID == "" {
 		return nil, fmt.Errorf("vetting ID is required")
 	}
-	raw, err := s.client.PutRawJSON(
+	raw, err := s.client.PutRawJSON(ctx,
 		s.brandPath(brandID)+"/vettings/"+url.PathEscape(vettingID), body)
 	if err != nil {
 		return nil, err

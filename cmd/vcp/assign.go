@@ -47,7 +47,7 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	body := BuildAssignBody(numbers)
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), body, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), body, &result); err != nil {
 		return fmt.Errorf("assigning numbers to VCP: %w", err)
 	}
 

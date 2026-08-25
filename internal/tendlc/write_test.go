@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -44,7 +45,7 @@ func TestCreateBrandPostsToBrandsPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WABC123"}}`, &got)
 
-	env, err := s.CreateBrand(map[string]any{"displayName": "Acme"})
+	env, err := s.CreateBrand(context.Background(), map[string]any{"displayName": "Acme"})
 	if err != nil {
 		t.Fatalf("CreateBrand: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestUpdateBrandPutsToBrandPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WABC123"}}`, &got)
 
-	if _, err := s.UpdateBrand("BEXMPL6", map[string]any{"displayName": "Acme"}); err != nil {
+	if _, err := s.UpdateBrand(context.Background(), "BEXMPL6", map[string]any{"displayName": "Acme"}); err != nil {
 		t.Fatalf("UpdateBrand: %v", err)
 	}
 	if got.method != "PUT" {
@@ -85,7 +86,7 @@ func TestDeleteBrandUsesDelete(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, "", &got)
 
-	if err := s.DeleteBrand("WET8JUY8H0"); err != nil {
+	if err := s.DeleteBrand(context.Background(), "WET8JUY8H0"); err != nil {
 		t.Fatalf("DeleteBrand: %v", err)
 	}
 	if got.method != "DELETE" {
@@ -102,9 +103,9 @@ func TestReverifyAndResend2FAPostToIdentityPaths(t *testing.T) {
 		call func(*Service) error
 		want string
 	}{
-		{"reverify", func(s *Service) error { return s.ReverifyBrand("BEXMPL6") },
+		{"reverify", func(s *Service) error { return s.ReverifyBrand(context.Background(), "BEXMPL6") },
 			"/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/identity/reverify"},
-		{"resend2fa", func(s *Service) error { return s.Resend2FA("BEXMPL6") },
+		{"resend2fa", func(s *Service) error { return s.Resend2FA(context.Background(), "BEXMPL6") },
 			"/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/identity/resend2faEmail"},
 	}
 	for _, tt := range tests {
@@ -130,7 +131,7 @@ func TestBrandHistoryEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.BrandHistory("BEXMPL6", 10, 20); err != nil {
+	if _, err := s.BrandHistory(context.Background(), "BEXMPL6", 10, 20); err != nil {
 		t.Fatalf("BrandHistory: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/history"; got.path != want {
@@ -145,7 +146,7 @@ func TestListVettingsEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.ListVettings("BEXMPL6", 10, 0); err != nil {
+	if _, err := s.ListVettings(context.Background(), "BEXMPL6", 10, 0); err != nil {
 		t.Fatalf("ListVettings: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/vettings"; got.path != want {
@@ -158,7 +159,7 @@ func TestRequestVettingPostsBody(t *testing.T) {
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
 
 	body := map[string]any{"evpId": "AEGIS", "vettingClass": "STANDARD"}
-	if _, err := s.RequestVetting("BEXMPL6", body); err != nil {
+	if _, err := s.RequestVetting(context.Background(), "BEXMPL6", body); err != nil {
 		t.Fatalf("RequestVetting: %v", err)
 	}
 	if got.method != "POST" {
@@ -173,7 +174,7 @@ func TestImportVettingPutsToVettingPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
 
-	if _, err := s.ImportVetting("BEXMPL6", "978de74a-7191", map[string]any{"evpId": "AEGIS"}); err != nil {
+	if _, err := s.ImportVetting(context.Background(), "BEXMPL6", "978de74a-7191", map[string]any{"evpId": "AEGIS"}); err != nil {
 		t.Fatalf("ImportVetting: %v", err)
 	}
 	if got.method != "PUT" {
@@ -192,22 +193,22 @@ func TestEmptyIDsRejectedWithoutRequest(t *testing.T) {
 	s := stubService(t, 200, `{"data":{}}`, &got)
 
 	calls := map[string]func() error{
-		"UpdateBrand":   func() error { _, err := s.UpdateBrand("", map[string]any{}); return err },
-		"DeleteBrand":   func() error { return s.DeleteBrand("") },
-		"ReverifyBrand": func() error { return s.ReverifyBrand("") },
-		"Resend2FA":     func() error { return s.Resend2FA("") },
-		"BrandHistory":  func() error { _, err := s.BrandHistory("", 10, 0); return err },
-		"ListVettings":  func() error { _, err := s.ListVettings("", 10, 0); return err },
+		"UpdateBrand":   func() error { _, err := s.UpdateBrand(context.Background(), "", map[string]any{}); return err },
+		"DeleteBrand":   func() error { return s.DeleteBrand(context.Background(), "") },
+		"ReverifyBrand": func() error { return s.ReverifyBrand(context.Background(), "") },
+		"Resend2FA":     func() error { return s.Resend2FA(context.Background(), "") },
+		"BrandHistory":  func() error { _, err := s.BrandHistory(context.Background(), "", 10, 0); return err },
+		"ListVettings":  func() error { _, err := s.ListVettings(context.Background(), "", 10, 0); return err },
 		"RequestVetting": func() error {
-			_, err := s.RequestVetting("", map[string]any{})
+			_, err := s.RequestVetting(context.Background(), "", map[string]any{})
 			return err
 		},
 		"ImportVettingNoBrand": func() error {
-			_, err := s.ImportVetting("", "v1", map[string]any{})
+			_, err := s.ImportVetting(context.Background(), "", "v1", map[string]any{})
 			return err
 		},
 		"ImportVettingNoVetting": func() error {
-			_, err := s.ImportVetting("B1", "", map[string]any{})
+			_, err := s.ImportVetting(context.Background(), "B1", "", map[string]any{})
 			return err
 		},
 	}
@@ -230,7 +231,7 @@ func TestBrandIDIsPathEscaped(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.BrandHistory("a/b c", 10, 0); err != nil {
+	if _, err := s.BrandHistory(context.Background(), "a/b c", 10, 0); err != nil {
 		t.Fatalf("BrandHistory: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/brands/a%2Fb%20c/history"; got.escapedPath != want {
@@ -250,7 +251,7 @@ func TestVettingIDIsPathEscaped(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"WV123"}}`, &got)
 
-	if _, err := s.ImportVetting("BEXMPL6", "v/1 2", map[string]any{"evpId": "AEGIS"}); err != nil {
+	if _, err := s.ImportVetting(context.Background(), "BEXMPL6", "v/1 2", map[string]any{"evpId": "AEGIS"}); err != nil {
 		t.Fatalf("ImportVetting: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/brands/BEXMPL6/vettings/v%2F1%202"; got.escapedPath != want {

@@ -132,7 +132,7 @@ func runSubmit(cmd *cobra.Command, args []string) error {
 		acctID, url.PathEscape(number))
 
 	var result interface{}
-	if err := client.Post(path, body, &result); err != nil {
+	if err := client.Post(cmd.Context(), path, body, &result); err != nil {
 		if apiErr, ok := err.(*api.APIError); ok {
 			switch apiErr.StatusCode {
 			case 403:

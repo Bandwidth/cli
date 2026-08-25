@@ -29,7 +29,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/calls", acctID), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/calls", acctID), &result); err != nil {
 		return fmt.Errorf("listing calls: %w", err)
 	}
 

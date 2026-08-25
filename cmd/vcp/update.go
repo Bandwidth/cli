@@ -117,7 +117,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	if plan != nil {
 		var current map[string]interface{}
-		if err := client.Get(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s", acctID, vcpID), &current); err != nil {
+		if err := client.Get(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s", acctID, vcpID), &current); err != nil {
 			return fmt.Errorf("reading current VCP: %w", err)
 		}
 		existingPlan := current["originationRoutePlan"]
@@ -136,7 +136,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Patch(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s", acctID, vcpID), body, &result); err != nil {
+	if err := client.Patch(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s", acctID, vcpID), body, &result); err != nil {
 		return fmt.Errorf("updating VCP: %w", err)
 	}
 

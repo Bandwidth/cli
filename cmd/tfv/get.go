@@ -37,7 +37,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		acctID, url.PathEscape(number))
 
 	var result interface{}
-	if err := client.Get(path, &result); err != nil {
+	if err := client.Get(cmd.Context(), path, &result); err != nil {
 		return tfvError(err, number)
 	}
 

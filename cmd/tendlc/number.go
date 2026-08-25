@@ -109,7 +109,7 @@ fields -- check for them rather than relying on their absence.`,
 		}
 
 		if !numberListAll {
-			env, err := svc.ListPhoneNumbers(numberListLimit, numberListOffset, filters)
+			env, err := svc.ListPhoneNumbers(cmd.Context(), numberListLimit, numberListOffset, filters)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -123,7 +123,7 @@ fields -- check for them rather than relying on their absence.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.ListPhoneNumbers(limit, offset, filters)
+			return svc.ListPhoneNumbers(cmd.Context(), limit, offset, filters)
 		}, numberListLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil
@@ -162,7 +162,7 @@ wherever the endpoint does, without a bespoke error message guessing at why.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.GetPhoneNumber(args[0])
+		env, err := svc.GetPhoneNumber(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -197,7 +197,7 @@ per-entry fetch -- this is the only history view for a phone number.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !numberHistoryAll {
-			env, err := svc.PhoneNumberHistory(args[0], numberHistoryLimit, numberHistoryOffset)
+			env, err := svc.PhoneNumberHistory(cmd.Context(), args[0], numberHistoryLimit, numberHistoryOffset)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -211,7 +211,7 @@ per-entry fetch -- this is the only history view for a phone number.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.PhoneNumberHistory(args[0], limit, offset)
+			return svc.PhoneNumberHistory(cmd.Context(), args[0], limit, offset)
 		}, numberHistoryLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

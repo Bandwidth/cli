@@ -1,6 +1,7 @@
 package quickstart
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,7 +106,7 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 	result := quickstartResult{CallbackURL: qsCallbackURL, Path: "vcp"}
 
 	// Step 1: Create voice application (idempotent: reuse if already exists)
-	appID, err := ensureVoiceApp(dashClient, acctID, qsName+" App", qsCallbackURL)
+	appID, err := ensureVoiceApp(cmd.Context(), dashClient, acctID, qsName+" App", qsCallbackURL)
 	if err != nil {
 		// App provisioning failing often means this is a legacy account.
 		fmt.Fprintf(os.Stderr, "\nVoice application setup failed. If this is a legacy account, try:\n")
@@ -116,7 +117,7 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 
 	// Step 2: Create VCP linked to the app (idempotent: reuse if already exists)
 	vcpName := qsName + " VCP"
-	existingVCP, err := findExistingID(platClient, fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), "name", vcpName, "voiceConfigurationPackageId")
+	existingVCP, err := findExistingID(cmd.Context(), platClient, fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), "name", vcpName, "voiceConfigurationPackageId")
 	if err != nil {
 		return failWithPartial(result, err)
 	}
@@ -131,7 +132,7 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 			"name":                     vcpName,
 			"httpVoiceV2ApplicationId": appID,
 		}
-		vcpErr := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), vcpBody, &vcpResp)
+		vcpErr := platClient.Post(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), vcpBody, &vcpResp)
 		vcpSpin.Stop()
 		if vcpErr != nil {
 			fmt.Fprintf(os.Stderr, "\nVCP creation failed. If this is a legacy account, try:\n")
@@ -147,7 +148,7 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 	vcpID := result.VCPID
 
 	// Step 3: Search and order a number (idempotent: skip if VCP already has one)
-	existingNum, err := firstAssignedNumber(platClient, acctID, vcpID)
+	existingNum, err := firstAssignedNumber(cmd.Context(), platClient, acctID, vcpID)
 	if err != nil {
 		return failWithPartial(result, err)
 	}
@@ -157,12 +158,12 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 		ui.Successf("Number (existing): %s", ui.ID(existingNum))
 	} else {
 		// Orders require a sub-account (SiteId), so ensure one exists before ordering.
-		siteID, err := ensureSubaccount(dashClient, acctID, qsName+" Sub-account")
+		siteID, err := ensureSubaccount(cmd.Context(), dashClient, acctID, qsName+" Sub-account")
 		if err != nil {
 			return failWithPartial(result, err)
 		}
 		result.SiteID = siteID
-		phoneNumber, err := searchAndOrderNumber(dashClient, acctID, siteID)
+		phoneNumber, err := searchAndOrderNumber(cmd.Context(), dashClient, acctID, siteID)
 		if err != nil {
 			result.Status = "complete_no_number"
 			ui.Warnf("%v", err)
@@ -182,11 +183,12 @@ func runVCPQuickstart(cmd *cobra.Command) error {
 			}
 			var lastAssignErr error
 			_, pollErr := cmdutil.Poll(cmdutil.PollConfig{
+				Context:  cmd.Context(),
 				Interval: 3 * time.Second,
 				Timeout:  90 * time.Second,
 				Check: func() (bool, interface{}, error) {
 					var assignResp interface{}
-					err := platClient.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
+					err := platClient.Post(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages/%s/phoneNumbers/bulk", acctID, vcpID), assignBody, &assignResp)
 					if err == nil {
 						return true, assignResp, nil
 					}
@@ -231,7 +233,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 
 	// Step 1: Create sub-account (idempotent: reuse if already exists)
 	siteName := qsName + " Sub-account"
-	existingSite, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites", acctID), "Name", siteName, "Id", "id", "siteId")
+	existingSite, err := findExistingID(cmd.Context(), client, fmt.Sprintf("/accounts/%s/sites", acctID), "Name", siteName, "Id", "id", "siteId")
 	if err != nil {
 		return failWithPartial(result, err)
 	}
@@ -248,7 +250,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 			RootElement: "Site",
 			Data:        map[string]interface{}{"Name": siteName},
 		}
-		siteErr := client.Post(fmt.Sprintf("/accounts/%s/sites", acctID), siteBody, &siteResp)
+		siteErr := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/sites", acctID), siteBody, &siteResp)
 		siteSpin.Stop()
 		if siteErr != nil {
 			return failWithPartial(result, fmt.Errorf("creating sub-account: %w", siteErr))
@@ -263,7 +265,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 
 	// Step 2: Create SIP peer / location (idempotent: reuse if already exists)
 	peerName := qsName + " Location"
-	existingPeer, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), "PeerName", peerName, "PeerId", "Id", "id")
+	existingPeer, err := findExistingID(cmd.Context(), client, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), "PeerName", peerName, "PeerId", "Id", "id")
 	if err != nil {
 		return failWithPartial(result, err)
 	}
@@ -281,7 +283,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 				"IsDefaultPeer": "true",
 			},
 		}
-		sipErr := client.Post(fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), sipBody, &sipResp)
+		sipErr := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), sipBody, &sipResp)
 		sipSpin.Stop()
 		if sipErr != nil {
 			return failWithPartial(result, fmt.Errorf("creating location: %w", sipErr))
@@ -294,7 +296,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 	}
 
 	// Step 3: Create voice application (idempotent: reuse if already exists)
-	appID, err := ensureVoiceApp(client, acctID, qsName+" App", qsCallbackURL)
+	appID, err := ensureVoiceApp(cmd.Context(), client, acctID, qsName+" App", qsCallbackURL)
 	if err != nil {
 		return failWithPartial(result, err)
 	}
@@ -308,7 +310,7 @@ func runLegacyQuickstart(cmd *cobra.Command) error {
 	// if Bandwidth exposes a sub-account-scoped in-service TN endpoint, or if
 	// number.fetchAccountNumbers is exported and a heuristic is deemed acceptable.
 	ui.Warnf("Note: the legacy number-ordering step is not idempotent — each time you re-run quickstart --legacy, another number may be ordered. The default (VCP) path does not have this limitation.")
-	phoneNumber, err := searchAndOrderNumber(client, acctID, siteID)
+	phoneNumber, err := searchAndOrderNumber(cmd.Context(), client, acctID, siteID)
 	if err != nil {
 		result.Status = "complete_no_number"
 		ui.Warnf("%v", err)
@@ -342,9 +344,9 @@ func failWithPartial(result quickstartResult, err error) error {
 // whose nameField matches name (or "" if none). It FAILS CLOSED: a list error
 // is returned to the caller rather than swallowed, because quickstart spends
 // money — a transient list failure must NOT cause us to create a duplicate.
-func findExistingID(client *api.Client, listPath, nameField, name string, idKeys ...string) (string, error) {
+func findExistingID(ctx context.Context, client *api.Client, listPath, nameField, name string, idKeys ...string) (string, error) {
 	var resp interface{}
-	if err := client.Get(listPath, &resp); err != nil {
+	if err := client.Get(ctx, listPath, &resp); err != nil {
 		return "", fmt.Errorf("checking for existing resource at %s: %w", listPath, err)
 	}
 	match := output.FindByName(resp, nameField, name)
@@ -360,10 +362,10 @@ func findExistingID(client *api.Client, listPath, nameField, name string, idKeys
 // does NOT order a duplicate paid number on a transient failure. The
 // voiceConfigurationPackageId filter is honored server-side (verified live), and
 // the response shape is {"data":[{"phoneNumber":"+1...", ...}], ...}.
-func firstAssignedNumber(client *api.Client, acctID, vcpID string) (string, error) {
+func firstAssignedNumber(ctx context.Context, client *api.Client, acctID, vcpID string) (string, error) {
 	var resp interface{}
 	path := fmt.Sprintf("/v2/accounts/%s/phoneNumbers/voice?voiceConfigurationPackageId=%s", acctID, url.QueryEscape(vcpID))
-	if err := client.Get(path, &resp); err != nil {
+	if err := client.Get(ctx, path, &resp); err != nil {
 		return "", fmt.Errorf("checking existing VCP numbers for %s: %w", vcpID, err)
 	}
 	// FlattenResponse unwraps the {data, links, errors, page} envelope to the data array.
@@ -386,9 +388,9 @@ func firstAssignedNumber(client *api.Client, acctID, vcpID string) (string, erro
 // SiteId AND a default SIP peer on that site — without the peer the orders API
 // fails with code 5020 ("No default SIP peer is set on the account and site").
 // Idempotent: re-running reuses the same named sub-account and location.
-func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
+func ensureSubaccount(ctx context.Context, client *api.Client, acctID, name string) (string, error) {
 	// Sub-account (site).
-	siteID, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites", acctID), "Name", name, "Id", "id", "siteId")
+	siteID, err := findExistingID(ctx, client, fmt.Sprintf("/accounts/%s/sites", acctID), "Name", name, "Id", "id", "siteId")
 	if err != nil {
 		return "", err
 	}
@@ -399,7 +401,7 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 		spin.Start()
 		var resp interface{}
 		body := api.XMLBody{RootElement: "Site", Data: map[string]interface{}{"Name": name}}
-		err = client.Post(fmt.Sprintf("/accounts/%s/sites", acctID), body, &resp)
+		err = client.Post(ctx, fmt.Sprintf("/accounts/%s/sites", acctID), body, &resp)
 		spin.Stop()
 		if err != nil {
 			return "", fmt.Errorf("creating sub-account: %w", err)
@@ -413,7 +415,7 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 
 	// Default SIP peer (location) — required for ordering (avoids code 5020).
 	peerName := name + " Location"
-	existingPeer, err := findExistingID(client, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), "PeerName", peerName, "PeerId", "Id", "id")
+	existingPeer, err := findExistingID(ctx, client, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), "PeerName", peerName, "PeerId", "Id", "id")
 	if err != nil {
 		return "", err
 	}
@@ -424,7 +426,7 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 		spin.Start()
 		var resp interface{}
 		body := api.XMLBody{RootElement: "SipPeer", Data: map[string]interface{}{"PeerName": peerName, "IsDefaultPeer": "true"}}
-		err = client.Post(fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), body, &resp)
+		err = client.Post(ctx, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), body, &resp)
 		spin.Stop()
 		if err != nil {
 			return "", fmt.Errorf("creating default location: %w", err)
@@ -442,8 +444,8 @@ func ensureSubaccount(client *api.Client, acctID, name string) (string, error) {
 // given callback URL and returns its application ID. Idempotent: re-running
 // reuses an existing app with the same name. Shared by both quickstart paths so
 // the app payload can't drift between them.
-func ensureVoiceApp(client *api.Client, acctID, appName, callbackURL string) (string, error) {
-	existing, err := findExistingID(client, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
+func ensureVoiceApp(ctx context.Context, client *api.Client, acctID, appName, callbackURL string) (string, error) {
+	existing, err := findExistingID(ctx, client, fmt.Sprintf("/accounts/%s/applications", acctID), "AppName", appName, "ApplicationId", "applicationId")
 	if err != nil {
 		return "", err
 	}
@@ -462,7 +464,7 @@ func ensureVoiceApp(client *api.Client, acctID, appName, callbackURL string) (st
 			"CallInitiatedCallbackUrl": callbackURL,
 		},
 	}
-	err = client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), body, &resp)
+	err = client.Post(ctx, fmt.Sprintf("/accounts/%s/applications", acctID), body, &resp)
 	spin.Stop()
 	if err != nil {
 		return "", fmt.Errorf("creating voice application: %w", err)
@@ -475,11 +477,11 @@ func ensureVoiceApp(client *api.Client, acctID, appName, callbackURL string) (st
 	return id, nil
 }
 
-func searchAndOrderNumber(client *api.Client, acctID, siteID string) (string, error) {
+func searchAndOrderNumber(ctx context.Context, client *api.Client, acctID, siteID string) (string, error) {
 	searchSpin := ui.NewSpinner(fmt.Sprintf("Searching for number in area code %s...", qsAreaCode))
 	searchSpin.Start()
 	var searchResp interface{}
-	searchErr := client.Get(fmt.Sprintf("/accounts/%s/availableNumbers?areaCode=%s&quantity=1", acctID, qsAreaCode), &searchResp)
+	searchErr := client.Get(ctx, fmt.Sprintf("/accounts/%s/availableNumbers?areaCode=%s&quantity=1", acctID, qsAreaCode), &searchResp)
 	searchSpin.Stop()
 	if searchErr != nil {
 		return "", fmt.Errorf("number search failed: %w", searchErr)
@@ -495,7 +497,7 @@ func searchAndOrderNumber(client *api.Client, acctID, siteID string) (string, er
 	var orderResp interface{}
 	// Reuse the shared, live-verified order body (SiteId + ExistingTelephoneNumberOrderType).
 	orderBody := api.XMLBody{RootElement: "Order", Data: numbercmd.BuildOrderBody(siteID, []string{phoneNumber})}
-	orderErr := client.Post(fmt.Sprintf("/accounts/%s/orders", acctID), orderBody, &orderResp)
+	orderErr := client.Post(ctx, fmt.Sprintf("/accounts/%s/orders", acctID), orderBody, &orderResp)
 	orderSpin.Stop()
 	if orderErr != nil {
 		return "", fmt.Errorf("number order failed: %w", orderErr)

@@ -62,7 +62,7 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	realm, err := svc.GetRealm(credCreate.realm)
+	realm, err := svc.GetRealm(cmd.Context(), credCreate.realm)
 	if err != nil {
 		return faultExit(err)
 	}
@@ -76,7 +76,7 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 	}
 	hash1, hash1b := sipsvc.ComputeHashes(credCreateUsername, realm.Hostname, password)
 
-	cred, err := svc.CreateCredential(realm.ID, credCreateUsername, hash1, hash1b, credCreateAppID)
+	cred, err := svc.CreateCredential(cmd.Context(), realm.ID, credCreateUsername, hash1, hash1b, credCreateAppID)
 	if err != nil {
 		var fault *sipsvc.APIFault
 		if credCreateIfNotExists && errors.As(err, &fault) && fault.Code == "23026" {
@@ -117,14 +117,14 @@ func runCredentialCreate(cmd *cobra.Command, args []string) error {
 // reuseCredential implements --if-not-exists after a 23026 duplicate. Identity
 // is realm + username; desired state is both hashes plus the app binding.
 func reuseCredential(cmd *cobra.Command, svc *sipsvc.Service, realm *sipsvc.Realm, hash1, hash1b, password string, generated bool) error {
-	found, err := svc.FindCredentialByUsername(realm.ID, credCreateUsername)
+	found, err := svc.FindCredentialByUsername(cmd.Context(), realm.ID, credCreateUsername)
 	if err != nil {
 		return faultExit(err)
 	}
 	// Re-read the single credential rather than trusting FindCredentialByUsername's
 	// list-derived AppID: the collection response's app-binding field has not
 	// been confirmed to round-trip the same shape as the single-item GET.
-	existing, err := svc.GetCredential(realm.ID, found.ID)
+	existing, err := svc.GetCredential(cmd.Context(), realm.ID, found.ID)
 	if err != nil {
 		return faultExit(err)
 	}
@@ -139,7 +139,7 @@ func reuseCredential(cmd *cobra.Command, svc *sipsvc.Service, realm *sipsvc.Real
 			Message: fmt.Sprintf("credential %q already exists and its password cannot be recovered — rotate it: band sip credential rotate %s --realm %s --generate-password", credCreateUsername, existing.ID, realm.Name),
 		}
 	}
-	match, err := svc.CredentialHashesMatch(realm.ID, existing.ID, hash1, hash1b)
+	match, err := svc.CredentialHashesMatch(cmd.Context(), realm.ID, existing.ID, hash1, hash1b)
 	if err != nil {
 		return faultExit(err)
 	}

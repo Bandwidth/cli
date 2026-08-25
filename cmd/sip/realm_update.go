@@ -54,7 +54,7 @@ var realmUpdateCmd = &cobra.Command{
 		if descSet {
 			desc = &realmUpdateDescription
 		}
-		realm, err := svc.UpdateRealm(args[0], defaultSet && realmUpdateDefault, desc)
+		realm, err := svc.UpdateRealm(cmd.Context(), args[0], defaultSet && realmUpdateDefault, desc)
 		if err != nil {
 			return faultExit(err)
 		}

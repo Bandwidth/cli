@@ -21,7 +21,7 @@ var campaignGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		env, err := svc.GetCampaign(args[0])
+		env, err := svc.GetCampaign(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}

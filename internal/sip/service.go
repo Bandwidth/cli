@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ func (s *Service) base() string {
 // do issues a request and returns the response body, converting documented
 // error envelopes into *APIFault. Bodies are scrubbed of digest hashes before
 // ever being placed in an error.
-func (s *Service) do(method, path string, reqBody interface{}) ([]byte, error) {
+func (s *Service) do(ctx context.Context, method, path string, reqBody interface{}) ([]byte, error) {
 	var payload []byte
 	if reqBody != nil {
 		b, err := xml.Marshal(reqBody)
@@ -62,7 +63,7 @@ func (s *Service) do(method, path string, reqBody interface{}) ([]byte, error) {
 		payload = append([]byte(xml.Header), b...)
 	}
 
-	resp, err := s.client.DoRawResponse(method, path, payload)
+	resp, err := s.client.DoRawResponse(ctx, method, path, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +175,8 @@ func toCredential(w *credentialWire) *Credential {
 
 // CreateRealm creates a realm. isDefault is always transmitted: the API rejects
 // the request without it (error 1003).
-func (s *Service) CreateRealm(name, description string, isDefault bool) (*Realm, error) {
-	body, err := s.do("POST", s.base()+"/realms", realmRequest{
+func (s *Service) CreateRealm(ctx context.Context, name, description string, isDefault bool) (*Realm, error) {
+	body, err := s.do(ctx, "POST", s.base()+"/realms", realmRequest{
 		Realm: name, Description: description, Default: isDefault,
 	})
 	if err != nil {
@@ -192,8 +193,8 @@ func (s *Service) CreateRealm(name, description string, isDefault bool) (*Realm,
 }
 
 // GetRealm fetches one realm. ref may be an ID or a name.
-func (s *Service) GetRealm(ref string) (*Realm, error) {
-	body, err := s.do("GET", s.base()+"/realms/"+url.PathEscape(ref), nil)
+func (s *Service) GetRealm(ctx context.Context, ref string) (*Realm, error) {
+	body, err := s.do(ctx, "GET", s.base()+"/realms/"+url.PathEscape(ref), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +209,8 @@ func (s *Service) GetRealm(ref string) (*Realm, error) {
 }
 
 // ListRealms returns every realm on the account, always as a non-nil slice.
-func (s *Service) ListRealms() ([]Realm, error) {
-	body, err := s.do("GET", s.base()+"/realms", nil)
+func (s *Service) ListRealms(ctx context.Context) ([]Realm, error) {
+	body, err := s.do(ctx, "GET", s.base()+"/realms", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -225,8 +226,8 @@ func (s *Service) ListRealms() ([]Realm, error) {
 }
 
 // DeleteRealm submits an async delete (the API returns 202).
-func (s *Service) DeleteRealm(ref string) error {
-	_, err := s.do("DELETE", s.base()+"/realms/"+url.PathEscape(ref), nil)
+func (s *Service) DeleteRealm(ctx context.Context, ref string) error {
+	_, err := s.do(ctx, "DELETE", s.base()+"/realms/"+url.PathEscape(ref), nil)
 	return err
 }
 
@@ -238,8 +239,8 @@ func (s *Service) DeleteRealm(ref string) error {
 // Read-modify-write is mandatory, not an optimization: realm PUT is a full
 // replace, so any field the caller did not name must be echoed back from the
 // current realm or the API will clear it.
-func (s *Service) UpdateRealm(ref string, promoteDefault bool, description *string) (*Realm, error) {
-	current, err := s.GetRealm(ref)
+func (s *Service) UpdateRealm(ctx context.Context, ref string, promoteDefault bool, description *string) (*Realm, error) {
+	current, err := s.GetRealm(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +248,7 @@ func (s *Service) UpdateRealm(ref string, promoteDefault bool, description *stri
 	if description != nil {
 		desc = *description
 	}
-	body, err := s.do("PUT", s.base()+"/realms/"+url.PathEscape(ref), realmRequest{
+	body, err := s.do(ctx, "PUT", s.base()+"/realms/"+url.PathEscape(ref), realmRequest{
 		Realm: current.Name, Description: desc, Default: current.Default || promoteDefault,
 	})
 	if err != nil {
@@ -258,7 +259,7 @@ func (s *Service) UpdateRealm(ref string, promoteDefault bool, description *stri
 		return nil, fmt.Errorf("decoding realm response: %w", err)
 	}
 	if resp.Realm == nil {
-		return s.GetRealm(ref)
+		return s.GetRealm(ctx, ref)
 	}
 	return toRealm(resp.Realm), nil
 }
@@ -269,11 +270,11 @@ func (s *Service) credentialsPath(realmID string) string {
 
 // CreateCredential creates one credential. A 201 carrying an Errors entry is
 // treated as failure, not success.
-func (s *Service) CreateCredential(realmID, username, hash1, hash1b, appID string) (*Credential, error) {
+func (s *Service) CreateCredential(ctx context.Context, realmID, username, hash1, hash1b, appID string) (*Credential, error) {
 	req := credentialCreateRequest{Credentials: []credentialCreateOne{{
 		UserName: username, Hash1: hash1, Hash1b: hash1b, AppID: appID,
 	}}}
-	body, err := s.do("POST", s.credentialsPath(realmID), req)
+	body, err := s.do(ctx, "POST", s.credentialsPath(realmID), req)
 	if err != nil {
 		return nil, err
 	}
@@ -307,9 +308,9 @@ func (s *Service) CreateCredential(realmID, username, hash1, hash1b, appID strin
 
 // RotateCredential replaces a credential's hashes. The credential ID is stable
 // across rotation. UserName must not be sent (see credentialRotateRequest).
-func (s *Service) RotateCredential(realmID, credentialID, hash1, hash1b string) (*Credential, error) {
+func (s *Service) RotateCredential(ctx context.Context, realmID, credentialID, hash1, hash1b string) (*Credential, error) {
 	req := credentialRotateRequest{RealmID: realmID, Hash1: hash1, Hash1b: hash1b}
-	body, err := s.do("PUT", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), req)
+	body, err := s.do(ctx, "PUT", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), req)
 	if err != nil {
 		return nil, err
 	}
@@ -337,8 +338,8 @@ var warnOut io.Writer = os.Stderr
 // Auto-pagination is NOT implemented (see the spec's deferred list). What is
 // implemented is the refusal to be silent about it: a full page warns on stderr
 // rather than reading as a complete list.
-func (s *Service) ListCredentials(realmID string) ([]Credential, error) {
-	body, err := s.do("GET", s.credentialsPath(realmID), nil)
+func (s *Service) ListCredentials(ctx context.Context, realmID string) ([]Credential, error) {
+	body, err := s.do(ctx, "GET", s.credentialsPath(realmID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -359,8 +360,8 @@ func (s *Service) ListCredentials(realmID string) ([]Credential, error) {
 }
 
 // GetCredential fetches one credential.
-func (s *Service) GetCredential(realmID, credentialID string) (*Credential, error) {
-	body, err := s.do("GET", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
+func (s *Service) GetCredential(ctx context.Context, realmID, credentialID string) (*Credential, error) {
+	body, err := s.do(ctx, "GET", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -375,8 +376,8 @@ func (s *Service) GetCredential(realmID, credentialID string) (*Credential, erro
 }
 
 // DeleteCredential removes a credential.
-func (s *Service) DeleteCredential(realmID, credentialID string) error {
-	_, err := s.do("DELETE", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
+func (s *Service) DeleteCredential(ctx context.Context, realmID, credentialID string) error {
+	_, err := s.do(ctx, "DELETE", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
 	return err
 }
 
@@ -386,13 +387,13 @@ func (s *Service) DeleteCredential(realmID, credentialID string) error {
 // a caller invoking this after a 23026 duplicate with a different case than
 // what is stored must still find it. Bounded retry absorbs read-after-write
 // lag following that duplicate error.
-func (s *Service) FindCredentialByUsername(realmID, username string) (*Credential, error) {
+func (s *Service) FindCredentialByUsername(ctx context.Context, realmID, username string) (*Credential, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Second)
 		}
-		creds, err := s.ListCredentials(realmID)
+		creds, err := s.ListCredentials(ctx, realmID)
 		if err != nil {
 			lastErr = err
 			continue
@@ -436,8 +437,8 @@ type credentialHashWire struct {
 
 // CredentialHashesMatch reports whether the stored digest hashes equal the
 // supplied ones. The hashes never leave this function.
-func (s *Service) CredentialHashesMatch(realmID, credentialID, hash1, hash1b string) (bool, error) {
-	body, err := s.do("GET", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
+func (s *Service) CredentialHashesMatch(ctx context.Context, realmID, credentialID, hash1, hash1b string) (bool, error) {
+	body, err := s.do(ctx, "GET", s.credentialsPath(realmID)+"/"+url.PathEscape(credentialID), nil)
 	if err != nil {
 		return false, err
 	}

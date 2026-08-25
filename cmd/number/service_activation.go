@@ -1,6 +1,7 @@
 package number
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -109,7 +110,7 @@ func runServiceActivation(cmd *cobra.Command, action string, args []string) erro
 		body := BuildCheckerBody(args)
 		var result interface{}
 		path := fmt.Sprintf("/api/v2/accounts/%s/serviceActivationChecker", acctID)
-		if err := client.Post(path, body, &result); err != nil {
+		if err := client.Post(cmd.Context(), path, body, &result); err != nil {
 			return fmt.Errorf("checking service activation: %w", err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
@@ -132,7 +133,7 @@ func runServiceActivation(cmd *cobra.Command, action string, args []string) erro
 
 	var orderResult map[string]interface{}
 	path := fmt.Sprintf("/api/v2/accounts/%s/serviceActivation", acctID)
-	if err := client.Post(path, body, &orderResult); err != nil {
+	if err := client.Post(cmd.Context(), path, body, &orderResult); err != nil {
 		return fmt.Errorf("creating service activation order: %w", err)
 	}
 
@@ -146,7 +147,7 @@ func runServiceActivation(cmd *cobra.Command, action string, args []string) erro
 		return fmt.Errorf("service activation order created but no orderId in response")
 	}
 
-	final, err := pollServiceActivationOrder(client, acctID, orderID, saTimeout)
+	final, err := pollServiceActivationOrder(cmd.Context(), client, acctID, orderID, saTimeout)
 	if err != nil {
 		return err
 	}
@@ -168,14 +169,15 @@ func extractOrderID(orderResult map[string]interface{}) (string, bool) {
 // states (RECEIVED / PROCESSING) or the timeout fires. We don't enumerate
 // terminal states explicitly — anything that's not in-flight is treated
 // as terminal so the caller can inspect the final response.
-func pollServiceActivationOrder(client *api.Client, acctID, orderID string, timeout time.Duration) (interface{}, error) {
+func pollServiceActivationOrder(ctx context.Context, client *api.Client, acctID, orderID string, timeout time.Duration) (interface{}, error) {
 	return cmdutil.Poll(cmdutil.PollConfig{
+		Context:  ctx,
 		Interval: 2 * time.Second,
 		Timeout:  timeout,
 		Check: func() (bool, interface{}, error) {
 			var result map[string]interface{}
 			path := fmt.Sprintf("/api/v2/accounts/%s/serviceActivation/%s", acctID, orderID)
-			if err := client.Get(path, &result); err != nil {
+			if err := client.Get(ctx, path, &result); err != nil {
 				return false, nil, fmt.Errorf("polling order %s: %w", orderID, err)
 			}
 			data, _ := result["data"].(map[string]interface{})

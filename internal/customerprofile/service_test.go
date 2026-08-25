@@ -1,6 +1,7 @@
 package customerprofile
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ func TestListBuildsPathAndQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.List(10, 0, nil)
+	_, err := svc.List(context.Background(), 10, 0, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestListWithFilterBuildsQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.List(25, 5, []api.Filter{{Field: "brandId", Op: api.OpEq, Value: "BEXMPL8"}})
+	_, err := svc.List(context.Background(), 25, 5, []api.Filter{{Field: "brandId", Op: api.OpEq, Value: "BEXMPL8"}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestListEscapesAccountID(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.List(0, 0, nil)
+	_, err := svc.List(context.Background(), 0, 0, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestGetReturnsObjectEnvelope(t *testing.T) {
 	})
 	defer done()
 
-	env, err := svc.Get("CP123")
+	env, err := svc.Get(context.Background(), "CP123")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestGetEscapesID(t *testing.T) {
 	})
 	defer done()
 
-	_, _ = svc.Get("CP/../evil")
+	_, _ = svc.Get(context.Background(), "CP/../evil")
 	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil"; gotPath != want {
 		t.Errorf("escaped path = %q, want %q", gotPath, want)
 	}
@@ -117,7 +118,7 @@ func TestGetEmptyIDErrorsBeforeRequest(t *testing.T) {
 	})
 	defer done()
 
-	if _, err := svc.Get(""); err == nil {
+	if _, err := svc.Get(context.Background(), ""); err == nil {
 		t.Fatal("expected an error for an empty profile ID")
 	}
 }
@@ -129,7 +130,7 @@ func TestServicePropagatesAPIError(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.List(0, 0, nil)
+	_, err := svc.List(context.Background(), 0, 0, nil)
 	if err == nil {
 		t.Fatal("expected an error for 403")
 	}

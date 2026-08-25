@@ -51,7 +51,7 @@ var listCmd = &cobra.Command{
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !listAll {
-			env, err := svc.List(listLimit, listOffset, filters)
+			env, err := svc.List(cmd.Context(), listLimit, listOffset, filters)
 			if err != nil {
 				return roleGateError(err)
 			}
@@ -65,7 +65,7 @@ var listCmd = &cobra.Command{
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.List(limit, offset, filters)
+			return svc.List(cmd.Context(), limit, offset, filters)
 		}, listLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

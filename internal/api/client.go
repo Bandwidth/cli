@@ -4,6 +4,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -70,15 +71,17 @@ func (e *APIError) Error() string {
 }
 
 // Requester is the interface satisfied by Client. Commands accept this so
-// tests can substitute a mock without hitting real Bandwidth APIs.
+// tests can substitute a mock without hitting real Bandwidth APIs. Every
+// method takes the caller's context so an in-flight request is aborted when
+// the command is cancelled (Ctrl-C); commands pass cmd.Context().
 type Requester interface {
-	Get(path string, result interface{}) error
-	Post(path string, body, result interface{}) error
-	Put(path string, body, result interface{}) error
-	Patch(path string, body, result interface{}) error
-	Delete(path string, result interface{}) error
-	GetRaw(path string) ([]byte, error)
-	PutRaw(path string, data []byte, contentType string) error
+	Get(ctx context.Context, path string, result interface{}) error
+	Post(ctx context.Context, path string, body, result interface{}) error
+	Put(ctx context.Context, path string, body, result interface{}) error
+	Patch(ctx context.Context, path string, body, result interface{}) error
+	Delete(ctx context.Context, path string, result interface{}) error
+	GetRaw(ctx context.Context, path string) ([]byte, error)
+	PutRaw(ctx context.Context, path string, data []byte, contentType string) error
 }
 
 // Client is an authenticated HTTP client for Bandwidth APIs.
@@ -133,8 +136,12 @@ func NewClientNoAuth(baseURL string) *Client {
 }
 
 // newRequest creates an authenticated HTTP request with standard headers.
-func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, c.BaseURL+path, body)
+// The request carries ctx, so cancelling it aborts the request in flight.
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -172,7 +179,7 @@ func (c *Client) doRaw(req *http.Request) ([]byte, error) {
 
 // do executes an HTTP request and unmarshals the response into result.
 // result may be nil (e.g., for 204 No Content responses).
-func (c *Client) do(method, path string, reqBody, result interface{}) error {
+func (c *Client) do(ctx context.Context, method, path string, reqBody, result interface{}) error {
 	var bodyReader io.Reader
 	var contentTypeHeader string
 
@@ -198,7 +205,7 @@ func (c *Client) do(method, path string, reqBody, result interface{}) error {
 		}
 	}
 
-	req, err := c.newRequest(method, path, bodyReader)
+	req, err := c.newRequest(ctx, method, path, bodyReader)
 	if err != nil {
 		return err
 	}
@@ -238,34 +245,34 @@ func (c *Client) do(method, path string, reqBody, result interface{}) error {
 }
 
 // Get performs a GET request and unmarshals the response into result.
-func (c *Client) Get(path string, result interface{}) error {
-	return c.do(http.MethodGet, path, nil, result)
+func (c *Client) Get(ctx context.Context, path string, result interface{}) error {
+	return c.do(ctx, http.MethodGet, path, nil, result)
 }
 
 // Post performs a POST request with body and unmarshals the response into result.
-func (c *Client) Post(path string, body, result interface{}) error {
-	return c.do(http.MethodPost, path, body, result)
+func (c *Client) Post(ctx context.Context, path string, body, result interface{}) error {
+	return c.do(ctx, http.MethodPost, path, body, result)
 }
 
 // Put performs a PUT request with body and unmarshals the response into result.
-func (c *Client) Put(path string, body, result interface{}) error {
-	return c.do(http.MethodPut, path, body, result)
+func (c *Client) Put(ctx context.Context, path string, body, result interface{}) error {
+	return c.do(ctx, http.MethodPut, path, body, result)
 }
 
 // Patch performs a PATCH request with body and unmarshals the response into result.
-func (c *Client) Patch(path string, body, result interface{}) error {
-	return c.do(http.MethodPatch, path, body, result)
+func (c *Client) Patch(ctx context.Context, path string, body, result interface{}) error {
+	return c.do(ctx, http.MethodPatch, path, body, result)
 }
 
 // Delete performs a DELETE request and unmarshals the response into result.
-func (c *Client) Delete(path string, result interface{}) error {
-	return c.do(http.MethodDelete, path, nil, result)
+func (c *Client) Delete(ctx context.Context, path string, result interface{}) error {
+	return c.do(ctx, http.MethodDelete, path, nil, result)
 }
 
 // GetRaw performs a GET request and returns the raw response bytes.
 // Useful for file downloads like recordings.
-func (c *Client) GetRaw(path string) ([]byte, error) {
-	req, err := c.newRequest(http.MethodGet, path, nil)
+func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -274,8 +281,8 @@ func (c *Client) GetRaw(path string) ([]byte, error) {
 
 // PutRaw performs a PUT request with raw binary data and a custom content type.
 // Useful for uploading files like MMS media.
-func (c *Client) PutRaw(path string, data []byte, contentType string) error {
-	req, err := c.newRequest(http.MethodPut, path, bytes.NewReader(data))
+func (c *Client) PutRaw(ctx context.Context, path string, data []byte, contentType string) error {
+	req, err := c.newRequest(ctx, http.MethodPut, path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -287,18 +294,18 @@ func (c *Client) PutRaw(path string, data []byte, contentType string) error {
 // PostRaw posts a JSON body and returns the raw response bytes, so callers can
 // parse an envelope without a typed target. JSON-only: returns an error
 // without making a request if c is configured for XML (see NewXMLClient).
-func (c *Client) PostRaw(path string, body interface{}) ([]byte, error) {
-	return c.doRawJSON("POST", path, body)
+func (c *Client) PostRaw(ctx context.Context, path string, body interface{}) ([]byte, error) {
+	return c.doRawJSON(ctx, "POST", path, body)
 }
 
 // PutRawJSON puts a JSON body and returns the raw response bytes. JSON-only:
 // returns an error without making a request if c is configured for XML (see
 // NewXMLClient).
-func (c *Client) PutRawJSON(path string, body interface{}) ([]byte, error) {
-	return c.doRawJSON("PUT", path, body)
+func (c *Client) PutRawJSON(ctx context.Context, path string, body interface{}) ([]byte, error) {
+	return c.doRawJSON(ctx, "PUT", path, body)
 }
 
-func (c *Client) doRawJSON(method, path string, body interface{}) ([]byte, error) {
+func (c *Client) doRawJSON(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
 	if c.contentType == "xml" {
 		return nil, fmt.Errorf("PostRaw/PutRawJSON send JSON; this client is configured for XML (use the XML methods instead)")
 	}
@@ -306,7 +313,7 @@ func (c *Client) doRawJSON(method, path string, body interface{}) ([]byte, error
 	if err != nil {
 		return nil, fmt.Errorf("encoding request body: %w", err)
 	}
-	req, err := c.newRequest(method, path, bytes.NewReader(data))
+	req, err := c.newRequest(ctx, method, path, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -318,12 +325,12 @@ func (c *Client) doRawJSON(method, path string, body interface{}) ([]byte, error
 // Location response header. Useful for endpoints that respond 201 Created
 // with an empty body and put the new resource's URL in Location (the
 // Bandwidth Numbers API does this for notes, sippeers, sites, etc.).
-func (c *Client) PostXMLReturnLocation(path string, body XMLBody) (string, error) {
+func (c *Client) PostXMLReturnLocation(ctx context.Context, path string, body XMLBody) (string, error) {
 	data, err := MapToXML(body.RootElement, body.Data)
 	if err != nil {
 		return "", fmt.Errorf("marshaling XML request body: %w", err)
 	}
-	req, err := c.newRequest(http.MethodPost, path, bytes.NewReader(data))
+	req, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}
@@ -346,7 +353,7 @@ func (c *Client) PostXMLReturnLocation(path string, body XMLBody) (string, error
 // PostMultipart performs a POST request with a multipart/form-data body containing
 // a single file part. Used for endpoints that accept document uploads (LOAs,
 // supporting docs on port-in orders).
-func (c *Client) PostMultipart(path, fieldName, filename string, fileData []byte, fileContentType string) ([]byte, error) {
+func (c *Client) PostMultipart(ctx context.Context, path, fieldName, filename string, fileData []byte, fileContentType string) ([]byte, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	h := make(textproto.MIMEHeader)
@@ -362,7 +369,7 @@ func (c *Client) PostMultipart(path, fieldName, filename string, fileData []byte
 	if err := w.Close(); err != nil {
 		return nil, fmt.Errorf("closing multipart writer: %w", err)
 	}
-	req, err := c.newRequest(http.MethodPost, path, &buf)
+	req, err := c.newRequest(ctx, http.MethodPost, path, &buf)
 	if err != nil {
 		return nil, err
 	}

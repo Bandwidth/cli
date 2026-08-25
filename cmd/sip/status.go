@@ -26,7 +26,7 @@ var statusCmd = &cobra.Command{
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
 
-		if _, err := svc.ListRealms(); err != nil {
+		if _, err := svc.ListRealms(cmd.Context()); err != nil {
 			var fault *sipsvc.APIFault
 			if errors.As(err, &fault) && fault.Code == "33004" {
 				// A successful probe reporting a negative fact: exit 0.

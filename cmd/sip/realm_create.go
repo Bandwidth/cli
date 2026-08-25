@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -57,7 +58,7 @@ func runRealmCreate(cmd *cobra.Command, args []string) error {
 	descSet := cmd.Flags().Changed("description")
 
 	if realmCreateIfNotExists {
-		realms, err := svc.ListRealms()
+		realms, err := svc.ListRealms(cmd.Context())
 		if err != nil {
 			return faultExit(err)
 		}
@@ -83,7 +84,7 @@ func runRealmCreate(cmd *cobra.Command, args []string) error {
 			// --if-not-exists after a --wait timeout is safe, which is exactly
 			// how that combination gets used.
 			if realmCreateWait && r.Status != "ACTIVE" {
-				final, err := waitForRealmActive(svc, r.ID, realmCreateTimeout)
+				final, err := waitForRealmActive(cmd.Context(), svc, r.ID, realmCreateTimeout)
 				if err != nil {
 					return err
 				}
@@ -93,13 +94,13 @@ func runRealmCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	realm, err := svc.CreateRealm(realmCreateName, realmCreateDescription, realmCreateDefault)
+	realm, err := svc.CreateRealm(cmd.Context(), realmCreateName, realmCreateDescription, realmCreateDefault)
 	if err != nil {
 		return faultExit(err)
 	}
 
 	if realmCreateWait && realm.Status != "ACTIVE" {
-		final, err := waitForRealmActive(svc, realm.ID, realmCreateTimeout)
+		final, err := waitForRealmActive(cmd.Context(), svc, realm.ID, realmCreateTimeout)
 		if err != nil {
 			return err
 		}
@@ -110,12 +111,13 @@ func runRealmCreate(cmd *cobra.Command, args []string) error {
 
 // waitForRealmActive polls until the realm is ACTIVE. Terminal-failure states
 // stop the loop immediately rather than burning the whole timeout.
-func waitForRealmActive(svc *sipsvc.Service, realmID string, timeoutSeconds int) (*sipsvc.Realm, error) {
+func waitForRealmActive(ctx context.Context, svc *sipsvc.Service, realmID string, timeoutSeconds int) (*sipsvc.Realm, error) {
 	result, err := cmdutil.Poll(cmdutil.PollConfig{
+		Context:  ctx,
 		Interval: 2 * time.Second,
 		Timeout:  time.Duration(timeoutSeconds) * time.Second,
 		Check: func() (bool, interface{}, error) {
-			r, err := svc.GetRealm(realmID)
+			r, err := svc.GetRealm(ctx, realmID)
 			if err != nil {
 				return false, nil, faultExit(err)
 			}

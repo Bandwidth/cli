@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -51,11 +52,36 @@ func TestClient_Get(t *testing.T) {
 	client := NewClient(srv.URL, tm)
 
 	var got response
-	if err := client.Get("/", &got); err != nil {
+	if err := client.Get(context.Background(), "/", &got); err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
 	if got.Name != "test" {
 		t.Errorf("Name = %q, want %q", got.Name, "test")
+	}
+}
+
+// A cancelled context must abort an in-flight request, not just be observed
+// between requests — the request is built with NewRequestWithContext, so the
+// HTTP client aborts the connection as soon as the context ends.
+func TestClient_ContextCancelsInFlightRequest(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // hold the request open well past the context deadline
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	client := NewClientNoAuth(srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := client.Get(ctx, "/", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("Get returned after %v — the context deadline did not abort the in-flight request", elapsed)
 	}
 }
 
@@ -93,7 +119,7 @@ func TestClient_Post(t *testing.T) {
 	client := NewClient(srv.URL, tm)
 
 	var got response
-	if err := client.Post("/", request{Value: "hello"}, &got); err != nil {
+	if err := client.Post(context.Background(), "/", request{Value: "hello"}, &got); err != nil {
 		t.Fatalf("Post() error: %v", err)
 	}
 	if got.Result != "ok" {
@@ -117,7 +143,7 @@ func TestClient_ErrorResponse(t *testing.T) {
 	client := NewClient(srv.URL, tm)
 
 	var got struct{}
-	err := client.Get("/missing", &got)
+	err := client.Get(context.Background(), "/missing", &got)
 	if err == nil {
 		t.Fatal("expected error for non-2xx response, got nil")
 	}
@@ -158,7 +184,7 @@ func TestClient_Put(t *testing.T) {
 	client := NewClient(srv.URL, tm)
 
 	var got response
-	if err := client.Put("/", request{Name: "test"}, &got); err != nil {
+	if err := client.Put(context.Background(), "/", request{Name: "test"}, &got); err != nil {
 		t.Fatalf("Put() error: %v", err)
 	}
 	if !got.Updated {
@@ -185,7 +211,7 @@ func TestClient_Delete(t *testing.T) {
 	client := NewClient(srv.URL, tm)
 
 	// nil result is valid for 204 No Content
-	if err := client.Delete("/", nil); err != nil {
+	if err := client.Delete(context.Background(), "/", nil); err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}
 }
@@ -207,7 +233,7 @@ func TestClient_GetRaw(t *testing.T) {
 	tm := auth.NewTokenManager("client-id", "client-secret", tokenSrv.URL)
 	client := NewClient(srv.URL, tm)
 
-	got, err := client.GetRaw("/")
+	got, err := client.GetRaw(context.Background(), "/")
 	if err != nil {
 		t.Fatalf("GetRaw() error: %v", err)
 	}
@@ -229,7 +255,7 @@ func TestClient_NoAuth(t *testing.T) {
 	client := NewClientNoAuth(srv.URL)
 
 	var got struct{}
-	if err := client.Get("/", &got); err != nil {
+	if err := client.Get(context.Background(), "/", &got); err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
 }
@@ -327,7 +353,7 @@ func TestXMLClient_Post(t *testing.T) {
 	}
 
 	var result interface{}
-	if err := client.Post("/sippeers", body, &result); err != nil {
+	if err := client.Post(context.Background(), "/sippeers", body, &result); err != nil {
 		t.Fatalf("Post() error: %v", err)
 	}
 
@@ -365,7 +391,7 @@ func TestXMLClient_Get(t *testing.T) {
 	client := NewXMLClient(srv.URL, tm)
 
 	var result interface{}
-	if err := client.Get("/sites/99", &result); err != nil {
+	if err := client.Get(context.Background(), "/sites/99", &result); err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
 
@@ -411,7 +437,7 @@ func TestClient_PutRaw(t *testing.T) {
 	tm := auth.NewTokenManager("client-id", "client-secret", tokenSrv.URL)
 	client := NewClient(srv.URL, tm)
 
-	if err := client.PutRaw("/media/test.png", payload, "image/png"); err != nil {
+	if err := client.PutRaw(context.Background(), "/media/test.png", payload, "image/png"); err != nil {
 		t.Fatalf("PutRaw() error: %v", err)
 	}
 }
@@ -431,7 +457,7 @@ func TestClient_PutRaw_Error(t *testing.T) {
 	tm := auth.NewTokenManager("client-id", "client-secret", tokenSrv.URL)
 	client := NewClient(srv.URL, tm)
 
-	err := client.PutRaw("/media/test.xyz", []byte("data"), "application/octet-stream")
+	err := client.PutRaw(context.Background(), "/media/test.xyz", []byte("data"), "application/octet-stream")
 	if err == nil {
 		t.Fatal("expected error for 415 response, got nil")
 	}
@@ -460,7 +486,7 @@ func TestXMLClient_NonXMLBodyReturnsError(t *testing.T) {
 	client := NewXMLClient(srv.URL, tm)
 
 	// Passing a plain map (not XMLBody) to an XML client should return an error.
-	err := client.Post("/test", map[string]string{"key": "val"}, nil)
+	err := client.Post(context.Background(), "/test", map[string]string{"key": "val"}, nil)
 	if err == nil {
 		t.Fatal("expected error when passing non-XMLBody to XML client, got nil")
 	}
@@ -479,13 +505,13 @@ func TestPostRawAndPutRawJSON_RefuseXMLClient(t *testing.T) {
 
 	client := NewXMLClient(srv.URL, nil)
 
-	if _, err := client.PostRaw("/", map[string]any{"a": "b"}); err == nil {
+	if _, err := client.PostRaw(context.Background(), "/", map[string]any{"a": "b"}); err == nil {
 		t.Error("PostRaw on an XML-configured client: want error, got nil")
 	} else if !strings.Contains(err.Error(), "XML") {
 		t.Errorf("PostRaw error = %q, want mention of XML", err)
 	}
 
-	if _, err := client.PutRawJSON("/", map[string]any{"a": "b"}); err == nil {
+	if _, err := client.PutRawJSON(context.Background(), "/", map[string]any{"a": "b"}); err == nil {
 		t.Error("PutRawJSON on an XML-configured client: want error, got nil")
 	} else if !strings.Contains(err.Error(), "XML") {
 		t.Errorf("PutRawJSON error = %q, want mention of XML", err)
@@ -507,7 +533,7 @@ func TestAPIErrorCapturesHeaders(t *testing.T) {
 
 	c := NewClientNoAuth(srv.URL)
 	var out any
-	err := c.Get("/x", &out)
+	err := c.Get(context.Background(), "/x", &out)
 
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {

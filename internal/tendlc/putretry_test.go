@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -104,7 +105,7 @@ func TestPutRetry_UnmodeledField_RetriesOnceAndSucceeds(t *testing.T) {
 	var raw []byte
 	var err error
 	stderr := captureStderr(t, func() {
-		raw, err = putReplaceWithReadOnlyRetry(client, "/thing/1", body, brandNeverDropFields())
+		raw, err = putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, brandNeverDropFields())
 	})
 
 	if err != nil {
@@ -155,7 +156,7 @@ func TestPutRetry_BrandUnchangedFlagReachableField_NoRetry(t *testing.T) {
 	// displayName is what the caller actually changed; website merely rode
 	// along from the read-modify-write, untouched this call.
 	body := map[string]any{"displayName": "New Name", "website": "https://example.com"}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, brandNeverDropFields())
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, brandNeverDropFields())
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -188,7 +189,7 @@ func TestPutRetry_CampaignUnchangedFlagReachableField_NoRetry(t *testing.T) {
 		neverDrop[f] = true
 	}
 	body := map[string]any{"description": "Updated description", "sample2": "Reply STOP to opt out"}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, neverDrop)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, neverDrop)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -220,7 +221,7 @@ func TestPutRetry_SubscriberOptin_NoRetry(t *testing.T) {
 	for f := range campaignNeverDropFields {
 		neverDrop[f] = true
 	}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, neverDrop)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, neverDrop)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -239,7 +240,7 @@ func TestPutRetry_FieldNotSent_PassesThroughNoSecondRequest(t *testing.T) {
 	})
 
 	body := map[string]any{"displayName": "Acme"}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -262,7 +263,7 @@ func TestPutRetry_GenericBadRequest_NoUsablePointers_NoRetry(t *testing.T) {
 	})
 
 	body := map[string]any{"displayName": ""}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -279,7 +280,7 @@ func TestPutRetry_RetryAlsoFails_OriginalErrorSurfaces(t *testing.T) {
 	})
 
 	body := map[string]any{"displayName": "Acme", "legacyFlag": true}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -301,7 +302,7 @@ func TestPutRetry_NestedPointer_NoRetry(t *testing.T) {
 	})
 
 	body := map[string]any{"accounts": []any{map[string]any{"customerProfileId": "CEXMPL1"}}}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -317,7 +318,7 @@ func TestPutRetry_409_NoRetry(t *testing.T) {
 	})
 
 	body := map[string]any{"legacyFlag": true}
-	_, err := putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
+	_, err := putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, nil)
 
 	if err == nil {
 		t.Fatal("want an error, got nil")
@@ -339,7 +340,7 @@ func TestPutRetry_HappyPath_NoStderrNote(t *testing.T) {
 	body := map[string]any{"displayName": "Acme"}
 	var err error
 	stderr := captureStderr(t, func() {
-		_, err = putReplaceWithReadOnlyRetry(client, "/thing/1", body, nil)
+		_, err = putReplaceWithReadOnlyRetry(context.Background(), client, "/thing/1", body, nil)
 	})
 
 	if err != nil {

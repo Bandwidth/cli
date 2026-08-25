@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 
@@ -11,8 +12,8 @@ import (
 // refreshes an existing campaign from TCR (all customers, body =
 // {"campaignId": id}). Both are POST /campaigns; which one happens is
 // decided by the body, not the path.
-func (s *Service) CreateCampaign(body map[string]any) (*api.Envelope, error) {
-	raw, err := s.client.PostRaw(s.base()+"/campaigns", body)
+func (s *Service) CreateCampaign(ctx context.Context, body map[string]any) (*api.Envelope, error) {
+	raw, err := s.client.PostRaw(ctx, s.base()+"/campaigns", body)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +38,7 @@ func (s *Service) CreateCampaign(body map[string]any) (*api.Envelope, error) {
 // reach but that still hold real data), so neither category is ever silently
 // stripped and re-sent. See putReplaceWithReadOnlyRetry's INVARIANT for why
 // "changed this call" is not the right test.
-func (s *Service) UpdateCampaign(campaignID string, body map[string]any) (*api.Envelope, error) {
+func (s *Service) UpdateCampaign(ctx context.Context, campaignID string, body map[string]any) (*api.Envelope, error) {
 	if campaignID == "" {
 		return nil, fmt.Errorf("campaign ID is required")
 	}
@@ -45,7 +46,7 @@ func (s *Service) UpdateCampaign(campaignID string, body map[string]any) (*api.E
 	for f := range campaignNeverDropFields {
 		neverDrop[f] = true
 	}
-	raw, err := putReplaceWithReadOnlyRetry(s.client, s.campaignPath(campaignID), body, neverDrop)
+	raw, err := putReplaceWithReadOnlyRetry(ctx, s.client, s.campaignPath(campaignID), body, neverDrop)
 	if err != nil {
 		return nil, err
 	}
@@ -53,38 +54,38 @@ func (s *Service) UpdateCampaign(campaignID string, body map[string]any) (*api.E
 }
 
 // DeactivateCampaign permanently deactivates a campaign. Returns 204.
-func (s *Service) DeactivateCampaign(campaignID string) error {
+func (s *Service) DeactivateCampaign(ctx context.Context, campaignID string) error {
 	if campaignID == "" {
 		return fmt.Errorf("campaign ID is required")
 	}
-	return s.client.Delete(s.campaignPath(campaignID), nil)
+	return s.client.Delete(ctx, s.campaignPath(campaignID), nil)
 }
 
 // NudgeCampaign resubmits a campaign stuck in a pending state to TCR for
 // re-evaluation. Returns 204.
-func (s *Service) NudgeCampaign(campaignID string, body map[string]any) error {
+func (s *Service) NudgeCampaign(ctx context.Context, campaignID string, body map[string]any) error {
 	if campaignID == "" {
 		return fmt.Errorf("campaign ID is required")
 	}
-	return s.client.Post(s.campaignPath(campaignID)+"/nudge", body, nil)
+	return s.client.Post(ctx, s.campaignPath(campaignID)+"/nudge", body, nil)
 }
 
 // CampaignPhoneNumbers returns the phone numbers assigned to a campaign.
-func (s *Service) CampaignPhoneNumbers(campaignID string, limit, offset int) (*api.Envelope, error) {
+func (s *Service) CampaignPhoneNumbers(ctx context.Context, campaignID string, limit, offset int) (*api.Envelope, error) {
 	if campaignID == "" {
 		return nil, fmt.Errorf("campaign ID is required")
 	}
-	return s.get(s.campaignPath(campaignID) + "/phoneNumbers" + api.EncodeQuery(limit, offset, nil))
+	return s.get(ctx, s.campaignPath(campaignID)+"/phoneNumbers"+api.EncodeQuery(limit, offset, nil))
 }
 
 // CampaignHistory returns the campaign's activity log: free-text
 // {createdDate, message} entries, newest first. As with BrandHistory there
 // are no versioned snapshots and no per-version fetch.
-func (s *Service) CampaignHistory(campaignID string, limit, offset int) (*api.Envelope, error) {
+func (s *Service) CampaignHistory(ctx context.Context, campaignID string, limit, offset int) (*api.Envelope, error) {
 	if campaignID == "" {
 		return nil, fmt.Errorf("campaign ID is required")
 	}
-	return s.get(s.campaignPath(campaignID) + "/history" + api.EncodeQuery(limit, offset, nil))
+	return s.get(ctx, s.campaignPath(campaignID)+"/history"+api.EncodeQuery(limit, offset, nil))
 }
 
 // campaignPath builds /campaigns/{id}.

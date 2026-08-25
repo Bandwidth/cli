@@ -32,11 +32,11 @@ var credentialRotateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		realm, err := svc.GetRealm(credRotate.realm)
+		realm, err := svc.GetRealm(cmd.Context(), credRotate.realm)
 		if err != nil {
 			return faultExit(err)
 		}
-		existing, err := svc.GetCredential(realm.ID, args[0])
+		existing, err := svc.GetCredential(cmd.Context(), realm.ID, args[0])
 		if err != nil {
 			return faultExit(err)
 		}
@@ -45,7 +45,7 @@ var credentialRotateCmd = &cobra.Command{
 			return err
 		}
 		hash1, hash1b := sipsvc.ComputeHashes(existing.Username, realm.Hostname, password)
-		cred, err := svc.RotateCredential(realm.ID, existing.ID, hash1, hash1b)
+		cred, err := svc.RotateCredential(cmd.Context(), realm.ID, existing.ID, hash1, hash1b)
 		if err != nil {
 			// The PUT may have replaced the hashes server-side even though this
 			// call reports failure (e.g. a decode error after a successful

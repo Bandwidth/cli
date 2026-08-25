@@ -96,7 +96,7 @@ which yours is, ask your Bandwidth account contact rather than guessing.`,
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
 
-		_, probeErr := svc.ListBrands(1, 0, nil)
+		_, probeErr := svc.ListBrands(cmd.Context(), 1, 0, nil)
 		if probeErr == nil {
 			return output.StdoutAuto(format, plain, statusResult(200, ""))
 		}

@@ -39,7 +39,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	data, err := client.GetRaw(fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s/media", acctID, url.PathEscape(args[0]), url.PathEscape(args[1])))
+	data, err := client.GetRaw(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s/media", acctID, url.PathEscape(args[0]), url.PathEscape(args[1])))
 	if err != nil {
 		return fmt.Errorf("downloading recording: %w", err)
 	}

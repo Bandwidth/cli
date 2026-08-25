@@ -40,7 +40,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		acctID, listLimit, listOffset)
 
 	var result interface{}
-	if err := client.Get(path, &result); err != nil {
+	if err := client.Get(cmd.Context(), path, &result); err != nil {
 		return shortcodeError(err)
 	}
 

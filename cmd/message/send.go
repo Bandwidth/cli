@@ -148,12 +148,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	// Preflight: verify the messaging app is linked to a location.
 	dashClient, dashAcctID, dashErr := cmdutil.DashboardClient(cmdutil.AccountIDFlag(cmd))
 	if dashErr == nil {
-		if ok, msg := CheckAppAssociation(dashClient, dashAcctID, sendAppID); !ok {
+		if ok, msg := CheckAppAssociation(cmd.Context(), dashClient, dashAcctID, sendAppID); !ok {
 			return fmt.Errorf("preflight check failed: %s", msg)
 		}
 		// Block if the callback URL looks fake/missing — without it, delivery
 		// failures are invisible and you won't know messages aren't arriving.
-		if warning := CheckCallbackURL(dashClient, dashAcctID, sendAppID); warning != "" {
+		if warning := CheckCallbackURL(cmd.Context(), dashClient, dashAcctID, sendAppID); warning != "" {
 			return fmt.Errorf("preflight check failed: %s", warning)
 		}
 	}
@@ -161,7 +161,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	// Preflight: verify the from number's provisioning (campaign, TFV, etc.).
 	platClient, platAcctID, platErr := cmdutil.PlatformClient(cmdutil.AccountIDFlag(cmd))
 	if platErr == nil {
-		check := CheckMessagingReadiness(platClient, platAcctID, sendFrom)
+		check := CheckMessagingReadiness(cmd.Context(), platClient, platAcctID, sendFrom)
 		if !check.Ready {
 			return fmt.Errorf("preflight check failed: %s", check.Message)
 		}
@@ -178,7 +178,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	reqBody := BuildSendBody(opts)
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/users/%s/messages", acctID), reqBody, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/users/%s/messages", acctID), reqBody, &result); err != nil {
 		return fmt.Errorf("sending message: %w", err)
 	}
 

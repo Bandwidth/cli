@@ -42,7 +42,7 @@ attached.`,
 		if err != nil {
 			return err
 		}
-		if err := svc.Delete(args[0]); err != nil {
+		if err := svc.Delete(cmd.Context(), args[0]); err != nil {
 			return roleGateError(err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
@@ -73,7 +73,7 @@ No --confirm needed: restoring is not destructive.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.Get(args[0])
+		env, err := svc.Get(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err)
 		}
@@ -85,7 +85,7 @@ No --confirm needed: restoring is not destructive.`,
 		if err != nil {
 			return err
 		}
-		restored, err := svc.Update(args[0], body)
+		restored, err := svc.Update(cmd.Context(), args[0], body)
 		if err != nil {
 			return roleGateError(conflictHint(err))
 		}

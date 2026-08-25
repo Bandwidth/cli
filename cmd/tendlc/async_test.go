@@ -2,6 +2,7 @@ package tendlc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -279,7 +280,7 @@ func fetchBrandStubServer(t *testing.T, code int, body string) *tendlcsvc.Servic
 // HTTP response, not just the classifier logic above it.
 func TestFetchBrandFoundReturnsObject(t *testing.T) {
 	svc := fetchBrandStubServer(t, http.StatusOK, `{"data":{"bandwidthId":"WABC","brandIdentityStatus":"VERIFIED"}}`)
-	obj, found, err := fetchBrand(svc, "WABC")()
+	obj, found, err := fetchBrand(context.Background(), svc, "WABC")()
 	if err != nil {
 		t.Fatalf("want no error, got %v", err)
 	}
@@ -297,7 +298,7 @@ func TestFetchBrandFoundReturnsObject(t *testing.T) {
 // retrying until it appears or the poll times out.
 func TestFetchBrandNotFoundIsFoundFalseNotError(t *testing.T) {
 	svc := fetchBrandStubServer(t, http.StatusNotFound, `{"errors":[{"description":"brand not found"}]}`)
-	obj, found, err := fetchBrand(svc, "WABC")()
+	obj, found, err := fetchBrand(context.Background(), svc, "WABC")()
 	if err != nil {
 		t.Fatalf("want no error for a 404, got %v", err)
 	}
@@ -311,7 +312,7 @@ func TestFetchBrandNotFoundIsFoundFalseNotError(t *testing.T) {
 
 func TestFetchBrandServerErrorIsError(t *testing.T) {
 	svc := fetchBrandStubServer(t, http.StatusInternalServerError, `{"errors":[{"description":"boom"}]}`)
-	_, found, err := fetchBrand(svc, "WABC")()
+	_, found, err := fetchBrand(context.Background(), svc, "WABC")()
 	if err == nil {
 		t.Fatal("want an error for a 500")
 	}
@@ -326,7 +327,7 @@ func TestFetchBrandServerErrorIsError(t *testing.T) {
 // response shape it can never recover from.
 func TestFetchBrandMalformedDataIsError(t *testing.T) {
 	svc := fetchBrandStubServer(t, http.StatusOK, `{"data":[{"bandwidthId":"WABC"}]}`)
-	_, found, err := fetchBrand(svc, "WABC")()
+	_, found, err := fetchBrand(context.Background(), svc, "WABC")()
 	if err == nil {
 		t.Fatal("want an error when data is not an object")
 	}

@@ -29,7 +29,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/sites", acctID), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/sites", acctID), &result); err != nil {
 		return cmdutil.Wrap403(err, "listing sub-accounts", "Sub-Accounts")
 	}
 

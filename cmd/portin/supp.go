@@ -1,6 +1,7 @@
 package portin
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -70,13 +71,14 @@ func runSupp(cmd *cobra.Command, args []string) error {
 	// Capture the pre-PUT lastModifiedDate so we can detect actual propagation
 	// rather than guessing.
 	var pre interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID), &pre); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID), &pre); err != nil {
 		return portinError(err, "fetching order before supplement")
 	}
 	preTS := digString(pre, "LastModifiedDate")
 
 	var putResult interface{}
 	if err := client.Put(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
 		api.XMLBody{RootElement: "LnpOrderSupp", Data: body},
 		&putResult,
@@ -84,7 +86,7 @@ func runSupp(cmd *cobra.Command, args []string) error {
 		return portinError(err, "supplementing port-in order")
 	}
 
-	verified, err := waitForSuppPropagation(client, acctID, orderID, preTS, suppTimeout)
+	verified, err := waitForSuppPropagation(cmd.Context(), client, acctID, orderID, preTS, suppTimeout)
 	if err != nil {
 		return err
 	}
@@ -102,13 +104,15 @@ func runSupp(cmd *cobra.Command, args []string) error {
 // waitForSuppPropagation polls until the order's LastModifiedDate advances
 // past the pre-PUT timestamp (real propagation), or error code 7300 appears
 // (silent failure), or the timeout expires.
-func waitForSuppPropagation(client *api.Client, acctID, orderID, preTS string, timeout time.Duration) (interface{}, error) {
+func waitForSuppPropagation(ctx context.Context, client *api.Client, acctID, orderID, preTS string, timeout time.Duration) (interface{}, error) {
 	return cmdutil.Poll(cmdutil.PollConfig{
+		Context:  ctx,
 		Interval: 2 * time.Second,
 		Timeout:  timeout,
 		Check: func() (bool, interface{}, error) {
 			var r interface{}
 			if err := client.Get(
+				ctx,
 				fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
 				&r,
 			); err != nil {

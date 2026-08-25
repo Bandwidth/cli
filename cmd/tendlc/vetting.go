@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -168,12 +169,12 @@ func buildVettingReceipt(cmd *cobra.Command, env *api.Envelope, brandID string) 
 // GET .../vettings/{id} — the vettings list is the only read surface for a
 // vetting's status — so --wait re-lists (walking every page) and returns the
 // entry whose ID, under either vettingIDKeys name, matches vettingID.
-func fetchVetting(svc *tendlcsvc.Service, brandID, vettingID string) func() (map[string]any, bool, error) {
+func fetchVetting(ctx context.Context, svc *tendlcsvc.Service, brandID, vettingID string) func() (map[string]any, bool, error) {
 	return func() (map[string]any, bool, error) {
 		const pageSize = 100
 		offset := 0
 		for {
-			env, err := svc.ListVettings(brandID, pageSize, offset)
+			env, err := svc.ListVettings(ctx, brandID, pageSize, offset)
 			if err != nil {
 				if isNotFound(err) {
 					return nil, false, nil
@@ -250,7 +251,7 @@ campaign vetting endpoint.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !vettingListAll {
-			env, err := svc.ListVettings(args[0], vettingListLimit, vettingListOffset)
+			env, err := svc.ListVettings(cmd.Context(), args[0], vettingListLimit, vettingListOffset)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -264,7 +265,7 @@ campaign vetting endpoint.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.ListVettings(args[0], limit, offset)
+			return svc.ListVettings(cmd.Context(), args[0], limit, offset)
 		}, vettingListLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil
@@ -335,7 +336,7 @@ This places a billable order with an external vetting provider, so
 			"evpId":        vettingRequestEvp,
 			"vettingClass": vettingRequestClass,
 		}
-		env, err := svc.RequestVetting(brandID, body)
+		env, err := svc.RequestVetting(cmd.Context(), brandID, body)
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -352,7 +353,7 @@ This places a billable order with an external vetting provider, so
 
 		target := pollTarget{
 			Noun:     "vetting",
-			Fetch:    fetchVetting(svc, brandID, vettingID),
+			Fetch:    fetchVetting(cmd.Context(), svc, brandID, vettingID),
 			Classify: classifyVettingObj,
 		}
 		return awaitTerminal(cmd, target, receipt, time.Duration(vettingRequestTimeout)*time.Second, vettingPollInterval)
@@ -407,7 +408,7 @@ request' this takes no --confirm.`,
 			body["vettingToken"] = vettingImportVettingToken
 		}
 
-		env, err := svc.ImportVetting(brandID, vettingID, body)
+		env, err := svc.ImportVetting(cmd.Context(), brandID, vettingID, body)
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -429,7 +430,7 @@ request' this takes no --confirm.`,
 
 		target := pollTarget{
 			Noun:     "vetting",
-			Fetch:    fetchVetting(svc, brandID, respVettingID),
+			Fetch:    fetchVetting(cmd.Context(), svc, brandID, respVettingID),
 			Classify: classifyVettingObj,
 		}
 		return awaitTerminal(cmd, target, receipt, time.Duration(vettingImportTimeout)*time.Second, vettingPollInterval)

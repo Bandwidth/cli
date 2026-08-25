@@ -48,7 +48,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s/transcription", acctID, url.PathEscape(args[0]), url.PathEscape(args[1])), nil, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s/transcription", acctID, url.PathEscape(args[0]), url.PathEscape(args[1])), nil, &result); err != nil {
 		return fmt.Errorf("creating transcription: %w", err)
 	}
 
@@ -61,11 +61,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	getPath := fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s/transcription", acctID, url.PathEscape(callID), url.PathEscape(recordingID))
 
 	final, err := cmdutil.Poll(cmdutil.PollConfig{
+		Context:  cmd.Context(),
 		Interval: 5 * time.Second,
 		Timeout:  createTimeout,
 		Check: func() (bool, interface{}, error) {
 			var t interface{}
-			if err := client.Get(getPath, &t); err != nil {
+			if err := client.Get(cmd.Context(), getPath, &t); err != nil {
 				return false, nil, fmt.Errorf("polling transcription: %w", err)
 			}
 			// Consider done when the result is non-nil and has content.
