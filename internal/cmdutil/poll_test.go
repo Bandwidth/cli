@@ -77,6 +77,51 @@ func TestPollRespectsContextCancellation(t *testing.T) {
 	}
 }
 
+// The final sleep must be capped at the time remaining before the deadline,
+// not a full interval — a 250ms interval with a 20ms timeout should report
+// the timeout at ~20ms, not ~250ms.
+func TestPollTimeoutDoesNotOvershootByFullInterval(t *testing.T) {
+	start := time.Now()
+	_, err := Poll(PollConfig{
+		Interval: 250 * time.Millisecond,
+		Timeout:  20 * time.Millisecond,
+		Check:    func() (bool, interface{}, error) { return false, nil, nil },
+	})
+	elapsed := time.Since(start)
+	if !errors.Is(err, ErrPollTimeout) {
+		t.Fatalf("err = %v, want ErrPollTimeout", err)
+	}
+	if elapsed >= 150*time.Millisecond {
+		t.Errorf("elapsed = %v, want ~20ms (final sleep must be capped at the deadline, not the full interval)", elapsed)
+	}
+}
+
+// A check that starts at the deadline and succeeds still returns the result —
+// the operation genuinely completed, and it does so at ~deadline rather than
+// a full interval later.
+func TestPollFinalCheckAtDeadlineCanSucceed(t *testing.T) {
+	start := time.Now()
+	calls := 0
+	got, err := Poll(PollConfig{
+		Interval: 250 * time.Millisecond,
+		Timeout:  20 * time.Millisecond,
+		Check: func() (bool, interface{}, error) {
+			calls++
+			return calls >= 2, "done", nil
+		},
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "done" {
+		t.Fatalf("got %v, want done", got)
+	}
+	if elapsed >= 150*time.Millisecond {
+		t.Errorf("elapsed = %v, want ~20ms (the pre-deadline sleep must be capped so the final check runs at the deadline)", elapsed)
+	}
+}
+
 // A nil Context must behave exactly as before — all existing callers omit it.
 func TestPollNilContextStillTimesOut(t *testing.T) {
 	_, err := Poll(PollConfig{
