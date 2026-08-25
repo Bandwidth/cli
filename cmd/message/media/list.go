@@ -29,7 +29,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/users/%s/media", acctID), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/users/%s/media", acctID), &result); err != nil {
 		return fmt.Errorf("listing media: %w", err)
 	}
 

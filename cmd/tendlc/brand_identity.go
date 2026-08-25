@@ -41,7 +41,7 @@ Requires --confirm.`,
 		if err != nil {
 			return err
 		}
-		if err := svc.ReverifyBrand(args[0]); err != nil {
+		if err := svc.ReverifyBrand(cmd.Context(), args[0]); err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
 
@@ -75,7 +75,7 @@ writes in this command set, this does not require --confirm.`,
 		if err != nil {
 			return err
 		}
-		if err := svc.Resend2FA(args[0]); err != nil {
+		if err := svc.Resend2FA(cmd.Context(), args[0]); err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
 

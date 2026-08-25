@@ -108,7 +108,7 @@ campaigns, so there is no API-justified reason to gate this behind a flag.`,
 			return err
 		}
 
-		env, err := svc.GetCampaign(args[0])
+		env, err := svc.GetCampaign(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -122,7 +122,7 @@ campaigns, so there is no API-justified reason to gate this behind a flag.`,
 			return err
 		}
 
-		updated, err := svc.UpdateCampaign(args[0], body)
+		updated, err := svc.UpdateCampaign(cmd.Context(), args[0], body)
 		if err != nil {
 			return campaignUpdateConflictHint(args[0], err)
 		}

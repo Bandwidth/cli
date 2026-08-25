@@ -33,7 +33,7 @@ func runPause(cmd *cobra.Command, args []string) error {
 		"state": "paused",
 	}
 
-	if err := client.Put(fmt.Sprintf("/accounts/%s/calls/%s/recording", acctID, url.PathEscape(args[0])), reqBody, nil); err != nil {
+	if err := client.Put(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s/recording", acctID, url.PathEscape(args[0])), reqBody, nil); err != nil {
 		return fmt.Errorf("pausing recording: %w", err)
 	}
 

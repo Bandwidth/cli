@@ -26,7 +26,7 @@ here — pass whichever one you have.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.GetBrand(args[0])
+		env, err := svc.GetBrand(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}

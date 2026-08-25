@@ -50,7 +50,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// First, get the existing app to determine its type
 	var existing interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(appID)), &existing); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(appID)), &existing); err != nil {
 		return fmt.Errorf("getting application: %w", err)
 	}
 
@@ -80,7 +80,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Put(fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(appID)), body, &result); err != nil {
+	if err := client.Put(cmd.Context(), fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(appID)), body, &result); err != nil {
 		return fmt.Errorf("updating application: %w", err)
 	}
 

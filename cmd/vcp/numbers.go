@@ -38,7 +38,7 @@ func runNumbers(cmd *cobra.Command, args []string) error {
 	params.Set("voiceConfigurationPackageId", args[0])
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/v2/accounts/%s/phoneNumbers/voice?%s", acctID, params.Encode()), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/phoneNumbers/voice?%s", acctID, params.Encode()), &result); err != nil {
 		return fmt.Errorf("listing VCP numbers: %w", err)
 	}
 

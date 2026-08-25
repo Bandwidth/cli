@@ -3,9 +3,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -134,9 +137,16 @@ func Root() *cobra.Command {
 	return rootCmd
 }
 
+// Execute runs the CLI with a context cancelled on SIGINT/SIGTERM, so every
+// command sees cancellation via cmd.Context(): in-flight API requests abort
+// and --wait loops exit through their receipt-emitting cancellation paths.
+// NotifyContext stops trapping after the first signal, so a second Ctrl-C
+// falls through to the Go runtime default and hard-exits the process.
 func Execute() error {
 	api.Version = version
-	return rootCmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return rootCmd.ExecuteContext(ctx)
 }
 
 func GetFormat() string {

@@ -67,7 +67,7 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := client.PutRaw(fmt.Sprintf("/users/%s/media/%s", acctID, mediaID), data, ct); err != nil {
+	if err := client.PutRaw(cmd.Context(), fmt.Sprintf("/users/%s/media/%s", acctID, mediaID), data, ct); err != nil {
 		return fmt.Errorf("uploading media: %w", err)
 	}
 

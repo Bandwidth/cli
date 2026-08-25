@@ -42,7 +42,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/calls/%s", acctID, url.PathEscape(args[0])), reqBody, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s", acctID, url.PathEscape(args[0])), reqBody, &result); err != nil {
 		return fmt.Errorf("updating call: %w", err)
 	}
 

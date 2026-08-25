@@ -62,7 +62,7 @@ func runOrder(cmd *cobra.Command, args []string) error {
 	bodyData := BuildOrderBody(orderSubaccount, args)
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/orders", acctID), api.XMLBody{RootElement: "Order", Data: bodyData}, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/orders", acctID), api.XMLBody{RootElement: "Order", Data: bodyData}, &result); err != nil {
 		return fmt.Errorf("ordering numbers: %w", err)
 	}
 
@@ -80,10 +80,11 @@ func runOrder(cmd *cobra.Command, args []string) error {
 	}
 
 	final, err := cmdutil.Poll(cmdutil.PollConfig{
+		Context:  cmd.Context(),
 		Interval: 2 * time.Second,
 		Timeout:  orderTimeout,
 		Check: func() (bool, interface{}, error) {
-			nums, err := fetchAccountNumbers(client, acctID, "Inservice")
+			nums, err := fetchAccountNumbers(cmd.Context(), client, acctID, "Inservice")
 			if err != nil {
 				return false, nil, fmt.Errorf("polling in-service numbers: %w", err)
 			}

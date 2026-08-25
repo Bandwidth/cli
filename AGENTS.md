@@ -1180,17 +1180,15 @@ still-pending.
 carries `bandwidthId` somewhere in valid JSON — that ID is the one thing that
 cannot be recovered any other way if the command exits without printing it.
 
-**This guarantee covers every path the command itself takes — it does not
-cover an interrupt.** `cmd/root.go`'s `Execute()` runs with no context, and
-the CLI does not install a `SIGINT` handler anywhere (no `signal.Notify` /
-`signal.NotifyContext` in the codebase), so the cancellation branch in
-`awaitTerminal` that exists specifically to emit this receipt can never
-actually fire from a real Ctrl-C. Press Ctrl-C during `--wait` after the 202
-has landed and the process dies immediately with no `bandwidthId` on stdout.
-If that happens, recover with `band tendlc brand list --customer-profile-id-contains
-<id>` to find the brand that was accepted. This applies CLI-wide, not just to
-`tendlc` — it is a pre-existing, repo-wide gap, tracked separately from this
-PR.
+**The guarantee covers a single Ctrl-C too.** `cmd/root.go`'s `Execute()`
+runs the command tree under `signal.NotifyContext`, so the first
+`SIGINT`/`SIGTERM` cancels `cmd.Context()` rather than killing the process:
+the in-flight request aborts, the cancellation branch in `awaitTerminal`
+fires, and the receipt (with `bandwidthId`) lands on stdout before the
+command exits. A **second** Ctrl-C is not trapped — it hard-kills the
+process the Go-default way, with nothing further on stdout. If a receipt was
+lost that way, recover with `band tendlc brand list
+--customer-profile-id-contains <id>` to find the brand that was accepted.
 
 Without `--wait`, or on a timeout/transport failure with `--wait`, that's the
 literal synthetic receipt: `{"bandwidthId": "...", "status": "accepted",
@@ -1801,9 +1799,10 @@ carries `bandwidthId` somewhere in valid JSON — the one thing that cannot be
 recovered any other way if the command exits without printing it. This
 covers `create`, `sync`, and `update` alike, all of which share the same
 `{bandwidthId, campaignId (if present), status: "accepted", resume}`
-receipt shape. As with `brand create`, this guarantee does not extend past a
-`SIGINT` — see the equivalent note under [10DLC Brands](#create) for why and
-how to recover (`band tendlc campaign list --brand-id-contains <id>`).
+receipt shape. As with `brand create`, a single `SIGINT` is covered (the
+receipt is emitted before exit); only a second Ctrl-C hard-kills the process
+— see the equivalent note under [10DLC Brands](#create), and recover with
+`band tendlc campaign list --brand-id-contains <id>`.
 
 ### `deactivate`'s honest receipt
 

@@ -1,6 +1,7 @@
 package message
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -20,10 +21,10 @@ type PreflightResult struct {
 
 // CheckCallbackURL verifies that the messaging application has a callback URL
 // that looks like a real server. Without one, delivery confirmations are lost.
-func CheckCallbackURL(dashClient *api.Client, acctID, appID string) string {
+func CheckCallbackURL(ctx context.Context, dashClient *api.Client, acctID, appID string) string {
 	var result interface{}
 	path := fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(appID))
-	if err := dashClient.Get(path, &result); err != nil {
+	if err := dashClient.Get(ctx, path, &result); err != nil {
 		return "" // can't check, don't warn
 	}
 
@@ -76,11 +77,11 @@ func isPlaceholderURL(u string) bool {
 //
 // It checks both the app's associatedsippeers endpoint AND each location's
 // applicationSettings (the assignment may only be visible from the location side).
-func CheckAppAssociation(dashClient *api.Client, acctID, appID string) (bool, string) {
+func CheckAppAssociation(ctx context.Context, dashClient *api.Client, acctID, appID string) (bool, string) {
 	// First try the app-level query (fast path)
 	var peersResult interface{}
 	path := fmt.Sprintf("/accounts/%s/applications/%s/associatedsippeers", acctID, url.PathEscape(appID))
-	if err := dashClient.Get(path, &peersResult); err == nil {
+	if err := dashClient.Get(ctx, path, &peersResult); err == nil {
 		peers := extractAssociatedPeers(peersResult)
 		if len(peers) > 0 {
 			return true, ""
@@ -90,21 +91,21 @@ func CheckAppAssociation(dashClient *api.Client, acctID, appID string) (bool, st
 	// App-level query found nothing — check from the location side.
 	// List all sites, then check each location's messaging applicationSettings.
 	var sitesResult interface{}
-	if err := dashClient.Get(fmt.Sprintf("/accounts/%s/sites", acctID), &sitesResult); err != nil {
+	if err := dashClient.Get(ctx, fmt.Sprintf("/accounts/%s/sites", acctID), &sitesResult); err != nil {
 		return true, "" // can't check, don't block
 	}
 
 	siteIDs := extractSiteIDs(sitesResult)
 	for _, siteID := range siteIDs {
 		var locsResult interface{}
-		if err := dashClient.Get(fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), &locsResult); err != nil {
+		if err := dashClient.Get(ctx, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, siteID), &locsResult); err != nil {
 			continue
 		}
 		peerIDs := extractPeerIDs(locsResult)
 		for _, peerID := range peerIDs {
 			var settings interface{}
 			settingsPath := fmt.Sprintf("/accounts/%s/sites/%s/sippeers/%s/products/messaging/applicationSettings", acctID, siteID, peerID)
-			if err := dashClient.Get(settingsPath, &settings); err != nil {
+			if err := dashClient.Get(ctx, settingsPath, &settings); err != nil {
 				continue
 			}
 			if foundAppID := extractAppIDFromSettings(settings); foundAppID == appID {
@@ -122,14 +123,14 @@ func CheckAppAssociation(dashClient *api.Client, acctID, appID string) (bool, st
 // for messaging. For 10DLC numbers, it checks campaign assignment via the
 // tendlc API. For toll-free and short codes, it returns advisory messages
 // since those checks require credentials we may not have.
-func CheckMessagingReadiness(platClient *api.Client, acctID, fromNumber string) PreflightResult {
+func CheckMessagingReadiness(ctx context.Context, platClient *api.Client, acctID, fromNumber string) PreflightResult {
 	nt := cmdutil.ClassifyNumber(fromNumber)
 
 	switch nt {
 	case cmdutil.NumberType10DLC:
-		return check10DLC(platClient, acctID, fromNumber)
+		return check10DLC(ctx, platClient, acctID, fromNumber)
 	case cmdutil.NumberTypeTollFree:
-		return checkTollFree(platClient, acctID, fromNumber)
+		return checkTollFree(ctx, platClient, acctID, fromNumber)
 	case cmdutil.NumberTypeShortCode:
 		return PreflightResult{
 			Ready:      true, // we can't check, assume provisioned
@@ -143,7 +144,7 @@ func CheckMessagingReadiness(platClient *api.Client, acctID, fromNumber string) 
 
 // check10DLC iterates the account's 10DLC campaigns and checks if the number
 // is assigned to any of them with SUCCESS status.
-func check10DLC(platClient *api.Client, acctID, number string) PreflightResult {
+func check10DLC(ctx context.Context, platClient *api.Client, acctID, number string) PreflightResult {
 	result := PreflightResult{NumberType: cmdutil.NumberType10DLC}
 
 	// Normalize to E.164 for the filter param
@@ -154,7 +155,7 @@ func check10DLC(platClient *api.Client, acctID, number string) PreflightResult {
 
 	// List all campaigns
 	var campaignsResp interface{}
-	if err := platClient.Get(fmt.Sprintf("/api/v2/accounts/%s/tendlc/campaigns", acctID), &campaignsResp); err != nil {
+	if err := platClient.Get(ctx, fmt.Sprintf("/api/v2/accounts/%s/tendlc/campaigns", acctID), &campaignsResp); err != nil {
 		// Can't check — don't block the send, just warn
 		result.Ready = true
 		result.Message = "could not verify campaign assignment (API error) — ensure the number is on an approved campaign"
@@ -177,7 +178,7 @@ func check10DLC(platClient *api.Client, acctID, number string) PreflightResult {
 		var pnResp interface{}
 		path := fmt.Sprintf("/api/v2/accounts/%s/tendlc/campaigns/%s/phoneNumbers?phoneNumber=%s",
 			acctID, url.PathEscape(c.id), url.QueryEscape(e164))
-		if err := platClient.Get(path, &pnResp); err != nil {
+		if err := platClient.Get(ctx, path, &pnResp); err != nil {
 			continue
 		}
 		if pn := findPhoneNumberInResponse(pnResp, e164); pn != nil {
@@ -204,7 +205,7 @@ func check10DLC(platClient *api.Client, acctID, number string) PreflightResult {
 	return result
 }
 
-func checkTollFree(platClient *api.Client, acctID, number string) PreflightResult {
+func checkTollFree(ctx context.Context, platClient *api.Client, acctID, number string) PreflightResult {
 	result := PreflightResult{NumberType: cmdutil.NumberTypeTollFree}
 
 	e164 := number
@@ -213,7 +214,7 @@ func checkTollFree(platClient *api.Client, acctID, number string) PreflightResul
 	}
 
 	var tfvResp interface{}
-	if err := platClient.Get(fmt.Sprintf("/api/v2/accounts/%s/phoneNumbers/%s/tollFreeVerification", acctID, url.PathEscape(e164)), &tfvResp); err != nil {
+	if err := platClient.Get(ctx, fmt.Sprintf("/api/v2/accounts/%s/phoneNumbers/%s/tollFreeVerification", acctID, url.PathEscape(e164)), &tfvResp); err != nil {
 		// 403 means the credential doesn't have TFV access — don't block, just advise
 		if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 403 {
 			result.Ready = true

@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -67,8 +68,8 @@ import (
 // own copy: both are already identical PUT-then-parse-envelope shapes, and
 // this series has already had one bug from a fix landing on one arm and not
 // its twin.
-func putReplaceWithReadOnlyRetry(client *api.Client, path string, body map[string]any, neverDrop map[string]bool) ([]byte, error) {
-	raw, err := client.PutRawJSON(path, body)
+func putReplaceWithReadOnlyRetry(ctx context.Context, client *api.Client, path string, body map[string]any, neverDrop map[string]bool) ([]byte, error) {
+	raw, err := client.PutRawJSON(ctx, path, body)
 	if err == nil {
 		return raw, nil
 	}
@@ -109,7 +110,7 @@ func putReplaceWithReadOnlyRetry(client *api.Client, path string, body map[strin
 		delete(retryBody, f)
 	}
 
-	raw2, err2 := client.PutRawJSON(path, retryBody)
+	raw2, err2 := client.PutRawJSON(ctx, path, retryBody)
 	if err2 != nil {
 		// The retry's own failure is discarded on purpose: the original error
 		// is the one that describes what the caller did.

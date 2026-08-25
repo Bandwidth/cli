@@ -46,7 +46,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if createIfNotExists {
 		var listResult interface{}
-		if err := client.Get(fmt.Sprintf("/accounts/%s/sites", acctID), &listResult); err != nil {
+		if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/sites", acctID), &listResult); err != nil {
 			return fmt.Errorf("listing sub-accounts: %w", err)
 		}
 		if existing := output.FindByName(listResult, "Name", createName); existing != nil {
@@ -62,7 +62,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/sites", acctID), api.XMLBody{RootElement: "Site", Data: bodyData}, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/sites", acctID), api.XMLBody{RootElement: "Site", Data: bodyData}, &result); err != nil {
 		return fmt.Errorf("creating sub-account: %w", err)
 	}
 

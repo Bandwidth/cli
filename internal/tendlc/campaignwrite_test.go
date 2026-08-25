@@ -1,12 +1,15 @@
 package tendlc
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestCreateCampaignPostsToCampaignsPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"CABC123"}}`, &got)
 
-	env, err := s.CreateCampaign(map[string]any{"campaignName": "Acme Alerts"})
+	env, err := s.CreateCampaign(context.Background(), map[string]any{"campaignName": "Acme Alerts"})
 	if err != nil {
 		t.Fatalf("CreateCampaign: %v", err)
 	}
@@ -32,7 +35,7 @@ func TestCreateCampaignSyncBodyCarriesOnlyCampaignID(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"CABC123"}}`, &got)
 
-	if _, err := s.CreateCampaign(map[string]any{"campaignId": "CEXMPL1"}); err != nil {
+	if _, err := s.CreateCampaign(context.Background(), map[string]any{"campaignId": "CEXMPL1"}); err != nil {
 		t.Fatalf("CreateCampaign: %v", err)
 	}
 	if got.method != "POST" {
@@ -50,7 +53,7 @@ func TestUpdateCampaignPutsToCampaignPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 202, `{"data":{"bandwidthId":"CEXMPL1"}}`, &got)
 
-	if _, err := s.UpdateCampaign("CEXMPL1", map[string]any{"campaignName": "Acme Alerts"}); err != nil {
+	if _, err := s.UpdateCampaign(context.Background(), "CEXMPL1", map[string]any{"campaignName": "Acme Alerts"}); err != nil {
 		t.Fatalf("UpdateCampaign: %v", err)
 	}
 	if got.method != "PUT" {
@@ -68,7 +71,7 @@ func TestDeactivateCampaignUsesDelete(t *testing.T) {
 	var got captured
 	s := stubService(t, 204, "", &got)
 
-	if err := s.DeactivateCampaign("CEXMPL1"); err != nil {
+	if err := s.DeactivateCampaign(context.Background(), "CEXMPL1"); err != nil {
 		t.Fatalf("DeactivateCampaign: %v", err)
 	}
 	if got.method != "DELETE" {
@@ -85,7 +88,7 @@ func TestNudgeCampaignPostsToNudgePath(t *testing.T) {
 	// envelope out of nothing.
 	s := stubService(t, 204, "", &got)
 
-	if err := s.NudgeCampaign("CEXMPL1", map[string]any{"reason": "retry"}); err != nil {
+	if err := s.NudgeCampaign(context.Background(), "CEXMPL1", map[string]any{"reason": "retry"}); err != nil {
 		t.Fatalf("NudgeCampaign: %v", err)
 	}
 	if got.method != "POST" {
@@ -103,7 +106,7 @@ func TestCampaignPhoneNumbersEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.CampaignPhoneNumbers("CEXMPL1", 10, 20); err != nil {
+	if _, err := s.CampaignPhoneNumbers(context.Background(), "CEXMPL1", 10, 20); err != nil {
 		t.Fatalf("CampaignPhoneNumbers: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/campaigns/CEXMPL1/phoneNumbers"; got.path != want {
@@ -118,7 +121,7 @@ func TestCampaignHistoryEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.CampaignHistory("CEXMPL1", 10, 20); err != nil {
+	if _, err := s.CampaignHistory(context.Background(), "CEXMPL1", 10, 20); err != nil {
 		t.Fatalf("CampaignHistory: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/campaigns/CEXMPL1/history"; got.path != want {
@@ -138,15 +141,15 @@ func TestEmptyCampaignIDsRejectedWithoutRequest(t *testing.T) {
 	s := stubService(t, 200, `{"data":{}}`, &got)
 
 	calls := map[string]func() error{
-		"UpdateCampaign":     func() error { _, err := s.UpdateCampaign("", map[string]any{}); return err },
-		"DeactivateCampaign": func() error { return s.DeactivateCampaign("") },
-		"NudgeCampaign":      func() error { return s.NudgeCampaign("", map[string]any{}) },
+		"UpdateCampaign":     func() error { _, err := s.UpdateCampaign(context.Background(), "", map[string]any{}); return err },
+		"DeactivateCampaign": func() error { return s.DeactivateCampaign(context.Background(), "") },
+		"NudgeCampaign":      func() error { return s.NudgeCampaign(context.Background(), "", map[string]any{}) },
 		"CampaignPhoneNumbers": func() error {
-			_, err := s.CampaignPhoneNumbers("", 10, 0)
+			_, err := s.CampaignPhoneNumbers(context.Background(), "", 10, 0)
 			return err
 		},
 		"CampaignHistory": func() error {
-			_, err := s.CampaignHistory("", 10, 0)
+			_, err := s.CampaignHistory(context.Background(), "", 10, 0)
 			return err
 		},
 	}
@@ -171,7 +174,7 @@ func TestCampaignIDIsPathEscaped(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.CampaignHistory("a/b c", 10, 0); err != nil {
+	if _, err := s.CampaignHistory(context.Background(), "a/b c", 10, 0); err != nil {
 		t.Fatalf("CampaignHistory: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/campaigns/a%2Fb%20c/history"; got.escapedPath != want {

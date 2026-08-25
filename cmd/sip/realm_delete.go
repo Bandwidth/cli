@@ -40,11 +40,11 @@ var realmDeleteCmd = &cobra.Command{
 		// {"id":"vapi"} — a name in a field an agent reads as an ID. This costs
 		// one extra GET on the delete path, which is the price of the output
 		// field meaning what it says.
-		realm, err := svc.GetRealm(args[0])
+		realm, err := svc.GetRealm(cmd.Context(), args[0])
 		if err != nil {
 			return faultExit(err)
 		}
-		if err := svc.DeleteRealm(realm.ID); err != nil {
+		if err := svc.DeleteRealm(cmd.Context(), realm.ID); err != nil {
 			return faultExit(err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)
@@ -55,13 +55,14 @@ var realmDeleteCmd = &cobra.Command{
 
 		if realmDeleteWait {
 			if _, err := cmdutil.Poll(cmdutil.PollConfig{
+				Context:  cmd.Context(),
 				Interval: 2 * time.Second,
 				Timeout:  time.Duration(realmDeleteTimeout) * time.Second,
 				Check: func() (bool, interface{}, error) {
 					// Poll by canonical ID, not by the caller's ref: the name a
 					// deleted realm answered to is not guaranteed to keep
 					// resolving, and the ID is what the delete was issued against.
-					_, err := svc.GetRealm(realm.ID)
+					_, err := svc.GetRealm(cmd.Context(), realm.ID)
 					if err == nil {
 						return false, nil, nil // still present
 					}

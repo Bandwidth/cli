@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 
@@ -28,8 +29,8 @@ import (
 //
 // So the command layer offers --campaign-id-contains and deliberately does
 // not offer --status.
-func (s *Service) ListPhoneNumbers(limit, offset int, filters []api.Filter) (*api.Envelope, error) {
-	return s.get(s.base() + "/phoneNumbers" + api.EncodeQuery(limit, offset, filters))
+func (s *Service) ListPhoneNumbers(ctx context.Context, limit, offset int, filters []api.Filter) (*api.Envelope, error) {
+	return s.get(ctx, s.base()+"/phoneNumbers"+api.EncodeQuery(limit, offset, filters))
 }
 
 // GetPhoneNumber returns one phone number.
@@ -40,21 +41,21 @@ func (s *Service) ListPhoneNumbers(limit, offset int, filters []api.Filter) (*ap
 // available to test against, and this API reports authorization failures as
 // 403, so a 404 here is not a permissions mask in disguise. `band tendlc
 // number get <tn>`, which calls this, inherits the same 404.
-func (s *Service) GetPhoneNumber(phoneNumber string) (*api.Envelope, error) {
+func (s *Service) GetPhoneNumber(ctx context.Context, phoneNumber string) (*api.Envelope, error) {
 	if phoneNumber == "" {
 		return nil, fmt.Errorf("phone number is required")
 	}
-	return s.get(s.phoneNumberPath(phoneNumber))
+	return s.get(ctx, s.phoneNumberPath(phoneNumber))
 }
 
 // PhoneNumberHistory returns the phone number's activity log: free-text
 // {createdDate, message} entries, newest first. As with BrandHistory and
 // CampaignHistory there are no versioned snapshots and no per-version fetch.
-func (s *Service) PhoneNumberHistory(phoneNumber string, limit, offset int) (*api.Envelope, error) {
+func (s *Service) PhoneNumberHistory(ctx context.Context, phoneNumber string, limit, offset int) (*api.Envelope, error) {
 	if phoneNumber == "" {
 		return nil, fmt.Errorf("phone number is required")
 	}
-	return s.get(s.phoneNumberPath(phoneNumber) + "/history" + api.EncodeQuery(limit, offset, nil))
+	return s.get(ctx, s.phoneNumberPath(phoneNumber)+"/history"+api.EncodeQuery(limit, offset, nil))
 }
 
 // phoneNumberPath builds /phoneNumbers/{tn}.

@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -32,7 +33,7 @@ func TestCreateRealm_ParsesFQDNAndStatus(t *testing.T) {
 	})
 	defer done()
 
-	r, err := svc.CreateRealm("bwclitest", "d", false)
+	r, err := svc.CreateRealm(context.Background(), "bwclitest", "d", false)
 	if err != nil {
 		t.Fatalf("CreateRealm() error = %v", err)
 	}
@@ -67,7 +68,7 @@ func TestCreateRealm_ReturnsAPIFault(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CreateRealm("x", "", false)
+	_, err := svc.CreateRealm(context.Background(), "x", "", false)
 	var fault *APIFault
 	if !errorsAs(err, &fault) {
 		t.Fatalf("error = %v (%T), want *APIFault", err, err)
@@ -87,7 +88,7 @@ func TestListCredentials_FollowsRedirectAndAlwaysReturnsSlice(t *testing.T) {
 	})
 	defer done()
 
-	creds, err := svc.ListCredentials("1103")
+	creds, err := svc.ListCredentials(context.Background(), "1103")
 	if err != nil {
 		t.Fatalf("ListCredentials() error = %v", err)
 	}
@@ -114,7 +115,7 @@ func TestRotateCredential_SendsRealmIDAndOmitsUserName(t *testing.T) {
 	})
 	defer done()
 
-	c, err := svc.RotateCredential("1105", "870880", "h1", "h1b")
+	c, err := svc.RotateCredential(context.Background(), "1105", "870880", "h1", "h1b")
 	if err != nil {
 		t.Fatalf("RotateCredential() error = %v", err)
 	}
@@ -145,7 +146,7 @@ func TestCreateCredential_PartialSuccessIsFailure(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CreateCredential("1103", "clitest", "h1", "h1b", "")
+	_, err := svc.CreateCredential(context.Background(), "1103", "clitest", "h1", "h1b", "")
 	var fault *APIFault
 	if !errorsAs(err, &fault) || fault.Code != "23026" {
 		t.Fatalf("error = %v, want APIFault 23026", err)
@@ -164,7 +165,7 @@ func TestCreateCredential_NotInValidListIsFailure(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CreateCredential("1103", "clitest", "h1", "h1b", "")
+	_, err := svc.CreateCredential(context.Background(), "1103", "clitest", "h1", "h1b", "")
 	if err == nil {
 		t.Fatal("CreateCredential() error = nil, want error")
 	}
@@ -187,7 +188,7 @@ func TestCreateCredential_CaseMismatchReportsUnusableCredential(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CreateCredential("1103", "clitest", "h1", "h1b", "")
+	_, err := svc.CreateCredential(context.Background(), "1103", "clitest", "h1", "h1b", "")
 	if err == nil {
 		t.Fatal("CreateCredential() error = nil, want error")
 	}
@@ -204,7 +205,7 @@ func TestDo_2xxEmptyBodyIsSuccess(t *testing.T) {
 	})
 	defer done()
 
-	if err := svc.DeleteRealm("1103"); err != nil {
+	if err := svc.DeleteRealm(context.Background(), "1103"); err != nil {
 		t.Fatalf("DeleteRealm() error = %v, want nil for empty 202 body", err)
 	}
 }
@@ -220,7 +221,7 @@ func TestDo_2xxErrorEnvelopeIsFailure(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.ListRealms()
+	_, err := svc.ListRealms(context.Background())
 	var fault *APIFault
 	if !errorsAs(err, &fault) || fault.Code != "12666" {
 		t.Fatalf("error = %v, want APIFault 12666", err)
@@ -251,7 +252,7 @@ func TestParseFault_UnparseableBodyFallsThroughToAPIError(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.GetRealm("1103")
+	_, err := svc.GetRealm(context.Background(), "1103")
 	var fault *APIFault
 	if errorsAs(err, &fault) {
 		t.Fatalf("error = %v, want *api.APIError, not *APIFault", err)
@@ -275,7 +276,7 @@ func TestDo_ScrubsHashesFromUnfaultedErrorBody(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CreateRealm("x", "", false)
+	_, err := svc.CreateRealm(context.Background(), "x", "", false)
 	if err == nil {
 		t.Fatal("CreateRealm() error = nil, want error")
 	}
@@ -324,7 +325,7 @@ func TestFindCredentialByUsername_ZeroMatches(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.FindCredentialByUsername("1103", "missing")
+	_, err := svc.FindCredentialByUsername(context.Background(), "1103", "missing")
 	if err == nil {
 		t.Fatal("FindCredentialByUsername() error = nil, want error")
 	}
@@ -345,7 +346,7 @@ func TestFindCredentialByUsername_OneMatchIsCaseInsensitive(t *testing.T) {
 	})
 	defer done()
 
-	cred, err := svc.FindCredentialByUsername("1103", "agent")
+	cred, err := svc.FindCredentialByUsername(context.Background(), "1103", "agent")
 	if err != nil {
 		t.Fatalf("FindCredentialByUsername() error = %v", err)
 	}
@@ -363,7 +364,7 @@ func TestFindCredentialByUsername_MultipleMatchesIsError(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.FindCredentialByUsername("1103", "agent")
+	_, err := svc.FindCredentialByUsername(context.Background(), "1103", "agent")
 	if err == nil {
 		t.Fatal("FindCredentialByUsername() error = nil, want error for multiple matches")
 	}
@@ -390,7 +391,7 @@ func TestFindCredentialByUsername_TransportErrorThenSuccess(t *testing.T) {
 	})
 	defer done()
 
-	cred, err := svc.FindCredentialByUsername("1103", "agent")
+	cred, err := svc.FindCredentialByUsername(context.Background(), "1103", "agent")
 	if err != nil {
 		t.Fatalf("FindCredentialByUsername() error = %v", err)
 	}
@@ -410,7 +411,7 @@ func TestCredentialHashesMatch_Match(t *testing.T) {
 	})
 	defer done()
 
-	match, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	match, err := svc.CredentialHashesMatch(context.Background(), "1105", "870880", "h1", "h1b")
 	if err != nil {
 		t.Fatalf("CredentialHashesMatch() error = %v", err)
 	}
@@ -427,7 +428,7 @@ func TestCredentialHashesMatch_Mismatch(t *testing.T) {
 	})
 	defer done()
 
-	match, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	match, err := svc.CredentialHashesMatch(context.Background(), "1105", "870880", "h1", "h1b")
 	if err != nil {
 		t.Fatalf("CredentialHashesMatch() error = %v", err)
 	}
@@ -448,7 +449,7 @@ func TestCredentialHashesMatch_AbsentHashesIsError(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	_, err := svc.CredentialHashesMatch(context.Background(), "1105", "870880", "h1", "h1b")
 	if err == nil {
 		t.Fatal("CredentialHashesMatch() error = nil, want error for a response with no hashes")
 	}
@@ -466,7 +467,7 @@ func TestCredentialHashesMatch_WrongShapedBodyIsDecodeError(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CredentialHashesMatch("1105", "870880", "h1", "h1b")
+	_, err := svc.CredentialHashesMatch(context.Background(), "1105", "870880", "h1", "h1b")
 	if err == nil {
 		t.Fatal("CredentialHashesMatch() error = nil, want decode error for a wrong-shaped body")
 	}
@@ -489,7 +490,7 @@ func TestParseFault_ScrubsHashEchoedInDescription(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.CreateCredential("1103", "agent", hash, hash, "")
+	_, err := svc.CreateCredential(context.Background(), "1103", "agent", hash, hash, "")
 	if err == nil {
 		t.Fatal("CreateCredential() error = nil, want a fault")
 	}
@@ -522,7 +523,7 @@ func TestDo_TruncatedBodyIsDiscardedNotPartiallyScrubbed(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.GetRealm("1103")
+	_, err := svc.GetRealm(context.Background(), "1103")
 	if err == nil {
 		t.Fatal("GetRealm() error = nil, want an error")
 	}
@@ -547,7 +548,7 @@ func TestDo_ParsedBodyWithoutErrorCodeKeepsItsBody(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.GetRealm("9999")
+	_, err := svc.GetRealm(context.Background(), "9999")
 	if err == nil {
 		t.Fatal("GetRealm() error = nil, want a 404")
 	}
@@ -579,7 +580,7 @@ func TestListCredentials_FullPageWarnsAboutTruncation(t *testing.T) {
 	warnOut = &warnings
 	defer func() { warnOut = orig }()
 
-	creds, err := svc.ListCredentials("1103")
+	creds, err := svc.ListCredentials(context.Background(), "1103")
 	if err != nil {
 		t.Fatalf("ListCredentials() error = %v", err)
 	}
@@ -611,7 +612,7 @@ func TestListCredentials_PartialPageDoesNotWarn(t *testing.T) {
 	warnOut = &warnings
 	defer func() { warnOut = orig }()
 
-	if _, err := svc.ListCredentials("1103"); err != nil {
+	if _, err := svc.ListCredentials(context.Background(), "1103"); err != nil {
 		t.Fatalf("ListCredentials() error = %v", err)
 	}
 	if warnings.Len() != 0 {
@@ -656,7 +657,7 @@ func TestUpdateRealm_ReadModifyWritePreservesUnspecifiedFields(t *testing.T) {
 			})
 			defer done()
 
-			if _, err := svc.UpdateRealm("vapi", tt.promote, tt.description); err != nil {
+			if _, err := svc.UpdateRealm(context.Background(), "vapi", tt.promote, tt.description); err != nil {
 				t.Fatalf("UpdateRealm() error = %v", err)
 			}
 			if !strings.Contains(sent, "<Description>"+tt.wantDesc+"</Description>") {

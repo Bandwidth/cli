@@ -123,7 +123,7 @@ submitted first. Retrying blind risks a second brand against the same profile.`,
 			return err
 		}
 
-		env, err := svc.CreateBrand(tendlcsvc.BuildBrandCreateRequest(brandCreateOpts))
+		env, err := svc.CreateBrand(cmd.Context(), tendlcsvc.BuildBrandCreateRequest(brandCreateOpts))
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -140,7 +140,7 @@ submitted first. Retrying blind risks a second brand against the same profile.`,
 
 		target := pollTarget{
 			Noun:  "brand",
-			Fetch: fetchBrand(svc, bandwidthID),
+			Fetch: fetchBrand(cmd.Context(), svc, bandwidthID),
 			Classify: func(o map[string]any) tendlcsvc.StateClass {
 				status, _ := o["brandIdentityStatus"].(string)
 				return tendlcsvc.ClassifyBrandIdentity(status)
@@ -191,7 +191,7 @@ created.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.CreateBrand(tendlcsvc.BuildBrandRefreshRequest(args[0]))
+		env, err := svc.CreateBrand(cmd.Context(), tendlcsvc.BuildBrandRefreshRequest(args[0]))
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -213,7 +213,7 @@ created.`,
 func preflightCustomerProfile(cmd *cobra.Command, profileID string) error {
 	cpSvc, err := customerProfileService(cmd)
 	if err == nil {
-		_, err = cpSvc.Get(profileID)
+		_, err = cpSvc.Get(cmd.Context(), profileID)
 	}
 	if err == nil {
 		return nil

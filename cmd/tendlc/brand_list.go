@@ -124,7 +124,7 @@ rather than filtering. Use 'brand get <bandwidth-id>' to fetch one directly.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !brandListAll {
-			env, err := svc.ListBrands(brandListLimit, brandListOffset, filters)
+			env, err := svc.ListBrands(cmd.Context(), brandListLimit, brandListOffset, filters)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -147,7 +147,7 @@ rather than filtering. Use 'brand get <bandwidth-id>' to fetch one directly.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.ListBrands(limit, offset, filters)
+			return svc.ListBrands(cmd.Context(), limit, offset, filters)
 		}, brandListLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

@@ -41,7 +41,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/disconnects", acctID), api.XMLBody{RootElement: "DisconnectTelephoneNumberOrder", Data: bodyData}, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/disconnects", acctID), api.XMLBody{RootElement: "DisconnectTelephoneNumberOrder", Data: bodyData}, &result); err != nil {
 		return fmt.Errorf("releasing number: %w", err)
 	}
 

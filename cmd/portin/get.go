@@ -28,7 +28,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/portins/%s", acctID, args[0]), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/portins/%s", acctID, args[0]), &result); err != nil {
 		return portinError(err, "getting port-in order")
 	}
 

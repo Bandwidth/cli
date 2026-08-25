@@ -2,6 +2,7 @@ package bulk
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -68,7 +69,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if createCustomerOrderID == "" {
 			return errors.New("--if-not-exists requires --customer-order-id")
 		}
-		existing, err := findBulkByCustomerOrderID(client, acctID, createCustomerOrderID)
+		existing, err := findBulkByCustomerOrderID(cmd.Context(), client, acctID, createCustomerOrderID)
 		if err != nil {
 			return err
 		}
@@ -79,7 +80,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				// returning it as-is.
 				orderID := digString(existing, "OrderId")
 				if orderID != "" {
-					result, err := putTnList(client, acctID, orderID, tns)
+					result, err := putTnList(cmd.Context(), client, acctID, orderID, tns)
 					if err != nil {
 						return err
 					}
@@ -110,6 +111,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	var created interface{}
 	if err := client.Post(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/bulkPortins", acctID),
 		api.XMLBody{RootElement: "BulkPortin", Data: body},
 		&created,
@@ -125,7 +127,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Step 2: attach the TN list. If this fails, the template order already
 	// exists — surface its ID so a retry doesn't strand it. Unsubmitted
 	// drafts are auto-removed by the API after 2 days.
-	result, err := putTnList(client, acctID, orderID, tns)
+	result, err := putTnList(cmd.Context(), client, acctID, orderID, tns)
 	if err != nil {
 		resume := "re-run the same create to start over (unsubmitted drafts expire after 2 days)"
 		if createCustomerOrderID != "" {
@@ -140,9 +142,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 // putTnList attaches a TN list to a bulk port-in template order via
 // PUT /bulkPortins/{orderID}/tnList.
-func putTnList(client *api.Client, acctID, orderID string, tns []string) (interface{}, error) {
+func putTnList(ctx context.Context, client *api.Client, acctID, orderID string, tns []string) (interface{}, error) {
 	var result interface{}
 	if err := client.Put(
+		ctx,
 		fmt.Sprintf("/accounts/%s/bulkPortins/%s/tnList", acctID, orderID),
 		api.XMLBody{RootElement: "TnList", Data: map[string]interface{}{"TN": tns}},
 		&result,
@@ -202,7 +205,7 @@ func loadNumbers(numbers []string, numbersFile string) ([]string, error) {
 // but the endpoint accepts the specific draft-family values even though its
 // documented enum omits them — both verified against prod. Draft states
 // first: they're what an idempotent retry most often targets.
-func findBulkByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (interface{}, error) {
+func findBulkByCustomerOrderID(ctx context.Context, client *api.Client, acctID, customerOrderID string) (interface{}, error) {
 	statuses := []string{
 		"draft",
 		"validate_draft_tns",
@@ -223,7 +226,7 @@ func findBulkByCustomerOrderID(client *api.Client, acctID, customerOrderID strin
 		path := fmt.Sprintf("/accounts/%s/bulkPortins?%s", acctID, q.Encode())
 
 		var result interface{}
-		if err := client.Get(path, &result); err != nil {
+		if err := client.Get(ctx, path, &result); err != nil {
 			var apiErr *api.APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 				continue

@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ func TestListBrandsBuildsPathAndQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.ListBrands(25, 0, []api.Filter{{Field: "brandType", Op: api.OpEq, Value: "PUBLIC_PROFIT"}})
+	_, err := svc.ListBrands(context.Background(), 25, 0, []api.Filter{{Field: "brandType", Op: api.OpEq, Value: "PUBLIC_PROFIT"}})
 	if err != nil {
 		t.Fatalf("ListBrands: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestGetBrandReturnsObjectEnvelope(t *testing.T) {
 	})
 	defer done()
 
-	env, err := svc.GetBrand("BEXMPL8")
+	env, err := svc.GetBrand(context.Background(), "BEXMPL8")
 	if err != nil {
 		t.Fatalf("GetBrand: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestGetBrandEscapesID(t *testing.T) {
 	})
 	defer done()
 
-	_, _ = svc.GetBrand("B/../evil")
+	_, _ = svc.GetBrand(context.Background(), "B/../evil")
 	if want := "/api/v2/accounts/9901287/tendlc/brands/B%2F..%2Fevil"; gotPath != want {
 		t.Errorf("escaped path = %q, want %q", gotPath, want)
 	}
@@ -81,7 +82,7 @@ func TestListBrandsEscapesAccountID(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.ListBrands(0, 0, nil)
+	_, err := svc.ListBrands(context.Background(), 0, 0, nil)
 	if err != nil {
 		t.Fatalf("ListBrands: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestServicePropagatesAPIError(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.ListBrands(0, 0, nil)
+	_, err := svc.ListBrands(context.Background(), 0, 0, nil)
 	if err == nil {
 		t.Fatal("expected an error for 403")
 	}
@@ -124,7 +125,7 @@ func TestListCampaignsBuildsPathAndQuery(t *testing.T) {
 	})
 	defer done()
 
-	_, err := svc.ListCampaigns(10, 5, nil)
+	_, err := svc.ListCampaigns(context.Background(), 10, 5, nil)
 	if err != nil {
 		t.Fatalf("ListCampaigns: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestGetCampaignEscapesID(t *testing.T) {
 	})
 	defer done()
 
-	env, err := svc.GetCampaign("C/../evil")
+	env, err := svc.GetCampaign(context.Background(), "C/../evil")
 	if err != nil {
 		t.Fatalf("GetCampaign: %v", err)
 	}
@@ -166,7 +167,7 @@ func TestGetBrandEmptyIDErrors(t *testing.T) {
 	})
 	defer done()
 
-	if _, err := svc.GetBrand(""); err == nil {
+	if _, err := svc.GetBrand(context.Background(), ""); err == nil {
 		t.Fatal("expected an error for an empty brand ID")
 	}
 }
@@ -177,7 +178,7 @@ func TestGetCampaignEmptyIDErrors(t *testing.T) {
 	})
 	defer done()
 
-	if _, err := svc.GetCampaign(""); err == nil {
+	if _, err := svc.GetCampaign(context.Background(), ""); err == nil {
 		t.Fatal("expected an error for an empty campaign ID")
 	}
 }

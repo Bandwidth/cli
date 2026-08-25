@@ -53,7 +53,7 @@ CREATED, UPDATED, and DELETED.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !historyAll {
-			env, err := svc.History(args[0], historyLimit, historyOffset)
+			env, err := svc.History(cmd.Context(), args[0], historyLimit, historyOffset)
 			if err != nil {
 				return roleGateError(err)
 			}
@@ -67,7 +67,7 @@ CREATED, UPDATED, and DELETED.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.History(args[0], limit, offset)
+			return svc.History(cmd.Context(), args[0], limit, offset)
 		}, historyLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil
@@ -101,7 +101,7 @@ count: list always returns an array, get always returns an object.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.HistoryVersion(args[0], args[1])
+		env, err := svc.HistoryVersion(cmd.Context(), args[0], args[1])
 		if err != nil {
 			return roleGateError(err)
 		}

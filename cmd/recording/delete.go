@@ -34,7 +34,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := client.Delete(fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s", acctID, url.PathEscape(args[0]), url.PathEscape(args[1])), nil); err != nil {
+	if err := client.Delete(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s/recordings/%s", acctID, url.PathEscape(args[0]), url.PathEscape(args[1])), nil); err != nil {
 		return fmt.Errorf("deleting recording: %w", err)
 	}
 

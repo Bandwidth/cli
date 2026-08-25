@@ -1,6 +1,7 @@
 package portin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -70,7 +71,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if createCustomerOrderID == "" {
 			return errors.New("--if-not-exists requires --customer-order-id")
 		}
-		existing, err := findByCustomerOrderID(client, acctID, createCustomerOrderID)
+		existing, err := findByCustomerOrderID(cmd.Context(), client, acctID, createCustomerOrderID)
 		if err != nil {
 			return err
 		}
@@ -81,6 +82,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			if orderID != "" {
 				var full interface{}
 				if err := client.Get(
+					cmd.Context(),
 					fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
 					&full,
 				); err == nil {
@@ -120,6 +122,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Post(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/portins", acctID),
 		api.XMLBody{RootElement: "LnpOrder", Data: body},
 		&result,
@@ -140,7 +143,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 		ct := detectContentType(createLoaPath)
 		path := fmt.Sprintf("/accounts/%s/portins/%s/loas?documentType=LOA", acctID, orderID)
-		if _, err := client.PostMultipart(path, "loaFile", filepath.Base(createLoaPath), data, ct); err != nil {
+		if _, err := client.PostMultipart(cmd.Context(), path, "loaFile", filepath.Base(createLoaPath), data, ct); err != nil {
 			return fmt.Errorf("port-in order created (id: %s) but LOA upload failed — retry with: band portin upload-loa %s %s\n  underlying error: %w",
 				orderID, orderID, createLoaPath, err)
 		}
@@ -160,7 +163,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 //
 // Status names and ordering are deliberate: live/active states first since
 // those are the most common targets for idempotent retries.
-func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (interface{}, error) {
+func findByCustomerOrderID(ctx context.Context, client *api.Client, acctID, customerOrderID string) (interface{}, error) {
 	statuses := []string{
 		"submitted",
 		"pending_documents",
@@ -189,7 +192,7 @@ func findByCustomerOrderID(client *api.Client, acctID, customerOrderID string) (
 		path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, q.Encode())
 
 		var result interface{}
-		err := client.Get(path, &result)
+		err := client.Get(ctx, path, &result)
 		if err != nil {
 			var apiErr *api.APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {

@@ -17,7 +17,7 @@ var realmListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		realms, err := svc.ListRealms()
+		realms, err := svc.ListRealms(cmd.Context())
 		if err != nil {
 			return faultExit(err)
 		}

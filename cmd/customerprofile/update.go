@@ -61,7 +61,7 @@ is rejected by the API's version check — the command exits 4 and you can retry
 			return err
 		}
 
-		env, err := svc.Get(args[0])
+		env, err := svc.Get(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err)
 		}
@@ -75,7 +75,7 @@ is rejected by the API's version check — the command exits 4 and you can retry
 			return err
 		}
 
-		updated, err := svc.Update(args[0], body)
+		updated, err := svc.Update(cmd.Context(), args[0], body)
 		if err != nil {
 			return roleGateError(conflictHint(err))
 		}
