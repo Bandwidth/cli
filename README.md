@@ -308,6 +308,8 @@ band number list                                              # list your number
 band number search --area-code 919 --quantity 5               # search available numbers
 band number order +15555550100 --subaccount <subaccount-id> --wait                         # order (blocks until active)
 band number activate +15555550100 --voice-inbound --wait      # turn on inbound voice
+band number details +15555550100                              # everything configured on a number
+band number count                                             # how many numbers do I have?
 band number release +15555550100                              # release a number
 ```
 
@@ -422,8 +424,17 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band number get <number>` | Get voice config details (including VCP assignment) |
 | `band number activate <number...>` | Activate voice/messaging services (e.g. enable inbound) |
 | `band number deactivate <number...>` | Deactivate voice/messaging services |
-| `band number list` | List your in-service numbers |
+| `band number list` | List your in-service numbers (filter with `--npa-nxx`, `--state`, `--ratecenter`, `--subaccount`, `--location`, `--disconnected`) |
+| `band number count` | Count numbers without listing them |
+| `band number details <number>` | Full Dashboard view of a number (geography, features, messaging, per-number route plan) |
+| `band number nnroutes <number>` | List NetNumber routes available to a number |
 | `band number release <number>` | Release a number |
+
+### Toll-free routing
+
+| Command | What it does |
+|---------|-------------|
+| `band tollfree template <number...>` | Look up the routing template assigned to toll-free numbers (account-gated; 403 until enabled) |
 
 ### Messaging
 
