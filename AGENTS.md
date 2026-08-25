@@ -215,15 +215,15 @@ band transcription create <call-id> <rec-id> --wait             # blocks until t
 All `--wait` commands support `--timeout <seconds>`. Exit code 5 on timeout.
 
 **`--timeout` bounds when polling stops, not wall-clock duration.** The
-underlying poll loop (`internal/cmdutil/poll.go`) checks the deadline
-*between* poll attempts, not during one, and always sleeps the full
-`--interval` rather than whatever time remains before the deadline. So a
-call can run past `--timeout` by up to one poll interval plus one in-flight
-request — and if that late attempt happens to succeed, the command exits
-**0**, not 5, seconds after the timeout you asked for. Concretely: a 5s
-poll interval with `--timeout 1` can still succeed at t≈5s. Do not treat
-`--timeout` as a precise deadline; treat it as a lower bound on how long the
-CLI will keep trying.
+underlying poll loop (`internal/cmdutil/poll.go`) starts no new poll after
+the deadline, and the sleep before the deadline is capped so the final poll
+lands on the deadline rather than a full interval past it. A poll that
+starts on time and succeeds returns exit **0** with the result even if it
+finishes slightly after the deadline — the operation genuinely completed.
+So total overshoot is bounded by one in-flight request (the API client's
+HTTP timeout in the worst case), not by the poll interval: a 5s poll
+interval with `--timeout 1` resolves at t≈1s plus one request, as success
+or as exit 5.
 
 ## Output
 
