@@ -25,6 +25,7 @@ import (
 	bxmlcmd "github.com/Bandwidth/cli/cmd/bxml"
 	callcmd "github.com/Bandwidth/cli/cmd/call"
 	customerprofilecmd "github.com/Bandwidth/cli/cmd/customerprofile"
+	insightscmd "github.com/Bandwidth/cli/cmd/insights"
 	locationcmd "github.com/Bandwidth/cli/cmd/location"
 	messagecmd "github.com/Bandwidth/cli/cmd/message"
 	numbercmd "github.com/Bandwidth/cli/cmd/number"
@@ -108,6 +109,7 @@ func init() {
 	rootCmd.AddCommand(numbercmd.Cmd)
 	rootCmd.AddCommand(callcmd.Cmd)
 	rootCmd.AddCommand(customerprofilecmd.Cmd)
+	rootCmd.AddCommand(insightscmd.Cmd)
 	rootCmd.AddCommand(messagecmd.Cmd)
 	rootCmd.AddCommand(recordingcmd.Cmd)
 	rootCmd.AddCommand(transcriptioncmd.Cmd)

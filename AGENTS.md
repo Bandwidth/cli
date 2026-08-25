@@ -280,6 +280,13 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 - **`tollfree template` is account-gated.** The underlying endpoint requires the `TollFreeTemplateAssignmentSearch` account setting (off by default; Bandwidth enables it on request). Expect exit 2 with a "not enabled on account" message until then — that is the correct behavior, not a bug. Numbers must be in-service on the account, toll-free (800/888/877/866/855/844/833), and at most 5000 per invocation.
 - **The template name is the answer, not a carrier name.** The CLI returns `templateName` exactly as the registry stores it; mapping template names to ingress carriers is operator knowledge the API does not expose.
 
+### Insights
+
+- **`insights` commands are usage aggregates, not call logs.** Each returns time slices whose granularity the API picks from the window size (hourly for days, monthly for months) — it is not configurable. History caps at one year. With no `--since`/`--until`, the window is the last 7 days.
+- **Feature-gated:** requires the Monitoring API feature on the account; expect exit 2 with a "not enabled" message otherwise — correct behavior, not a bug.
+- **A number's traffic profile in one pass:** run `insights minutes-of-use`, `insights completed-calls`, and `insights average-durations` with the same `--to +1800... --since 30d` filters. Add `--call-type TOLLFREE-IN` to isolate toll-free ingress. Phone-number filters are slow on large accounts per the API docs — narrow with `--direction`/`--subaccount` when possible.
+- **`--call-type` accepts dash or underscore forms** (`TOLLFREE-IN` and `TOLLFREE_IN` both work; the CLI normalizes).
+
 ### VCPs
 
 - **`vcp delete` fails if numbers are assigned.** Move them first with `vcp assign <other-vcp-id> <numbers...>`.
