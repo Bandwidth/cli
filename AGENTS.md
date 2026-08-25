@@ -2124,7 +2124,7 @@ band message send --from +15555550100 --to +15559876543 --app-id abc-123 --text 
 
 Use this workflow to verify that a SIP realm and credential authenticate correctly by placing a real call through Bandwidth. The pattern creates an ephemeral realm and credential so nothing existing is disrupted, dials a number via a local SIP UA, then tears everything down.
 
-**Prerequisites:** a SIP UA installed locally (baresip works; any UA that supports digest auth and reads an accounts file will do), and a Bandwidth phone number to call from.
+**Prerequisites:** a SIP UA installed locally (baresip works; any UA that supports digest auth and reads an accounts file will do), a Bandwidth phone number to call from, and a SIP-enabled account. Run `band sip status --plain` first — if it returns `"status":"unavailable"`, pass `--account-id <id>` on every command below to target a SIP-enabled account (see `band auth status --plain` for your account list).
 
 ```bash
 # 1. Pick a from number — must be on your account and voice-capable
@@ -2138,17 +2138,24 @@ REALM=$(band sip realm create --name siptest --default=false --wait --plain)
 REALM_ID=$(echo "$REALM" | jq -r '.id')
 REALM_FQDN=$(echo "$REALM" | jq -r '.hostname')
 
-# DNS for a new realm FQDN can take 1–2 minutes to propagate after ACTIVE status.
-# Poll until it resolves before proceeding — dialing an unresolvable FQDN fails
-# immediately with no useful error from the SIP UA.
+# DNS for a new realm FQDN may take up to a minute or two on some resolvers
+# after ACTIVE status. Poll until it resolves before proceeding — dialing an
+# unresolvable FQDN fails immediately with no useful error from the SIP UA.
+_dns_tries=0
 until dig +short "$REALM_FQDN" | grep -q '.'; do
+  _dns_tries=$((_dns_tries + 1))
+  if [ "$_dns_tries" -ge 18 ]; then
+    echo "DNS did not resolve $REALM_FQDN after $((_dns_tries * 10))s — check that the realm is ACTIVE and retry" >&2
+    exit 1
+  fi
   echo "Waiting for DNS ($REALM_FQDN)..."; sleep 10
 done
+unset _dns_tries
 
 # 3. Create a credential and capture the password — printed exactly once
 CRED=$(band sip credential create \
   --realm "$REALM_ID" \
-  --username siptestagent \
+  --username sip-test-agent \
   --generate-password \
   --plain)
 CRED_ID=$(echo "$CRED" | jq -r '.id')
@@ -2162,7 +2169,7 @@ sleep 15
 # 4. Write a temp accounts file — 600 permissions, never passed on the command line
 TMPDIR=$(mktemp -d)
 chmod 700 "$TMPDIR"
-printf '<sip:%s@%s;transport=udp>;regint=0;audio_codecs=pcmu/8000,pcma/8000;auth_user=siptestagent;auth_pass=%s\n' \
+printf '<sip:%s@%s;transport=udp>;regint=0;audio_codecs=pcmu/8000,pcma/8000;auth_user=sip-test-agent;auth_pass=%s\n' \
   "$FROM" "$REALM_FQDN" "$SIP_PASS" > "$TMPDIR/accounts"
 chmod 600 "$TMPDIR/accounts"
 unset SIP_PASS   # clear from environment immediately after writing
@@ -2191,7 +2198,7 @@ band sip realm delete "$REALM_ID" --wait
 | `180 Ringing` or `183 Session Progress` | Call reached the PSTN. |
 | `200 OK` + "Call established" | Call connected. SIP auth is fully functional. |
 | `403 Forbidden` after the re-INVITE | Credential mismatch — the password written to the accounts file does not match the stored hashes. Rotate the credential and retry from step 3. |
-| `503 Service Unavailable` or `480` | Routing issue. Check that the realm is `ACTIVE` (`band sip realm get siptest --plain`) and that the FQDN has propagated in DNS — new realms can take 1–2 minutes. |
+| `503 Service Unavailable` or `480` | Routing issue. Check that the realm is `ACTIVE` (`band sip realm get siptest --plain`) and that the FQDN has propagated in DNS — new realms may take a minute or two on some resolvers. |
 
 **Always clean up in step 6**, even on failure. A leftover credential is not a security risk (Bandwidth never stores or returns the plaintext password), but unused credentials and realms should not accumulate.
 
