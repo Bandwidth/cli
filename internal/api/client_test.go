@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Bandwidth/cli/internal/auth"
 )
@@ -464,5 +466,65 @@ func TestXMLClient_NonXMLBodyReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "XMLBody") {
 		t.Errorf("expected error mentioning XMLBody, got: %v", err)
+	}
+}
+
+func TestPostRawAndPutRawJSON_RefuseXMLClient(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewXMLClient(srv.URL, nil)
+
+	if _, err := client.PostRaw("/", map[string]any{"a": "b"}); err == nil {
+		t.Error("PostRaw on an XML-configured client: want error, got nil")
+	} else if !strings.Contains(err.Error(), "XML") {
+		t.Errorf("PostRaw error = %q, want mention of XML", err)
+	}
+
+	if _, err := client.PutRawJSON("/", map[string]any{"a": "b"}); err == nil {
+		t.Error("PutRawJSON on an XML-configured client: want error, got nil")
+	} else if !strings.Contains(err.Error(), "XML") {
+		t.Errorf("PutRawJSON error = %q, want mention of XML", err)
+	}
+
+	if called {
+		t.Error("guard must fire before making an HTTP request, but the server was hit")
+	}
+}
+
+func TestAPIErrorCapturesHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.Header().Set("X-Rate-Limit-Remaining", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"errors":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClientNoAuth(srv.URL)
+	var out any
+	err := c.Get("/x", &out)
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if got := apiErr.Header.Get("X-Rate-Limit-Remaining"); got != "0" {
+		t.Errorf("X-Rate-Limit-Remaining = %q, want %q", got, "0")
+	}
+	d, ok := apiErr.RetryAfter()
+	if !ok || d != 7*time.Second {
+		t.Errorf("RetryAfter() = %v, %v; want 7s, true", d, ok)
+	}
+}
+
+func TestRetryAfterAbsentReportsFalse(t *testing.T) {
+	e := &APIError{StatusCode: 500, Header: http.Header{}}
+	if _, ok := e.RetryAfter(); ok {
+		t.Error("RetryAfter() reported ok with no header")
 	}
 }

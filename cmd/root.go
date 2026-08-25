@@ -21,6 +21,7 @@ import (
 	authcmd "github.com/Bandwidth/cli/cmd/auth"
 	bxmlcmd "github.com/Bandwidth/cli/cmd/bxml"
 	callcmd "github.com/Bandwidth/cli/cmd/call"
+	customerprofilecmd "github.com/Bandwidth/cli/cmd/customerprofile"
 	locationcmd "github.com/Bandwidth/cli/cmd/location"
 	messagecmd "github.com/Bandwidth/cli/cmd/message"
 	numbercmd "github.com/Bandwidth/cli/cmd/number"
@@ -33,6 +34,7 @@ import (
 	tendlccmd "github.com/Bandwidth/cli/cmd/tendlc"
 	tfvcmd "github.com/Bandwidth/cli/cmd/tfv"
 	tnoptioncmd "github.com/Bandwidth/cli/cmd/tnoption"
+	tollfreecmd "github.com/Bandwidth/cli/cmd/tollfree"
 	transcriptioncmd "github.com/Bandwidth/cli/cmd/transcription"
 	vcpcmd "github.com/Bandwidth/cli/cmd/vcp"
 )
@@ -102,6 +104,7 @@ func init() {
 	rootCmd.AddCommand(appcmd.Cmd)
 	rootCmd.AddCommand(numbercmd.Cmd)
 	rootCmd.AddCommand(callcmd.Cmd)
+	rootCmd.AddCommand(customerprofilecmd.Cmd)
 	rootCmd.AddCommand(messagecmd.Cmd)
 	rootCmd.AddCommand(recordingcmd.Cmd)
 	rootCmd.AddCommand(transcriptioncmd.Cmd)
@@ -112,6 +115,7 @@ func init() {
 	rootCmd.AddCommand(shortcodecmd.Cmd)
 	rootCmd.AddCommand(tfvcmd.Cmd)
 	rootCmd.AddCommand(tnoptioncmd.Cmd)
+	rootCmd.AddCommand(tollfreecmd.Cmd)
 	rootCmd.AddCommand(portincmd.Cmd)
 	rootCmd.AddCommand(versionCmd)
 }

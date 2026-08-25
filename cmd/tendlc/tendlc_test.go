@@ -1,9 +1,15 @@
 package tendlc
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/cmdutil"
 )
 
 func TestRoleGateError_RegistrationCenter(t *testing.T) {
@@ -85,139 +91,168 @@ func TestRoleGateError_NonAPIError(t *testing.T) {
 	}
 }
 
-func TestExtractData(t *testing.T) {
-	t.Run("standard paginated response", func(t *testing.T) {
-		resp := map[string]interface{}{
-			"data": []interface{}{
-				map[string]interface{}{
-					"phoneNumber": "+12054443942",
-					"campaignId":  "CA3XKE1",
-					"status":      "SUCCESS",
-				},
-			},
-			"page": map[string]interface{}{
-				"totalElements": float64(1),
-			},
-		}
-		data := extractData(resp)
-		arr, ok := data.([]interface{})
-		if !ok {
-			t.Fatalf("expected []interface{}, got %T", data)
-		}
-		if len(arr) != 1 {
-			t.Fatalf("expected 1 element, got %d", len(arr))
-		}
-	})
-
-	t.Run("no data key", func(t *testing.T) {
-		resp := map[string]interface{}{
-			"something": "else",
-		}
-		data := extractData(resp)
-		m, ok := data.(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected map, got %T", data)
-		}
-		if m["something"] != "else" {
-			t.Error("expected original response returned as-is")
-		}
-	})
-
-	t.Run("non-map response", func(t *testing.T) {
-		resp := "just a string"
-		data := extractData(resp)
-		if data != resp {
-			t.Error("expected passthrough for non-map input")
-		}
-	})
-
-	t.Run("nil response", func(t *testing.T) {
-		data := extractData(nil)
-		if data != nil {
-			t.Errorf("expected nil, got %v", data)
-		}
-	})
-
-	t.Run("empty data array", func(t *testing.T) {
-		resp := map[string]interface{}{
-			"data": []interface{}{},
-			"page": map[string]interface{}{
-				"totalElements": float64(0),
-			},
-		}
-		data := extractData(resp)
-		arr, ok := data.([]interface{})
-		if !ok {
-			t.Fatalf("expected []interface{}, got %T", data)
-		}
-		if len(arr) != 0 {
-			t.Errorf("expected empty array, got %d elements", len(arr))
-		}
-	})
+func TestStatusCommandRegistered(t *testing.T) {
+	c, _, err := Cmd.Find([]string{"status"})
+	if err != nil || c.Name() != "status" {
+		t.Fatalf("Find(status) = %v, err %v; want the status command", c, err)
+	}
 }
 
-func TestFilterNumbers(t *testing.T) {
-	numbers := []interface{}{
-		map[string]interface{}{"phoneNumber": "+11111111111", "status": "SUCCESS", "campaignId": "C1"},
-		map[string]interface{}{"phoneNumber": "+12222222222", "status": "FAILURE", "campaignId": "C1"},
-		map[string]interface{}{"phoneNumber": "+13333333333", "status": "SUCCESS", "campaignId": "C2"},
-		map[string]interface{}{"phoneNumber": "+14444444444", "status": "PROCESSING"},
+func TestStatusResultShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantAccess string
+		wantReason string
+	}{
+		{"success", 200, `{"data":[]}`, "available", "probe_succeeded"},
+		{"role missing", 403, `{"errors":[{"description":"does not have access rights"}]}`,
+			"unavailable", "role_absent"},
+		{"registration center off", 403, `{"errors":[{"description":"not enabled for the Registration Center"}]}`,
+			"unavailable", "registration_center_not_enabled"},
+		{"campaign mgmt off", 403, `{"errors":[{"description":"10DLC is not enabled on account"}]}`,
+			"unavailable", "campaign_management_not_enabled"},
+		{"unrecognized 403", 403, `{"errors":[{"description":"something new"}]}`,
+			"unavailable", "access_denied"},
+		{"server error", 503, `{}`, "unknown", "probe_failed"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := statusResult(tt.statusCode, tt.body)
+			if got["access"] != tt.wantAccess {
+				t.Errorf("access = %v, want %v", got["access"], tt.wantAccess)
+			}
+			if got["reason"] != tt.wantReason {
+				t.Errorf("reason = %v, want %v", got["reason"], tt.wantReason)
+			}
+		})
+	}
+}
 
-	t.Run("filter by status", func(t *testing.T) {
-		result := filterNumbers(numbers, "FAILURE", "")
-		arr := result.([]interface{})
-		if len(arr) != 1 {
-			t.Fatalf("expected 1, got %d", len(arr))
+// mode is always present and always unknown — an omitted field invites
+// callers to guess a default.
+func TestStatusAlwaysReportsModeUnknown(t *testing.T) {
+	for _, code := range []int{200, 403, 503} {
+		got := statusResult(code, `{}`)
+		mode, ok := got["mode"].(map[string]string)
+		if !ok {
+			t.Fatalf("code %d: mode missing or wrong type: %#v", code, got["mode"])
 		}
-		m := arr[0].(map[string]interface{})
-		if m["phoneNumber"] != "+12222222222" {
-			t.Errorf("got %v", m["phoneNumber"])
+		if mode["status"] != "unknown" || mode["reason"] != "not_discoverable" {
+			t.Errorf("code %d: mode = %v, want unknown/not_discoverable", code, mode)
 		}
-	})
+	}
+}
 
-	t.Run("filter by campaign", func(t *testing.T) {
-		result := filterNumbers(numbers, "", "C2")
-		arr := result.([]interface{})
-		if len(arr) != 1 {
-			t.Fatalf("expected 1, got %d", len(arr))
-		}
-	})
+// isNotFound is the sole translator of a real 404 into pollTarget's
+// found=false, which is the mechanism the create-vs-delete GoneIsDone
+// contract in async.go depends on — it must recognize a 404 wherever it
+// appears in the error chain, and reject everything else, including a nil
+// error.
+func TestIsNotFound(t *testing.T) {
+	notFound := &api.APIError{StatusCode: 404, Body: "brand not found"}
+	serverError := &api.APIError{StatusCode: 500, Body: "boom"}
 
-	t.Run("filter by both", func(t *testing.T) {
-		result := filterNumbers(numbers, "SUCCESS", "C1")
-		arr := result.([]interface{})
-		if len(arr) != 1 {
-			t.Fatalf("expected 1, got %d", len(arr))
-		}
-		m := arr[0].(map[string]interface{})
-		if m["phoneNumber"] != "+11111111111" {
-			t.Errorf("got %v", m["phoneNumber"])
-		}
-	})
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"404 API error", notFound, true},
+		{"500 API error", serverError, false},
+		{"wrapped 404", fmt.Errorf("fetching brand: %w", notFound), true},
+		{"plain non-API error", errors.New("connection reset"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNotFound(tt.err); got != tt.want {
+				t.Errorf("isNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
 
-	t.Run("no matches returns empty array", func(t *testing.T) {
-		result := filterNumbers(numbers, "FAILURE", "C999")
-		arr := result.([]interface{})
-		if len(arr) != 0 {
-			t.Errorf("expected 0, got %d", len(arr))
-		}
-	})
+// TestRemovedLegacyCommandsExitNonZero locks in the Task 3 fix: a stray
+// token that used to be a real command -- `campaigns`, `numbers`, or a bare
+// positional under `number` -- must fail loudly, not print help with exit 0.
+// Before this fix, Cmd/brandCmd/campaignCmd/numberCmd/vettingCmd had no RunE,
+// so cobra's execute() hit its `if !c.Runnable() { return flag.ErrHelp }`
+// short-circuit before ever reaching ValidateArgs, and a deleted command's
+// name looked identical to a successful help request: exit 0 either way. A
+// caller (especially an agent scripting against this CLI) cannot tell
+// "this command doesn't exist" apart from "you asked for help" on exit code
+// alone without this fix.
+//
+// `number +15555550100` is the subtler case of the three: "+15555550100" was
+// never a command name to begin with, so this isn't "unknown command", it's
+// a stray positional against a parent (numberCmd) that now takes none. Both
+// failure shapes are covered here because they go through different cobra
+// code paths (unmatched child name vs. a leftover arg after the deepest
+// match), and only NoArgs on the matched command catches the latter.
+//
+// No stub server is passed (srv is nil in every case): all three must fail
+// before ever reaching a RunE that would call `service`, so this needs no
+// live API call and no credentials.
+//
+// {"brand", "STRAY"} and {"vetting", "STRAY"} extend this to the other two
+// parents named in the doc comment above (Cmd itself is exercised by
+// "campaigns"/"numbers"; numberCmd by "number +15555550100"; campaignCmd by
+// "campaign STRAY" below) -- without this, brandCmd or vettingCmd losing its
+// RunE would silently regress to exit 0 on a stray positional with nothing
+// in this suite catching it.
+func TestRemovedLegacyCommandsExitNonZero(t *testing.T) {
+	cases := [][]string{
+		{"campaigns"},
+		{"numbers"},
+		{"number", "+15555550100"},
+		{"brand", "STRAY"},
+		{"campaign", "STRAY"},
+		{"vetting", "STRAY"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			_, _, err := runBrandCmd(t, nil, args...)
+			if err == nil {
+				t.Fatalf("band tendlc %s: want a non-zero-exit error, got nil", strings.Join(args, " "))
+			}
+			if code := cmdutil.ExitCodeForError(err); code == cmdutil.ExitOK {
+				t.Errorf("band tendlc %s: exit code = %d, want non-zero", strings.Join(args, " "), code)
+			}
+		})
+	}
+}
 
-	t.Run("case insensitive", func(t *testing.T) {
-		result := filterNumbers(numbers, "success", "c1")
-		arr := result.([]interface{})
-		if len(arr) != 1 {
-			t.Fatalf("expected 1, got %d", len(arr))
-		}
-	})
-
-	t.Run("non-array passthrough", func(t *testing.T) {
-		result := filterNumbers("not an array", "SUCCESS", "")
-		if result != "not an array" {
-			t.Error("expected passthrough")
-		}
-	})
+// TestParentCommandsStillDispatchToRealSubcommands guards the other half of
+// the same change: Args: cobra.NoArgs on Cmd/brandCmd/campaignCmd/numberCmd/
+// vettingCmd must only reject a token that matches no subcommand -- cobra
+// resolves subcommands via Find before Args is ever consulted, so a real
+// subcommand name must keep dispatching exactly as before. Checked directly
+// via Cmd.Find rather than execution, since these commands need no stub
+// server or credentials to prove routing.
+func TestParentCommandsStillDispatchToRealSubcommands(t *testing.T) {
+	cases := []struct {
+		path []string
+		want *cobra.Command
+	}{
+		{[]string{"number", "list"}, numberListCmd},
+		{[]string{"brand", "list"}, brandListCmd},
+		{[]string{"campaign", "list"}, campaignListCmd},
+		{[]string{"vetting", "list"}, vettingListCmd},
+	}
+	for _, tt := range cases {
+		name := strings.Join(tt.path, " ")
+		t.Run(name, func(t *testing.T) {
+			found, _, err := Cmd.Find(tt.path)
+			if err != nil {
+				t.Fatalf("Find(%v): %v", tt.path, err)
+			}
+			if found != tt.want {
+				t.Errorf("%s resolved to %q, want %s", name, found.CommandPath(), tt.want.Name())
+			}
+		})
+	}
 }
 
 func contains(s, sub string) bool {

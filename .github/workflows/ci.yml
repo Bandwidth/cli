@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches: [main]
+  # Also run on PRs into long-lived feature branches, not just main. Stacked
+  # PRs (a chain like feat/a <- feat/b <- feat/c) otherwise get no test, lint,
+  # or security run at all until the parent merges and the child is retargeted
+  # — so the branches carrying the most work are the ones never gated.
   pull_request:
-    branches: [main]
+    branches: [main, 'feat/**']
 
 jobs:
   # Doc/flag correctness is enforced as a hard gate by cmd/doccontract_test.go,

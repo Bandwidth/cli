@@ -42,8 +42,11 @@ type statusJSON struct {
 	// SIP reports SIP provisioning availability as a tri-state object
 	// ({"status":..., "reason":...}) rather than a bool inside Capabilities —
 	// see sipCapability.
-	SIP   map[string]string `json:"sip,omitempty"`
-	Error string            `json:"error,omitempty"`
+	SIP map[string]string `json:"sip,omitempty"`
+	// TenDLC reports Registration Center availability as a tri-state, for the
+	// same reason as SIP — see tendlcCapability.
+	TenDLC map[string]string `json:"tendlc,omitempty"`
+	Error  string            `json:"error,omitempty"`
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -82,6 +85,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	_, keychainErr := intauth.GetPassword(p.ClientID)
 
 	if plain {
+		caps := Capabilities(p.Roles)
 		out := statusJSON{
 			Authenticated: keychainErr == nil,
 			Profile:       profileName,
@@ -91,8 +95,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			Environment:   env,
 			Build:         p.Build,
 			Roles:         p.Roles,
-			Capabilities:  Capabilities(p.Roles),
+			Capabilities:  caps,
 			SIP:           sipCapability(hasRole(p.Roles, "sip credentials")),
+			TenDLC:        tendlcCapability(caps["campaign_management"]),
 		}
 		if keychainErr != nil {
 			out.Error = "credentials not found in keychain"
@@ -123,11 +128,13 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	} else if len(p.Accounts) == 0 && p.AccountID == "" {
 		fmt.Println("Scope:       system-wide (use --account-id to target an account)")
 	}
+	caps := Capabilities(p.Roles)
 	if p.Build {
 		fmt.Printf("Type:        %s (voice-only, credit-based)\n", ui.Bold("Bandwidth Build"))
-		fmt.Printf("Capable of:  %s\n", capabilitySummary(Capabilities(p.Roles)))
+		fmt.Printf("Capable of:  %s\n", capabilitySummary(caps))
 	}
 	fmt.Printf("SIP:         %s\n", sipSummary(sipCapability(hasRole(p.Roles, "sip credentials"))))
+	fmt.Printf("10DLC:       %s\n", tendlcSummary(tendlcCapability(caps["campaign_management"])))
 	if env != "prod" || cfg.HasMultipleEnvironments() {
 		fmt.Printf("Environment: %s\n", env)
 	}
@@ -156,6 +163,7 @@ func Capabilities(roles []string) map[string]bool {
 		"numbers":             false,
 		"vcp":                 false,
 		"campaign_management": false,
+		"customer_profiles":   false,
 		"tfv":                 false,
 	}
 	for _, r := range roles {
@@ -177,6 +185,9 @@ func Capabilities(roles []string) map[string]bool {
 		}
 		if strings.Contains(rl, "campaign") {
 			caps["campaign_management"] = true
+		}
+		if strings.Contains(rl, "customer profiles") {
+			caps["customer_profiles"] = true
 		}
 		if strings.Contains(rl, "tfv") || strings.Contains(rl, "toll-free") || strings.Contains(rl, "tollfree") {
 			caps["tfv"] = true
@@ -221,6 +232,34 @@ func sipSummary(sip map[string]string) string {
 		return ui.Muted("unknown — run 'band sip status' to check")
 	default:
 		return sip["status"]
+	}
+}
+
+// tendlcCapability reports 10DLC Registration Center availability as a
+// tri-state. Access needs both the Campaign Management role and the
+// account-level Registration Center feature; only the role is knowable
+// offline, so a boolean would over-promise. Mirrors sipCapability.
+//
+// Callers must pass caps["campaign_management"] from the same Capabilities()
+// call used for the campaign_management boolean, not a separately-matched
+// hasRole lookup — otherwise the two can disagree on a single credential
+// (e.g. a display-form role string) even though they describe the same fact.
+func tendlcCapability(hasRole bool) map[string]string {
+	if !hasRole {
+		return map[string]string{"status": "unavailable", "reason": "role_absent"}
+	}
+	return map[string]string{"status": "unknown", "reason": "role_present_not_probed"}
+}
+
+// tendlcSummary renders the offline tri-state for human-readable output.
+func tendlcSummary(t map[string]string) string {
+	switch t["reason"] {
+	case "role_absent":
+		return ui.Muted("not available (missing Campaign Management role)")
+	case "role_present_not_probed":
+		return ui.Muted("unknown — run 'band tendlc status' to check")
+	default:
+		return t["status"]
 	}
 }
 

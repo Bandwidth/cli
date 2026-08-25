@@ -3,7 +3,7 @@
 Manage phone numbers, voice calls, and messaging from your terminal. No dashboard clicking, no API wrangling — just straightforward commands that get things done.
 
 ```sh
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
 ```
 
 Built for humans, but agent-native from day one — every command supports `--plain` for flat JSON, `--if-not-exists` for safe retries, and `--wait` for async operations. If you're building an AI agent that provisions phone numbers or makes calls, this is the interface.
@@ -49,7 +49,7 @@ That's it. The CLI validates your credentials, figures out which accounts you ca
 ```sh
 band auth status          # see which account is active and what else is available
 band auth switch          # pick a different account interactively
-band auth switch 9901287  # or jump straight to one by ID
+band auth switch 9900000  # or jump straight to one by ID
 ```
 
 You can also pass `--account-id` to any command to override the active account for a single call.
@@ -83,7 +83,7 @@ No TTY required. Accounts are auto-discovered from the OAuth2 token.
 You can sign up for a Bandwidth Build trial account from the CLI:
 
 ```sh
-band account register --phone +19195551234 --email you@example.com --first-name Jane --last-name Doe
+band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe
 ```
 
 You'll be prompted to accept the [Bandwidth Build Terms of Service](https://www.bandwidth.com/legal/build-terms-of-service/) before registration proceeds. For scripted usage, pass `--accept-tos`.
@@ -138,7 +138,7 @@ Search for available numbers, then order one:
 
 ```sh
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --subaccount <subaccount-id> --wait
+band number order +15555550100 --subaccount <subaccount-id> --wait
 ```
 
 The `--wait` flag blocks until the number is active, so you don't have to poll.
@@ -149,7 +149,7 @@ Phone numbers don't do anything on their own — you need to tell Bandwidth how 
 
 ```sh
 band vcp create --name "My VCP" --app-id <your-app-id>
-band vcp assign <vcp-id> +19195551234
+band vcp assign <vcp-id> +15555550100
 ```
 
 Now when someone calls that number, Bandwidth routes the call to your application's callback URL.
@@ -164,7 +164,7 @@ If `vcp create` fails with a 403, your account uses the older sub-account model 
 
 ```sh
 band call create \
-  --from +19195551234 \
+  --from +15555550100 \
   --to +15559876543 \
   --app-id <your-app-id> \
   --answer-url https://your-server.example.com/answer
@@ -196,7 +196,7 @@ The CLI can generate BXML for you locally. No API calls, no auth required — it
 band bxml speak "Thanks for calling. How can we help?"
 band bxml speak --voice julie "Press 1 for sales."
 band bxml gather --url https://example.com/gather --max-digits 1 --prompt "Press a key"
-band bxml transfer +19195551234 --caller-id +19195550000
+band bxml transfer +15555550100 --caller-id +15555550101
 band bxml record --url https://example.com/done --max-duration 60
 band bxml raw '<SpeakSentence>Hello</SpeakSentence>'   # validate and pretty-print XML
 ```
@@ -257,6 +257,18 @@ The CLI checks three things before every send:
 | **Callback URL** | App has a real callback URL (not `example.com`, `localhost`, etc.) | Send blocked — tells you to run `band app update --callback-url` |
 | **Number registration** | 10DLC numbers are on an approved campaign; toll-free numbers have TFV approval | Send blocked — tells you what's missing |
 
+### Customer profiles (10DLC prerequisite)
+
+Registering a 10DLC brand starts with a customer profile — and a profile backs exactly one brand, so create a fresh one for each brand you register.
+
+```sh
+band customer-profile create --name "Acme Corp" --plain
+band customer-profile list --plain
+band customer-profile get <id> --plain
+```
+
+If you register directly with TCR (not through import), brand and campaign registration happen in the CLI too — see `band tendlc brand create` and `band tendlc campaign create` above. See [AGENTS.md](AGENTS.md#customer-profiles) for the full customer-profile command reference, including update, delete/restore, and version history.
+
 ### 10DLC campaigns (local numbers)
 
 If you're sending from a standard 10-digit local number, it must be assigned to an approved 10DLC campaign. Without this, carriers will block your messages. The CLI detects this and blocks the send with a diagnostic message.
@@ -264,11 +276,11 @@ If you're sending from a standard 10-digit local number, it must be assigned to 
 You can check registration status with `band tendlc`:
 
 ```sh
-band tendlc number +19195551234 --plain    # check a specific number
-band tendlc campaigns --plain              # list campaigns on your account
+band tendlc number get +15555550100 --plain    # check a specific number
+band tendlc campaign list --plain              # list campaigns on your account
 ```
 
-Campaign and brand registration happen in the Bandwidth App — see [dev.bandwidth.com](https://dev.bandwidth.com/docs/messaging/campaign-management/) for the full guide. Once you have a campaign, assign numbers to it with `band tnoption assign`.
+These two commands are for **import** customers (accounts that register campaigns through TCR and import them to Bandwidth) — campaign registration for them still happens in the Bandwidth App; see [dev.bandwidth.com](https://dev.bandwidth.com/docs/messaging/campaign-management/) for the full guide. **Direct** customers register brands and campaigns via `band tendlc brand create` and `band tendlc campaign create` (see [AGENTS.md](AGENTS.md#10dlc-campaigns) for the create requirement tree). Once you have a campaign either way, assign numbers to it with `band tnoption assign`.
 
 ### Toll-free verification (toll-free numbers)
 
@@ -294,9 +306,11 @@ A fresh UP account typically has one sub-account and one location already create
 ```sh
 band number list                                              # list your numbers
 band number search --area-code 919 --quantity 5               # search available numbers
-band number order +19195551234 --subaccount <subaccount-id> --wait                         # order (blocks until active)
-band number activate +19195551234 --voice-inbound --wait      # turn on inbound voice
-band number release +19195551234                              # release a number
+band number order +15555550100 --subaccount <subaccount-id> --wait                         # order (blocks until active)
+band number activate +15555550100 --voice-inbound --wait      # turn on inbound voice
+band number details +15555550100                              # everything configured on a number
+band number count                                             # how many numbers do I have?
+band number release +15555550100                              # release a number
 ```
 
 ### Messaging
@@ -322,7 +336,7 @@ band message media upload image.png     # prints media URL to stdout
 ### Calls
 
 ```sh
-band call create --from +19195551234 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
+band call create --from +15555550100 --to +15559876543 --app-id abc-123 --answer-url https://example.com/answer
 band call get <call-id>                             # check state
 band call hangup <call-id>                          # hang up
 band call update <call-id> --redirect-url <url>     # redirect active call
@@ -347,7 +361,7 @@ band subaccount create --name "My Subaccount"
 band location create --subaccount <subaccount-id> --name "My Location"
 band app create --name "My Voice App" --type voice --callback-url https://your-server.example.com/callbacks
 band number search --area-code 919 --quantity 1
-band number order +19195551234 --subaccount <subaccount-id> --wait
+band number order +15555550100 --subaccount <subaccount-id> --wait
 ```
 
 Sub-accounts (formerly known as sites) are the top-level container. Locations (formerly known as SIP peers) sit inside sub-accounts and define where numbers get routed. The flow is: sub-account → location → application → number.
@@ -410,8 +424,17 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band number get <number>` | Get voice config details (including VCP assignment) |
 | `band number activate <number...>` | Activate voice/messaging services (e.g. enable inbound) |
 | `band number deactivate <number...>` | Deactivate voice/messaging services |
-| `band number list` | List your in-service numbers |
+| `band number list` | List your in-service numbers (filter with `--npa-nxx`, `--state`, `--ratecenter`, `--subaccount`, `--location`, `--disconnected`) |
+| `band number count` | Count numbers without listing them |
+| `band number details <number>` | Full Dashboard view of a number (geography, features, messaging, per-number route plan) |
+| `band number nnroutes <number>` | List NetNumber routes available to a number |
 | `band number release <number>` | Release a number |
+
+### Toll-free routing
+
+| Command | What it does |
+|---------|-------------|
+| `band tollfree template <number...>` | Look up the routing template assigned to toll-free numbers (account-gated; 403 until enabled) |
 
 ### Messaging
 
@@ -464,6 +487,37 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band tnoption assign <number...>` | Assign phone numbers to a 10DLC campaign |
 | `band tnoption get <id>` | Check the status of a TN Option Order |
 | `band tnoption list` | List TN Option Orders (filter by `--status`, `--tn`) |
+
+### 10DLC brands, vettings, campaigns, and numbers
+
+`band tendlc brand`, `band tendlc vetting`, and `band tendlc campaign` register and manage 10DLC brands and campaigns for accounts that register directly with TCR (not through import); `band tendlc number` looks up phone number registration status and works for direct and import customers alike. Requires the Registration Center feature and Campaign Management role — check with `band tendlc status --plain`. A brand needs a customer profile first (`band customer-profile create`); see [AGENTS.md](AGENTS.md#10dlc-brands) for the full flag matrix, `--wait` semantics, and exit codes, [AGENTS.md](AGENTS.md#10dlc-campaigns) for the campaign create requirement tree, the `imported` update branch, and the operational trap around editing a non-terminal campaign, and [AGENTS.md](AGENTS.md#10dlc-numbers) for the conditional list projection and the `get` 404 caveat.
+
+| Command | What it does |
+|---------|-------------|
+| `band tendlc brand create --customer-profile-id <id> --brand-type <type> ...` | Register a brand (required flags vary by `--brand-type`; `--wait` blocks until VERIFIED/VETTED_VERIFIED) |
+| `band tendlc brand list` | List brands (filter by `--customer-profile-id-contains`, `--brand-id-contains`, `--identity-status`, `--brand-type`, name substrings) |
+| `band tendlc brand get <id>` | Get one brand — accepts either the `bandwidthId` or the TCR `brandId` |
+| `band tendlc brand history <id>` | Show a brand's activity log |
+| `band tendlc brand update <id>` | Update a brand (read-modify-write; `--confirm` required when an identity-affecting field changes) |
+| `band tendlc brand delete <id>` | Permanently delete a brand (`--confirm` required; does not delete the backing customer profile) |
+| `band tendlc brand reverify <id>` | Resubmit a brand for identity verification ($4 fee; `--confirm` required) |
+| `band tendlc brand resend-2fa <id>` | Re-send the Auth+ business 2FA verification email |
+| `band tendlc brand refresh <id>` | Re-pull a brand's current state from TCR |
+| `band tendlc vetting list <brand-id>` | List the external vettings recorded against a brand |
+| `band tendlc vetting request <brand-id> --evp <evp> --class <class>` | Order a new external vetting (billable; `--confirm` required) |
+| `band tendlc vetting import <brand-id> <vetting-id> --evp <evp>` | Record a vetting already performed outside Bandwidth (not billable, no `--confirm`) |
+| `band tendlc campaign create --brand-id <id> --usecase <usecase> ...` | Register a campaign against a verified brand (four-tier required-flag set; `--wait` blocks until REGISTERED) |
+| `band tendlc campaign sync <id>` | Re-pull a campaign's current state from TCR |
+| `band tendlc campaign list` | List campaigns (filter by `--brand-id-contains`, `--campaign-id-contains`, `--status`, `--vetting-status`, `--campaign-name-contains`) |
+| `band tendlc campaign get <id>` | Get one campaign — accepts either the `bandwidthId` or the TCR `campaignId` |
+| `band tendlc campaign history <id>` | Show a campaign's activity log |
+| `band tendlc campaign numbers <id>` | List phone numbers assigned to a campaign |
+| `band tendlc campaign update <id>` | Update a campaign (read-modify-write; imported campaigns accept only `--campaign-name`) |
+| `band tendlc campaign deactivate <id>` | Permanently deactivate a campaign (`--confirm` required; irreversible) |
+| `band tendlc campaign nudge <id> --intent <intent>` | Ask TCR to re-evaluate a campaign (not billable, no `--confirm`) |
+| `band tendlc number list` | List 10DLC phone number registrations (filter by `--campaign-id-contains`; no `--status` filter — the API silently ignores it, so filter client-side) |
+| `band tendlc number get <tn>` | Get one phone number's registration record (may 404 on some accounts even for numbers `list` returns) |
+| `band tendlc number history <tn>` | Show a phone number's activity log |
 
 ### SIP trunk authentication
 
