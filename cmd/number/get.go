@@ -41,7 +41,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		}
 
 		var raw interface{}
-		if err := client.Get(path, &raw); err != nil {
+		if err := client.Get(cmd.Context(), path, &raw); err != nil {
 			return fmt.Errorf("getting phone number details: %w", err)
 		}
 

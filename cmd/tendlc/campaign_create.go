@@ -149,7 +149,7 @@ first. Retrying blind risks a second campaign against the same brand.`,
 			return err
 		}
 
-		env, err := svc.CreateCampaign(tendlcsvc.BuildCampaignCreateRequest(campaignCreateOpts, changed))
+		env, err := svc.CreateCampaign(cmd.Context(), tendlcsvc.BuildCampaignCreateRequest(campaignCreateOpts, changed))
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -166,7 +166,7 @@ first. Retrying blind risks a second campaign against the same brand.`,
 
 		target := pollTarget{
 			Noun:  "campaign",
-			Fetch: fetchCampaign(svc, bandwidthID),
+			Fetch: fetchCampaign(cmd.Context(), svc, bandwidthID),
 			Classify: func(o map[string]any) tendlcsvc.StateClass {
 				status, _ := o["status"].(string)
 				return tendlcsvc.ClassifyCampaignStatus(status)
@@ -211,7 +211,7 @@ success before the sync actually applied.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.CreateCampaign(tendlcsvc.BuildCampaignSyncRequest(args[0], campaignSyncName))
+		env, err := svc.CreateCampaign(cmd.Context(), tendlcsvc.BuildCampaignSyncRequest(args[0], campaignSyncName))
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -252,7 +252,7 @@ success before the sync actually applied.`,
 // is the safer direction to be wrong in, so this lets the API speak instead
 // of guessing.
 func preflightBrand(cmd *cobra.Command, svc *tendlcsvc.Service, brandID string) error {
-	env, err := svc.GetBrand(brandID)
+	env, err := svc.GetBrand(cmd.Context(), brandID)
 	if err == nil {
 		var obj map[string]any
 		obj, err = env.Object()

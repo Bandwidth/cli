@@ -33,7 +33,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		"state": "recording",
 	}
 
-	if err := client.Put(fmt.Sprintf("/accounts/%s/calls/%s/recording", acctID, url.PathEscape(args[0])), reqBody, nil); err != nil {
+	if err := client.Put(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s/recording", acctID, url.PathEscape(args[0])), reqBody, nil); err != nil {
 		return fmt.Errorf("resuming recording: %w", err)
 	}
 

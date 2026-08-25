@@ -58,6 +58,7 @@ func runValidateTF(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Post(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/tollFreePortingValidations", acctID),
 		api.XMLBody{RootElement: "TollFreePortingValidation", Data: body},
 		&result,
@@ -71,11 +72,13 @@ func runValidateTF(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("validation submitted but response had no OrderId — cannot poll")
 		}
 		final, err := cmdutil.Poll(cmdutil.PollConfig{
+			Context:  cmd.Context(),
 			Interval: 2 * time.Second,
 			Timeout:  validateTFTimeout,
 			Check: func() (bool, interface{}, error) {
 				var r interface{}
 				if err := client.Get(
+					cmd.Context(),
 					fmt.Sprintf("/accounts/%s/tollFreePortingValidations/%s", acctID, orderID),
 					&r,
 				); err != nil {

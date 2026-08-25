@@ -100,7 +100,7 @@ PUBLIC_PROFIT brand revokes Auth+ compliance.`,
 			return err
 		}
 
-		env, err := svc.GetBrand(args[0])
+		env, err := svc.GetBrand(cmd.Context(), args[0])
 		if err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
@@ -132,7 +132,7 @@ PUBLIC_PROFIT brand revokes Auth+ compliance.`,
 			return err
 		}
 
-		updated, err := svc.UpdateBrand(args[0], body)
+		updated, err := svc.UpdateBrand(cmd.Context(), args[0], body)
 		if err != nil {
 			return brandUpdateConflictHint(args[0], err)
 		}

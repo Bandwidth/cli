@@ -1,6 +1,7 @@
 package portin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,6 +47,7 @@ func runSubmit(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Put(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
 		api.XMLBody{RootElement: "LnpOrderSupp", Data: body},
 		&result,
@@ -54,7 +56,7 @@ func runSubmit(cmd *cobra.Command, args []string) error {
 	}
 
 	if submitWait {
-		final, err := waitForSubmitted(client, acctID, orderID, submitTimeout)
+		final, err := waitForSubmitted(cmd.Context(), client, acctID, orderID, submitTimeout)
 		if err != nil {
 			return err
 		}
@@ -111,15 +113,17 @@ func submitWaitDone(status, prevStatus string) bool {
 // next steps. On timeout, the submit itself has already been accepted —
 // the error says so and reports the last-seen status instead of leaving
 // the user guessing whether the command worked.
-func waitForSubmitted(client *api.Client, acctID, orderID string, timeout time.Duration) (interface{}, error) {
+func waitForSubmitted(ctx context.Context, client *api.Client, acctID, orderID string, timeout time.Duration) (interface{}, error) {
 	lastStatus := ""
 	prevStatus := ""
 	result, err := cmdutil.Poll(cmdutil.PollConfig{
+		Context:  ctx,
 		Interval: 3 * time.Second,
 		Timeout:  timeout,
 		Check: func() (bool, interface{}, error) {
 			var r interface{}
 			if err := client.Get(
+				ctx,
 				fmt.Sprintf("/accounts/%s/portins/%s", acctID, orderID),
 				&r,
 			); err != nil {

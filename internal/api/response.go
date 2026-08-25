@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,12 +55,12 @@ func port(u *url.URL) string {
 // DoRawResponse executes a request and returns the full response, including
 // non-2xx statuses (the caller decides how to interpret them). Transport
 // failures still return an error.
-func (c *Client) DoRawResponse(method, path string, body []byte) (*RawResponse, error) {
+func (c *Client) DoRawResponse(ctx context.Context, method, path string, body []byte) (*RawResponse, error) {
 	var r io.Reader
 	if body != nil {
 		r = bytes.NewReader(body)
 	}
-	req, err := c.newRequest(method, path, r)
+	req, err := c.newRequest(ctx, method, path, r)
 	if err != nil {
 		return nil, err
 	}

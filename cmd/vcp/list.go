@@ -29,7 +29,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &result); err != nil {
 		return cmdutil.Wrap403(err, "listing VCPs", "VCP")
 	}
 

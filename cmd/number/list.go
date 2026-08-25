@@ -1,6 +1,7 @@
 package number
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -82,9 +83,9 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	var numbers []string
 	if query := buildListQuery(acctID, opts); query != nil {
-		numbers, err = fetchPagedNumbers(client, query)
+		numbers, err = fetchPagedNumbers(cmd.Context(), client, query)
 	} else {
-		numbers, err = fetchAccountNumbers(client, acctID, listStatus)
+		numbers, err = fetchAccountNumbers(cmd.Context(), client, acctID, listStatus)
 	}
 	if err != nil {
 		return err
@@ -108,7 +109,7 @@ const tnsMaxPages = 100
 // FullNumbers formatted as E.164 strings. /tns is preferred over
 // /accounts/{id}/inserviceNumbers because it's accessible to credentials
 // without the inservice role.
-func fetchAccountNumbers(client *api.Client, acctID, status string) ([]string, error) {
+func fetchAccountNumbers(ctx context.Context, client *api.Client, acctID, status string) ([]string, error) {
 	var all []string
 	for page := 1; page <= tnsMaxPages; page++ {
 		q := url.Values{}
@@ -118,7 +119,7 @@ func fetchAccountNumbers(client *api.Client, acctID, status string) ([]string, e
 		q.Set("page", strconv.Itoa(page))
 
 		var result interface{}
-		if err := client.Get("/tns?"+q.Encode(), &result); err != nil {
+		if err := client.Get(ctx, "/tns?"+q.Encode(), &result); err != nil {
 			return nil, wrapTNsError(err, acctID, cmdutil.ActiveBuild())
 		}
 
@@ -167,7 +168,7 @@ const pagedListSize = 1000
 // stopping on a short batch alone would misread a full final page as "more
 // to come" and issue a needless (and failable) extra request when the match
 // count is an exact multiple of the page size.
-func fetchPagedNumbers(client *api.Client, query *listQuery) ([]string, error) {
+func fetchPagedNumbers(ctx context.Context, client *api.Client, query *listQuery) ([]string, error) {
 	var all []string
 	for requests := 0; requests < tnsMaxPages; requests++ {
 		q := url.Values{}
@@ -185,7 +186,7 @@ func fetchPagedNumbers(client *api.Client, query *listQuery) ([]string, error) {
 		q.Set("size", strconv.Itoa(pagedListSize))
 
 		var result interface{}
-		if err := client.Get(query.Path+"?"+q.Encode(), &result); err != nil {
+		if err := client.Get(ctx, query.Path+"?"+q.Encode(), &result); err != nil {
 			return nil, fmt.Errorf("listing phone numbers: %w", err)
 		}
 

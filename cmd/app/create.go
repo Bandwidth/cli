@@ -95,7 +95,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if createIfNotExists {
 		var listResult interface{}
-		if err := client.Get(fmt.Sprintf("/accounts/%s/applications", acctID), &listResult); err != nil {
+		if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/applications", acctID), &listResult); err != nil {
 			return fmt.Errorf("listing applications: %w", err)
 		}
 		if existing := output.FindByName(listResult, "AppName", createName); existing != nil {
@@ -106,7 +106,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	bodyData := BuildCreateBody(opts)
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/applications", acctID), api.XMLBody{RootElement: "Application", Data: bodyData}, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/applications", acctID), api.XMLBody{RootElement: "Application", Data: bodyData}, &result); err != nil {
 		if strings.Contains(err.Error(), "HTTP voice feature is required") {
 			return fmt.Errorf("creating voice application: this account requires the HTTP Voice feature to be enabled.\n" +
 				"Contact Bandwidth support to enable it, or check if your account is on the Universal Platform.\n" +

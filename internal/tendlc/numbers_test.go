@@ -1,12 +1,15 @@
 package tendlc
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestListPhoneNumbersEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.ListPhoneNumbers(10, 20, nil); err != nil {
+	if _, err := s.ListPhoneNumbers(context.Background(), 10, 20, nil); err != nil {
 		t.Fatalf("ListPhoneNumbers: %v", err)
 	}
 	if got.method != "GET" {
@@ -24,7 +27,7 @@ func TestGetPhoneNumberGetsToPhoneNumberPath(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":{"phoneNumber":"+15555550100"}}`, &got)
 
-	env, err := s.GetPhoneNumber("+15555550100")
+	env, err := s.GetPhoneNumber(context.Background(), "+15555550100")
 	if err != nil {
 		t.Fatalf("GetPhoneNumber: %v", err)
 	}
@@ -47,7 +50,7 @@ func TestPhoneNumberHistoryEncodesPagination(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.PhoneNumberHistory("+15555550100", 10, 20); err != nil {
+	if _, err := s.PhoneNumberHistory(context.Background(), "+15555550100", 10, 20); err != nil {
 		t.Fatalf("PhoneNumberHistory: %v", err)
 	}
 	if got.method != "GET" {
@@ -70,9 +73,9 @@ func TestEmptyPhoneNumbersRejectedWithoutRequest(t *testing.T) {
 	s := stubService(t, 200, `{"data":{}}`, &got)
 
 	calls := map[string]func() error{
-		"GetPhoneNumber": func() error { _, err := s.GetPhoneNumber(""); return err },
+		"GetPhoneNumber": func() error { _, err := s.GetPhoneNumber(context.Background(), ""); return err },
 		"PhoneNumberHistory": func() error {
-			_, err := s.PhoneNumberHistory("", 10, 0)
+			_, err := s.PhoneNumberHistory(context.Background(), "", 10, 0)
 			return err
 		},
 	}
@@ -106,7 +109,7 @@ func TestPhoneNumberIsPathEscaped(t *testing.T) {
 	var got captured
 	s := stubService(t, 200, `{"data":[],"page":{"totalElements":0}}`, &got)
 
-	if _, err := s.PhoneNumberHistory("+1/555 0100", 10, 0); err != nil {
+	if _, err := s.PhoneNumberHistory(context.Background(), "+1/555 0100", 10, 0); err != nil {
 		t.Fatalf("PhoneNumberHistory: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/tendlc/phoneNumbers/+1%2F555%200100/history"; got.escapedPath != want {

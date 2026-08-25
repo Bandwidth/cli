@@ -94,7 +94,7 @@ func runRegister(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post("/registration", reqBody, &result); err != nil {
+	if err := client.Post(cmd.Context(), "/registration", reqBody, &result); err != nil {
 		return fmt.Errorf("registering account: %w", err)
 	}
 

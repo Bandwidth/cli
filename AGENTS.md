@@ -215,15 +215,15 @@ band transcription create <call-id> <rec-id> --wait             # blocks until t
 All `--wait` commands support `--timeout <seconds>`. Exit code 5 on timeout.
 
 **`--timeout` bounds when polling stops, not wall-clock duration.** The
-underlying poll loop (`internal/cmdutil/poll.go`) checks the deadline
-*between* poll attempts, not during one, and always sleeps the full
-`--interval` rather than whatever time remains before the deadline. So a
-call can run past `--timeout` by up to one poll interval plus one in-flight
-request — and if that late attempt happens to succeed, the command exits
-**0**, not 5, seconds after the timeout you asked for. Concretely: a 5s
-poll interval with `--timeout 1` can still succeed at t≈5s. Do not treat
-`--timeout` as a precise deadline; treat it as a lower bound on how long the
-CLI will keep trying.
+underlying poll loop (`internal/cmdutil/poll.go`) starts no new poll after
+the deadline, and the sleep before the deadline is capped so the final poll
+lands on the deadline rather than a full interval past it. A poll that
+starts on time and succeeds returns exit **0** with the result even if it
+finishes slightly after the deadline — the operation genuinely completed.
+So total overshoot is bounded by one in-flight request (the API client's
+HTTP timeout in the worst case), not by the poll interval: a 5s poll
+interval with `--timeout 1` resolves at t≈1s plus one request, as success
+or as exit 5.
 
 ## Output
 
@@ -279,6 +279,13 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 - **`tollfree template` is account-gated.** The underlying endpoint requires the `TollFreeTemplateAssignmentSearch` account setting (off by default; Bandwidth enables it on request). Expect exit 2 with a "not enabled on account" message until then — that is the correct behavior, not a bug. Numbers must be in-service on the account, toll-free (800/888/877/866/855/844/833), and at most 5000 per invocation.
 - **The template name is the answer, not a carrier name.** The CLI returns `templateName` exactly as the registry stores it; mapping template names to ingress carriers is operator knowledge the API does not expose.
+
+### Insights
+
+- **`insights` commands are usage aggregates, not call logs.** Each returns time slices whose granularity the API picks from the window size (hourly for days, monthly for months) — it is not configurable. History caps at one year. With no `--since`/`--until`, the window is the last 7 days.
+- **Feature-gated:** requires the Monitoring API feature on the account; expect exit 2 with a "not enabled" message otherwise — correct behavior, not a bug.
+- **A number's traffic profile in one pass:** run `insights minutes-of-use`, `insights completed-calls`, and `insights average-durations` with the same `--to +1800... --since 30d` filters. Add `--call-type TOLLFREE-IN` to isolate toll-free ingress. Phone-number filters are slow on large accounts per the API docs — narrow with `--direction`/`--subaccount` when possible.
+- **`--call-type` accepts dash or underscore forms** (`TOLLFREE-IN` and `TOLLFREE_IN` both work; the CLI normalizes).
 
 ### VCPs
 
@@ -1172,17 +1179,15 @@ still-pending.
 carries `bandwidthId` somewhere in valid JSON — that ID is the one thing that
 cannot be recovered any other way if the command exits without printing it.
 
-**This guarantee covers every path the command itself takes — it does not
-cover an interrupt.** `cmd/root.go`'s `Execute()` runs with no context, and
-the CLI does not install a `SIGINT` handler anywhere (no `signal.Notify` /
-`signal.NotifyContext` in the codebase), so the cancellation branch in
-`awaitTerminal` that exists specifically to emit this receipt can never
-actually fire from a real Ctrl-C. Press Ctrl-C during `--wait` after the 202
-has landed and the process dies immediately with no `bandwidthId` on stdout.
-If that happens, recover with `band tendlc brand list --customer-profile-id-contains
-<id>` to find the brand that was accepted. This applies CLI-wide, not just to
-`tendlc` — it is a pre-existing, repo-wide gap, tracked separately from this
-PR.
+**The guarantee covers a single Ctrl-C too.** `cmd/root.go`'s `Execute()`
+runs the command tree under `signal.NotifyContext`, so the first
+`SIGINT`/`SIGTERM` cancels `cmd.Context()` rather than killing the process:
+the in-flight request aborts, the cancellation branch in `awaitTerminal`
+fires, and the receipt (with `bandwidthId`) lands on stdout before the
+command exits. A **second** Ctrl-C is not trapped — it hard-kills the
+process the Go-default way, with nothing further on stdout. If a receipt was
+lost that way, recover with `band tendlc brand list
+--customer-profile-id-contains <id>` to find the brand that was accepted.
 
 Without `--wait`, or on a timeout/transport failure with `--wait`, that's the
 literal synthetic receipt: `{"bandwidthId": "...", "status": "accepted",
@@ -1793,9 +1798,10 @@ carries `bandwidthId` somewhere in valid JSON — the one thing that cannot be
 recovered any other way if the command exits without printing it. This
 covers `create`, `sync`, and `update` alike, all of which share the same
 `{bandwidthId, campaignId (if present), status: "accepted", resume}`
-receipt shape. As with `brand create`, this guarantee does not extend past a
-`SIGINT` — see the equivalent note under [10DLC Brands](#create) for why and
-how to recover (`band tendlc campaign list --brand-id-contains <id>`).
+receipt shape. As with `brand create`, a single `SIGINT` is covered (the
+receipt is emitted before exit); only a second Ctrl-C hard-kills the process
+— see the equivalent note under [10DLC Brands](#create), and recover with
+`band tendlc campaign list --brand-id-contains <id>`.
 
 ### `deactivate`'s honest receipt
 

@@ -35,7 +35,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	data, err := client.GetRaw(fmt.Sprintf("/users/%s/media/%s", acctID, args[0]))
+	data, err := client.GetRaw(cmd.Context(), fmt.Sprintf("/users/%s/media/%s", acctID, args[0]))
 	if err != nil {
 		return fmt.Errorf("downloading media: %w", err)
 	}

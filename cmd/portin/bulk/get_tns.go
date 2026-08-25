@@ -42,6 +42,7 @@ func runGetTns(cmd *cobra.Command, args []string) error {
 	get := func() (interface{}, error) {
 		var r interface{}
 		if err := client.Get(
+			cmd.Context(),
 			fmt.Sprintf("/accounts/%s/bulkPortins/%s/tnList", acctID, orderID),
 			&r,
 		); err != nil {
@@ -58,6 +59,7 @@ func runGetTns(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		final, perr := cmdutil.Poll(cmdutil.PollConfig{
+			Context:  cmd.Context(),
 			Interval: 3 * time.Second,
 			Timeout:  getTnsTimeout,
 			Check: func() (bool, interface{}, error) {

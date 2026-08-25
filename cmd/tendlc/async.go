@@ -1,6 +1,7 @@
 package tendlc
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -177,9 +178,9 @@ func awaitTerminal(cmd *cobra.Command, t pollTarget, receipt map[string]any, tim
 
 // fetchBrand adapts a brand read into pollTarget.Fetch, translating a 404 into
 // found=false rather than an error.
-func fetchBrand(svc *tendlcsvc.Service, brandID string) func() (map[string]any, bool, error) {
+func fetchBrand(ctx context.Context, svc *tendlcsvc.Service, brandID string) func() (map[string]any, bool, error) {
 	return func() (map[string]any, bool, error) {
-		env, err := svc.GetBrand(brandID)
+		env, err := svc.GetBrand(ctx, brandID)
 		if err != nil {
 			if isNotFound(err) {
 				return nil, false, nil
@@ -197,9 +198,9 @@ func fetchBrand(svc *tendlcsvc.Service, brandID string) func() (map[string]any, 
 // fetchCampaign adapts a campaign read into pollTarget.Fetch, translating a
 // 404 into found=false rather than an error. fetchBrand's twin, for
 // 'campaign create --wait'.
-func fetchCampaign(svc *tendlcsvc.Service, campaignID string) func() (map[string]any, bool, error) {
+func fetchCampaign(ctx context.Context, svc *tendlcsvc.Service, campaignID string) func() (map[string]any, bool, error) {
 	return func() (map[string]any, bool, error) {
-		env, err := svc.GetCampaign(campaignID)
+		env, err := svc.GetCampaign(ctx, campaignID)
 		if err != nil {
 			if isNotFound(err) {
 				return nil, false, nil

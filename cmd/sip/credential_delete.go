@@ -25,11 +25,11 @@ var credentialDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		realm, err := svc.GetRealm(credDeleteRealm)
+		realm, err := svc.GetRealm(cmd.Context(), credDeleteRealm)
 		if err != nil {
 			return faultExit(err)
 		}
-		if err := svc.DeleteCredential(realm.ID, args[0]); err != nil {
+		if err := svc.DeleteCredential(cmd.Context(), realm.ID, args[0]); err != nil {
 			return faultExit(err)
 		}
 		format, plain := cmdutil.OutputFlags(cmd)

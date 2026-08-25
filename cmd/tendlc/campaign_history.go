@@ -50,7 +50,7 @@ rather than one.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !campaignHistoryAll {
-			env, err := svc.CampaignHistory(args[0], campaignHistoryLimit, campaignHistoryOffset)
+			env, err := svc.CampaignHistory(cmd.Context(), args[0], campaignHistoryLimit, campaignHistoryOffset)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -64,7 +64,7 @@ rather than one.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.CampaignHistory(args[0], limit, offset)
+			return svc.CampaignHistory(cmd.Context(), args[0], limit, offset)
 		}, campaignHistoryLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

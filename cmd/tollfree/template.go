@@ -106,7 +106,7 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 
 	path := fmt.Sprintf("/api/v2/accounts/%s/tollFreeTemplateAssignments/search", acctID)
 	var result interface{}
-	if err := client.Post(path, templateSearchBody(numbers), &result); err != nil {
+	if err := client.Post(cmd.Context(), path, templateSearchBody(numbers), &result); err != nil {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 403 {
 			return fmt.Errorf("toll-free template search is not enabled on account %s — ask your Bandwidth account manager to enable it: %w", acctID, err)

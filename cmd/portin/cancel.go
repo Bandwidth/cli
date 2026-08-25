@@ -29,7 +29,7 @@ func runCancel(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Delete(fmt.Sprintf("/accounts/%s/portins/%s", acctID, args[0]), &result); err != nil {
+	if err := client.Delete(cmd.Context(), fmt.Sprintf("/accounts/%s/portins/%s", acctID, args[0]), &result); err != nil {
 		return portinError(err, "cancelling port-in order")
 	}
 

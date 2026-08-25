@@ -436,6 +436,18 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 |---------|-------------|
 | `band tollfree template <number...>` | Look up the routing template assigned to toll-free numbers (account-gated; 403 until enabled) |
 
+### Insights (voice usage)
+
+| Command | What it does |
+|---------|-------------|
+| `band insights minutes-of-use` | Aggregated minutes of use per time slice |
+| `band insights completed-calls` | Completed call counts per time slice |
+| `band insights failed-calls` | Failed call counts per time slice |
+| `band insights connection-rates` | Call connection rates per time slice |
+| `band insights average-durations` | Average call durations per time slice |
+
+All five share the same filters: `--to`/`--from` (comma-separated E.164), `--direction`, `--call-type` (e.g. `TOLLFREE-IN`), `--subaccount`, and `--since`/`--until` (RFC3339 or relative like `30d`). Requires the Monitoring API feature on the account.
+
 ### Messaging
 
 | Command | What it does |

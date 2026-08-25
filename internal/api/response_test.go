@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,7 +21,7 @@ func TestDoRawResponse_ExposesStatusAndHeaders(t *testing.T) {
 	defer srv.Close()
 
 	c := NewXMLClient(srv.URL, nil)
-	resp, err := c.DoRawResponse("GET", "/realms", nil)
+	resp, err := c.DoRawResponse(context.Background(), "GET", "/realms", nil)
 	if err != nil {
 		t.Fatalf("DoRawResponse() error = %v", err)
 	}
@@ -47,7 +48,7 @@ func TestDoRawResponse_FollowsSameOriginRedirectAndReportsFinalURL(t *testing.T)
 	defer srv.Close()
 
 	c := NewXMLClient(srv.URL, nil)
-	resp, err := c.DoRawResponse("GET", "/realms/1/sipcredentials", nil)
+	resp, err := c.DoRawResponse(context.Background(), "GET", "/realms/1/sipcredentials", nil)
 	if err != nil {
 		t.Fatalf("DoRawResponse() error = %v", err)
 	}
@@ -125,7 +126,7 @@ func TestConstructors_RefuseCrossOriginRedirect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.client.DoRawResponse("GET", "/redirect", nil)
+			_, err := tt.client.DoRawResponse(context.Background(), "GET", "/redirect", nil)
 			if err == nil {
 				t.Fatalf("DoRawResponse() error = nil, want refusal of cross-origin redirect")
 			}

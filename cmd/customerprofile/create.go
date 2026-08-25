@@ -51,7 +51,7 @@ retry — list profiles and reconcile against what you submitted first.`,
 		if err != nil {
 			return err
 		}
-		env, err := svc.Create(cpsvc.BuildCreateRequest(createOpts))
+		env, err := svc.Create(cmd.Context(), cpsvc.BuildCreateRequest(createOpts))
 		if err != nil {
 			return roleGateError(err)
 		}
