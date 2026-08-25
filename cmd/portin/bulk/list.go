@@ -71,7 +71,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	path := fmt.Sprintf("/accounts/%s/bulkPortins?%s", acctID, q.Encode())
 
 	var result interface{}
-	if err := client.Get(path, &result); err != nil {
+	if err := client.Get(cmd.Context(), path, &result); err != nil {
 		return bulkError(err, "listing bulk port-in orders")
 	}
 

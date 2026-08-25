@@ -34,7 +34,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/calls/%s/recordings", acctID, url.PathEscape(args[0])), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s/recordings", acctID, url.PathEscape(args[0])), &result); err != nil {
 		return fmt.Errorf("listing recordings: %w", err)
 	}
 

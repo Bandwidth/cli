@@ -112,7 +112,7 @@ client-side on the output of --all instead.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !campaignListAll {
-			env, err := svc.ListCampaigns(campaignListLimit, campaignListOffset, filters)
+			env, err := svc.ListCampaigns(cmd.Context(), campaignListLimit, campaignListOffset, filters)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -126,7 +126,7 @@ client-side on the output of --all instead.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.ListCampaigns(limit, offset, filters)
+			return svc.ListCampaigns(cmd.Context(), limit, offset, filters)
 		}, campaignListLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

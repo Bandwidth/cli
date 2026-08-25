@@ -41,7 +41,7 @@ provisioning errors.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !campaignPhoneNumbersAll {
-			env, err := svc.CampaignPhoneNumbers(args[0], campaignPhoneNumbersLimit, campaignPhoneNumbersOffset)
+			env, err := svc.CampaignPhoneNumbers(cmd.Context(), args[0], campaignPhoneNumbersLimit, campaignPhoneNumbersOffset)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -55,7 +55,7 @@ provisioning errors.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.CampaignPhoneNumbers(args[0], limit, offset)
+			return svc.CampaignPhoneNumbers(cmd.Context(), args[0], limit, offset)
 		}, campaignPhoneNumbersLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

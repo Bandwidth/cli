@@ -87,7 +87,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	})
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/accounts/%s/calls", acctID), reqBody, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/accounts/%s/calls", acctID), reqBody, &result); err != nil {
 		return fmt.Errorf("creating call: %w", err)
 	}
 
@@ -103,11 +103,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	final, err := cmdutil.Poll(cmdutil.PollConfig{
+		Context:  cmd.Context(),
 		Interval: 2 * time.Second,
 		Timeout:  createTimeout,
 		Check: func() (bool, interface{}, error) {
 			var callState interface{}
-			if err := client.Get(fmt.Sprintf("/accounts/%s/calls/%s", acctID, url.PathEscape(callID)), &callState); err != nil {
+			if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/calls/%s", acctID, url.PathEscape(callID)), &callState); err != nil {
 				// The Voice API is eventually consistent — a 404 right after
 				// creation means the call record hasn't propagated yet. Retry.
 				var apiErr *api.APIError

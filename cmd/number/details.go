@@ -59,7 +59,7 @@ func runDetails(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/tns/%s/tndetails", number), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/tns/%s/tndetails", number), &result); err != nil {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			// Keep the APIError wrapped so the 404 still maps to exit 3.

@@ -32,7 +32,7 @@ func runPeers(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	path := fmt.Sprintf("/accounts/%s/applications/%s/associatedsippeers", acctID, url.PathEscape(args[0]))
-	if err := client.Get(path, &result); err != nil {
+	if err := client.Get(cmd.Context(), path, &result); err != nil {
 		return fmt.Errorf("getting application peers: %w", err)
 	}
 

@@ -34,7 +34,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/users/%s/messages?messageId=%s", acctID, url.QueryEscape(args[0])), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/users/%s/messages?messageId=%s", acctID, url.QueryEscape(args[0])), &result); err != nil {
 		return fmt.Errorf("getting message: %w", err)
 	}
 

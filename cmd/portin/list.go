@@ -82,7 +82,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	path := fmt.Sprintf("/accounts/%s/portins?%s", acctID, params.Encode())
 
 	var result interface{}
-	if err := client.Get(path, &result); err != nil {
+	if err := client.Get(cmd.Context(), path, &result); err != nil {
 		return portinError(err, "listing port-in orders")
 	}
 

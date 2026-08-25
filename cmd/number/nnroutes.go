@@ -33,7 +33,7 @@ func runNNRoutes(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/tns/%s/availableNnRoutes", number), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/tns/%s/availableNnRoutes", number), &result); err != nil {
 		return fmt.Errorf("listing NN routes: %w", err)
 	}
 

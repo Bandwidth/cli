@@ -7,6 +7,7 @@
 package customerprofile
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 
@@ -29,8 +30,8 @@ func (s *Service) base() string {
 	return "/api/v2/accounts/" + url.PathEscape(s.accountID) + "/customerProfiles"
 }
 
-func (s *Service) get(path string) (*api.Envelope, error) {
-	raw, err := s.client.GetRaw(path)
+func (s *Service) get(ctx context.Context, path string) (*api.Envelope, error) {
+	raw, err := s.client.GetRaw(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -38,16 +39,16 @@ func (s *Service) get(path string) (*api.Envelope, error) {
 }
 
 // List returns customer profiles on the account.
-func (s *Service) List(limit, offset int, filters []api.Filter) (*api.Envelope, error) {
-	return s.get(s.base() + api.EncodeQuery(limit, offset, filters))
+func (s *Service) List(ctx context.Context, limit, offset int, filters []api.Filter) (*api.Envelope, error) {
+	return s.get(ctx, s.base()+api.EncodeQuery(limit, offset, filters))
 }
 
 // Get returns one customer profile. Soft-deleted profiles are still
 // returned individually, with softDeleted set to true — check it before
 // creating any association. There is no "deleted" field on reads.
-func (s *Service) Get(profileID string) (*api.Envelope, error) {
+func (s *Service) Get(ctx context.Context, profileID string) (*api.Envelope, error) {
 	if profileID == "" {
 		return nil, fmt.Errorf("customer profile ID is required")
 	}
-	return s.get(s.base() + "/" + url.PathEscape(profileID))
+	return s.get(ctx, s.base()+"/"+url.PathEscape(profileID))
 }

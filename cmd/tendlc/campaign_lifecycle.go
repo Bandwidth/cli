@@ -68,7 +68,7 @@ deactivated:true merely because --wait gave up waiting.`,
 		if err != nil {
 			return err
 		}
-		if err := svc.DeactivateCampaign(args[0]); err != nil {
+		if err := svc.DeactivateCampaign(cmd.Context(), args[0]); err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
 
@@ -100,7 +100,7 @@ deactivated:true merely because --wait gave up waiting.`,
 		// the --timeout path, so if the deadline arrives before this ever
 		// fires, deactivated is still false and the note above is still there
 		// — the timeout receipt (exit 5) never contradicts its own exit code.
-		fetch := fetchCampaign(svc, args[0])
+		fetch := fetchCampaign(cmd.Context(), svc, args[0])
 		confirmedFetch := func() (map[string]any, bool, error) {
 			obj, found, ferr := fetch()
 			if ferr == nil && !found {
@@ -164,7 +164,7 @@ unlike 'campaign deactivate' this does not require --confirm.`,
 			body["description"] = campaignNudgeDescription
 		}
 
-		if err := svc.NudgeCampaign(args[0], body); err != nil {
+		if err := svc.NudgeCampaign(cmd.Context(), args[0], body); err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
 

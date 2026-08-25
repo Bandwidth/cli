@@ -39,7 +39,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		acctID, url.PathEscape(args[0]), url.PathEscape(getCountry))
 
 	var result interface{}
-	if err := client.Get(path, &result); err != nil {
+	if err := client.Get(cmd.Context(), path, &result); err != nil {
 		if apiErr, ok := err.(*api.APIError); ok {
 			switch apiErr.StatusCode {
 			case 403:

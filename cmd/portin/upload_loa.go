@@ -46,7 +46,7 @@ func runUploadLoa(cmd *cobra.Command, args []string) error {
 	// header. We default to LOA — the most common case by far. Future flags
 	// can extend this for invoices, CSRs, etc.
 	path := fmt.Sprintf("/accounts/%s/portins/%s/loas?documentType=LOA", acctID, orderID)
-	if _, err := client.PostMultipart(path, "loaFile", filepath.Base(filePath), data, contentType); err != nil {
+	if _, err := client.PostMultipart(cmd.Context(), path, "loaFile", filepath.Base(filePath), data, contentType); err != nil {
 		return portinError(err, "uploading LOA")
 	}
 

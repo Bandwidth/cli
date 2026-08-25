@@ -65,7 +65,7 @@ func runAssign(cmd *cobra.Command, args []string) error {
 		acctID, url.PathEscape(assignSite), url.PathEscape(assignLocation))
 
 	var result interface{}
-	if err := client.Put(path, body, &result); err != nil {
+	if err := client.Put(cmd.Context(), path, body, &result); err != nil {
 		return fmt.Errorf("assigning application to location: %w", err)
 	}
 

@@ -88,7 +88,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if createIfNotExists {
 		var listResult interface{}
-		if err := client.Get(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &listResult); err == nil {
+		if err := client.Get(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), &listResult); err == nil {
 			matches := findAllByName(listResult, "name", createName)
 			if len(matches) > 1 {
 				return &cmdutil.ConflictError{Message: fmt.Sprintf(
@@ -117,7 +117,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), body, &result); err != nil {
+	if err := client.Post(cmd.Context(), fmt.Sprintf("/v2/accounts/%s/voiceConfigurationPackages", acctID), body, &result); err != nil {
 		return fmt.Errorf("creating VCP: %w", err)
 	}
 

@@ -29,7 +29,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Get(fmt.Sprintf("/accounts/%s/tnoptions/%s", acctID, args[0]), &result); err != nil {
+	if err := client.Get(cmd.Context(), fmt.Sprintf("/accounts/%s/tnoptions/%s", acctID, args[0]), &result); err != nil {
 		return fmt.Errorf("getting TN option order: %w", err)
 	}
 

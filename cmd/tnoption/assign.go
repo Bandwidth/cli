@@ -68,6 +68,7 @@ func runAssign(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Post(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/tnoptions", acctID),
 		api.XMLBody{RootElement: "TnOptionOrder", Data: body},
 		&result,
@@ -89,11 +90,13 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	}
 
 	final, err := cmdutil.Poll(cmdutil.PollConfig{
+		Context:  cmd.Context(),
 		Interval: 2 * time.Second,
 		Timeout:  assignTimeout,
 		Check: func() (bool, interface{}, error) {
 			var orderResult interface{}
 			if err := client.Get(
+				cmd.Context(),
 				fmt.Sprintf("/accounts/%s/tnoptions/%s", acctID, orderID),
 				&orderResult,
 			); err != nil {

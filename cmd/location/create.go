@@ -47,7 +47,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if createIfNotExists {
 		var listResult interface{}
 		listPath := fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, createSiteID)
-		if err := client.Get(listPath, &listResult); err != nil {
+		if err := client.Get(cmd.Context(), listPath, &listResult); err != nil {
 			return fmt.Errorf("listing locations: %w", err)
 		}
 		if existing := output.FindByName(listResult, "PeerName", createName); existing != nil {
@@ -61,7 +61,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	path := fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, createSiteID)
-	if err := client.Post(path, api.XMLBody{RootElement: "SipPeer", Data: bodyData}, &result); err != nil {
+	if err := client.Post(cmd.Context(), path, api.XMLBody{RootElement: "SipPeer", Data: bodyData}, &result); err != nil {
 		return fmt.Errorf("creating location: %w", err)
 	}
 

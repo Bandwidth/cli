@@ -46,7 +46,7 @@ Either the TCR brandId or the Bandwidth bandwidthId works as the positional.`,
 		format, plain := cmdutil.OutputFlags(cmd)
 
 		if !brandHistoryAll {
-			env, err := svc.BrandHistory(args[0], brandHistoryLimit, brandHistoryOffset)
+			env, err := svc.BrandHistory(cmd.Context(), args[0], brandHistoryLimit, brandHistoryOffset)
 			if err != nil {
 				return roleGateError(err, "Campaign Management")
 			}
@@ -60,7 +60,7 @@ Either the TCR brandId or the Bandwidth bandwidthId works as the positional.`,
 
 		var all []any
 		err = api.ForEachPage(func(limit, offset int) (*api.Envelope, error) {
-			return svc.BrandHistory(args[0], limit, offset)
+			return svc.BrandHistory(cmd.Context(), args[0], limit, offset)
 		}, brandHistoryLimit, func(batch []any) error {
 			all = append(all, batch...)
 			return nil

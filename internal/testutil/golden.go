@@ -6,6 +6,7 @@
 package testutil
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -21,16 +22,16 @@ type FakeClient struct {
 	GetResult interface{}
 }
 
-func (f *FakeClient) Get(path string, result interface{}) error {
+func (f *FakeClient) Get(_ context.Context, path string, result interface{}) error {
 	b, _ := json.Marshal(f.GetResult)
 	return json.Unmarshal(b, result)
 }
-func (f *FakeClient) Post(string, interface{}, interface{}) error  { return nil }
-func (f *FakeClient) Put(string, interface{}, interface{}) error   { return nil }
-func (f *FakeClient) Patch(string, interface{}, interface{}) error { return nil }
-func (f *FakeClient) Delete(string, interface{}) error             { return nil }
-func (f *FakeClient) GetRaw(string) ([]byte, error)                { return nil, nil }
-func (f *FakeClient) PutRaw(string, []byte, string) error          { return nil }
+func (f *FakeClient) Post(context.Context, string, interface{}, interface{}) error  { return nil }
+func (f *FakeClient) Put(context.Context, string, interface{}, interface{}) error   { return nil }
+func (f *FakeClient) Patch(context.Context, string, interface{}, interface{}) error { return nil }
+func (f *FakeClient) Delete(context.Context, string, interface{}) error             { return nil }
+func (f *FakeClient) GetRaw(context.Context, string) ([]byte, error)                { return nil, nil }
+func (f *FakeClient) PutRaw(context.Context, string, []byte, string) error          { return nil }
 
 // NewTestRoot builds a minimal root command carrying the persistent flags that
 // command implementations read via cmd.Root().Flag(...), with child attached.

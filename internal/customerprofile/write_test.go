@@ -1,6 +1,7 @@
 package customerprofile
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -36,7 +37,7 @@ func TestCreatePostsToCollection(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 200, `{"data":{"id":"abc","version":0}}`)
 	defer done()
 
-	env, err := svc.Create(map[string]any{"name": "Acme"})
+	env, err := svc.Create(context.Background(), map[string]any{"name": "Acme"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestUpdatePutsToResourceAndSendsBodyVerbatim(t *testing.T) {
 	// An unknown field must reach the wire untouched — that is the whole
 	// point of building the payload from the read map.
 	body := map[string]any{"name": "Acme", "version": 2, "somethingWeNeverModeled": "keep me"}
-	if _, err := svc.Update("abc", body); err != nil {
+	if _, err := svc.Update(context.Background(), "abc", body); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if cap.method != http.MethodPut {
@@ -83,7 +84,7 @@ func TestDeleteHitsResource(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 204, ``)
 	defer done()
 
-	if err := svc.Delete("abc"); err != nil {
+	if err := svc.Delete(context.Background(), "abc"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if cap.method != http.MethodDelete {
@@ -98,7 +99,7 @@ func TestHistoryPathsAndPaging(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 200, `{"data":[],"page":{"totalElements":0}}`)
 	defer done()
 
-	if _, err := svc.History("abc", 10, 20); err != nil {
+	if _, err := svc.History(context.Background(), "abc", 10, 20); err != nil {
 		t.Fatalf("History: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/customerProfiles/abc/history"; cap.path != want {
@@ -110,7 +111,7 @@ func TestHistoryVersionPath(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 200, `{"data":{"version":2}}`)
 	defer done()
 
-	if _, err := svc.HistoryVersion("abc", "2"); err != nil {
+	if _, err := svc.HistoryVersion(context.Background(), "abc", "2"); err != nil {
 		t.Fatalf("HistoryVersion: %v", err)
 	}
 	if want := "/api/v2/accounts/9901287/customerProfiles/abc/history/2"; cap.path != want {
@@ -122,13 +123,13 @@ func TestWriteMethodsRequireAnID(t *testing.T) {
 	svc, _, done := newCapturingService(t, 200, `{}`)
 	defer done()
 
-	if _, err := svc.Update("", map[string]any{}); err == nil {
+	if _, err := svc.Update(context.Background(), "", map[string]any{}); err == nil {
 		t.Error("Update(\"\") should error before making a request")
 	}
-	if err := svc.Delete(""); err == nil {
+	if err := svc.Delete(context.Background(), ""); err == nil {
 		t.Error("Delete(\"\") should error before making a request")
 	}
-	if _, err := svc.HistoryVersion("abc", ""); err == nil {
+	if _, err := svc.HistoryVersion(context.Background(), "abc", ""); err == nil {
 		t.Error("HistoryVersion with empty version should error")
 	}
 }
@@ -138,7 +139,7 @@ func TestWriteMethodsPropagateAPIErrorType(t *testing.T) {
 		`{"errors":[{"description":"entity has been modified by another process or user"}]}`)
 	defer done()
 
-	_, err := svc.Update("abc", map[string]any{"name": "x"})
+	_, err := svc.Update(context.Background(), "abc", map[string]any{"name": "x"})
 	var apiErr *api.APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("error type = %T, want *api.APIError to survive", err)
@@ -152,7 +153,7 @@ func TestUpdateEscapesID(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 200, `{"data":{}}`)
 	defer done()
 
-	_, _ = svc.Update("CP/../evil", map[string]any{"name": "x", "version": 1})
+	_, _ = svc.Update(context.Background(), "CP/../evil", map[string]any{"name": "x", "version": 1})
 	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil"; cap.path != want {
 		t.Errorf("escaped path = %q, want %q", cap.path, want)
 	}
@@ -162,7 +163,7 @@ func TestDeleteEscapesID(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 204, ``)
 	defer done()
 
-	_ = svc.Delete("CP/../evil")
+	_ = svc.Delete(context.Background(), "CP/../evil")
 	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil"; cap.path != want {
 		t.Errorf("escaped path = %q, want %q", cap.path, want)
 	}
@@ -172,7 +173,7 @@ func TestHistoryVersionEscapesIDAndVersion(t *testing.T) {
 	svc, cap, done := newCapturingService(t, 200, `{"data":{}}`)
 	defer done()
 
-	_, _ = svc.HistoryVersion("CP/../evil", "v/../1")
+	_, _ = svc.HistoryVersion(context.Background(), "CP/../evil", "v/../1")
 	if want := "/api/v2/accounts/9901287/customerProfiles/CP%2F..%2Fevil/history/v%2F..%2F1"; cap.path != want {
 		t.Errorf("escaped path = %q, want %q", cap.path, want)
 	}

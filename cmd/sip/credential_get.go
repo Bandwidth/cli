@@ -25,11 +25,11 @@ var credentialGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		realm, err := svc.GetRealm(credGetRealm)
+		realm, err := svc.GetRealm(cmd.Context(), credGetRealm)
 		if err != nil {
 			return faultExit(err)
 		}
-		cred, err := svc.GetCredential(realm.ID, args[0])
+		cred, err := svc.GetCredential(cmd.Context(), realm.ID, args[0])
 		if err != nil {
 			return faultExit(err)
 		}

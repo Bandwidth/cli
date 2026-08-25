@@ -52,6 +52,7 @@ func runNotesAdd(cmd *cobra.Command, args []string) error {
 	// note's URL in the Location header. Use the Location-aware POST so we
 	// can return the noteId on plain output.
 	location, err := client.PostXMLReturnLocation(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/portins/%s/notes", acctID, args[0]),
 		api.XMLBody{RootElement: "Note", Data: body},
 	)
@@ -101,6 +102,7 @@ func runNotesList(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Get(
+		cmd.Context(),
 		fmt.Sprintf("/accounts/%s/portins/%s/notes", acctID, args[0]),
 		&result,
 	); err != nil {

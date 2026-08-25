@@ -19,7 +19,7 @@ var realmGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		realm, err := svc.GetRealm(args[0])
+		realm, err := svc.GetRealm(cmd.Context(), args[0])
 		if err != nil {
 			return faultExit(err)
 		}

@@ -65,7 +65,7 @@ because --wait gave up waiting.`,
 		if err != nil {
 			return err
 		}
-		if err := svc.DeleteBrand(args[0]); err != nil {
+		if err := svc.DeleteBrand(cmd.Context(), args[0]); err != nil {
 			return roleGateError(err, "Campaign Management")
 		}
 
@@ -101,7 +101,7 @@ because --wait gave up waiting.`,
 		// the --timeout path, so if the deadline arrives before this ever
 		// fires, deleted is still false and the note above is still there —
 		// the timeout receipt (exit 5) never contradicts its own exit code.
-		fetch := fetchBrand(svc, args[0])
+		fetch := fetchBrand(cmd.Context(), svc, args[0])
 		confirmedFetch := func() (map[string]any, bool, error) {
 			obj, found, ferr := fetch()
 			if ferr == nil && !found {
