@@ -211,7 +211,7 @@ func runMonitor(cmd *cobra.Command, endpoint string, flags *monitorFlags) error 
 	q.Set("accountId[eq]", acctID)
 
 	var result interface{}
-	if err := client.Get("/v1/monitors/voice/"+endpoint+"?"+q.Encode(), &result); err != nil {
+	if err := client.Get(cmd.Context(), "/v1/monitors/voice/"+endpoint+"?"+q.Encode(), &result); err != nil {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 403 {
 			return fmt.Errorf("the Monitoring API feature is not enabled on account %s — ask your Bandwidth account manager to enable it: %w", acctID, err)
