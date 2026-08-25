@@ -271,6 +271,14 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 - **`number order` costs money.** No undo — you must `number release` to give it back.
 - **`number search` results are not reserved.** Between search and order, someone else can take the number.
+- **`number details` is the Dashboard view; `number get` is the Universal Platform voice record.** `details` works on any account and shows geography, features (E911/LIDB/DLDA), messaging settings, TN attributes, and the per-number origination route plan (priority + weight per endpoint) where one is configured. `get` shows the VCP assignment and only works where the UP voice API is enabled. To answer "how is this number routed?": try `number details` first — if it shows an `OriginationRoutePlan`, that is the routing; on UP accounts follow `number get` → `vcp get <vcp-id>` instead.
+- **`number list` filter flags hit different endpoints than the bare command.** Plain `number list` uses `/tns`, which works for credentials without the inservice role. The `--npa-nxx`/`--state`/`--ratecenter`/`--lata`/`--subaccount` filters use the inservice endpoints and may return 403 where the bare list succeeds. `--ratecenter` requires `--state`; `--location` requires `--subaccount`; `--disconnected` combines with nothing.
+- **`number count` is cheap.** It uses the totals endpoints — prefer it over listing and counting client-side.
+
+### Toll-free routing
+
+- **`tollfree template` is account-gated.** The underlying endpoint requires the `TollFreeTemplateAssignmentSearch` account setting (off by default; Bandwidth enables it on request). Expect exit 2 with a "not enabled on account" message until then — that is the correct behavior, not a bug. Numbers must be in-service on the account, toll-free (800/888/877/866/855/844/833), and at most 5000 per invocation.
+- **The template name is the answer, not a carrier name.** The CLI returns `templateName` exactly as the registry stores it; mapping template names to ingress carriers is operator knowledge the API does not expose.
 
 ### VCPs
 
