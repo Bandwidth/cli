@@ -17,7 +17,7 @@ var statusCmd = &cobra.Command{
 	Short: "Check whether this account can use SIP provisioning",
 	Long: "Probes the SIP API to resolve the 'unknown' capability reported by 'band auth status'. " +
 		"SIP provisioning requires both the SIP Credentials role and account-level configuration; " +
-		"only the probe can confirm the latter. The result is not cached — 'band auth status' stays offline.",
+		"only the probe can confirm the latter. The result is not cached — 'band auth status' verifies credentials but does not probe SIP account settings.",
 	Example: `  band sip status --plain`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := service(cmd)

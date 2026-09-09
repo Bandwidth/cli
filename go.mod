@@ -3,6 +3,7 @@ module github.com/Bandwidth/cli
 go 1.26.6
 
 require (
+	github.com/alessio/shellescape v1.4.1
 	github.com/briandowns/spinner v1.23.2
 	github.com/fatih/color v1.19.0
 	github.com/olekukonko/tablewriter v0.0.5
@@ -13,7 +14,6 @@ require (
 )
 
 require (
-	github.com/alessio/shellescape v1.4.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/danieljoos/wincred v1.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

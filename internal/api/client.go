@@ -148,7 +148,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 	if c.basicUser != "" {
 		req.SetBasicAuth(c.basicUser, c.basicPassword)
 	} else if c.tm != nil {
-		token, err := c.tm.GetToken()
+		token, err := c.tm.GetTokenContext(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("obtaining auth token: %w", err)
 		}

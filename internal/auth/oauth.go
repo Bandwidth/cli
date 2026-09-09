@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ type TokenManager struct {
 	ClientID     string
 	ClientSecret string
 	TokenURL     string
+	ProfileName  string
 
 	token     string
 	expiresAt time.Time
@@ -29,6 +31,7 @@ func NewTokenManager(clientID, clientSecret, tokenURL string) *TokenManager {
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		TokenURL:     tokenURL,
+		ProfileName:  "default",
 	}
 }
 
@@ -42,23 +45,43 @@ type tokenResponse struct {
 // GetToken returns a valid Bearer token, fetching a new one if the cached token
 // is missing or within 1 minute of expiry.
 func (tm *TokenManager) GetToken() (string, error) {
+	return tm.GetTokenContext(context.Background())
+}
+
+// GetTokenContext is the cancellable cached-token path used by API requests.
+func (tm *TokenManager) GetTokenContext(ctx context.Context) (string, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 
 	// Return cached token if it has more than 1 minute remaining.
 	if tm.token != "" && time.Now().Add(time.Minute).Before(tm.expiresAt) {
 		return tm.token, nil
 	}
 
-	return tm.fetchToken()
+	return tm.fetchToken(ctx)
+}
+
+// Verify always exchanges the credentials, even when a token is cached.
+// A cached token can outlive the secret that minted it.
+func (tm *TokenManager) Verify(ctx context.Context) (string, int, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	token, err := tm.fetchToken(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	return token, max(0, int(time.Until(tm.expiresAt).Seconds())), nil
 }
 
 // fetchToken performs the token exchange. Caller must hold tm.mu.
-func (tm *TokenManager) fetchToken() (string, error) {
+func (tm *TokenManager) fetchToken(ctx context.Context) (string, error) {
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 
-	req, err := http.NewRequest(http.MethodPost, tm.TokenURL+"/api/v1/oauth2/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tm.TokenURL+"/api/v1/oauth2/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("creating token request: %w", err)
 	}
@@ -80,7 +103,16 @@ func (tm *TokenManager) fetchToken() (string, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("token exchange failed (HTTP %d): %s", resp.StatusCode, string(body))
+		var failure struct {
+			Code string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &failure)
+		switch failure.Code {
+		case "invalid_client", "invalid_request", "invalid_grant", "unauthorized_client", "unsupported_grant_type", "invalid_scope", "server_error", "temporarily_unavailable":
+		default:
+			failure.Code = "token_endpoint_error"
+		}
+		return "", &TokenError{StatusCode: resp.StatusCode, Code: failure.Code, Profile: tm.ProfileName}
 	}
 
 	// A 2xx whose body isn't a JSON object means we reached something other than

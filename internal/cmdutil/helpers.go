@@ -129,12 +129,12 @@ func loadConfigAndAuth() (*config.Config, *config.Profile, string, error) {
 
 	p := cfg.ActiveProfileConfig()
 	if p.ClientID == "" {
-		return nil, nil, "", fmt.Errorf("not logged in — run `band auth login` first")
+		return nil, nil, "", &auth.CredentialError{Reason: "not_logged_in", Profile: ProfileName(cfg)}
 	}
 
 	clientSecret, err := auth.GetPassword(p.ClientID)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("credentials not found in keychain for %s — run `band auth login`", p.ClientID)
+	if err != nil || clientSecret == "" {
+		return nil, nil, "", &auth.CredentialError{Reason: "credentials_unavailable", Profile: ProfileName(cfg)}
 	}
 
 	return cfg, p, clientSecret, nil
@@ -196,7 +196,34 @@ func authenticate(accountIDOverride string) (*auth.TokenManager, string, string,
 	}
 	apiHost := apiHostForEnvironment(env)
 	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHost)
+	tm.ProfileName = ProfileName(cfg)
 	return tm, acctID, env, nil
+}
+
+// ProfileName returns the active profile label used in remediation commands.
+func ProfileName(cfg *config.Config) string {
+	if cfg.ActiveProfile == "" {
+		return "default"
+	}
+	return cfg.ActiveProfile
+}
+
+// AuthTokenManager resolves the same environment as API commands, without
+// requiring an account ID: system-wide credentials can still be verified.
+func AuthTokenManager(p *config.Profile, secret, profile string) (*auth.TokenManager, string, error) {
+	if err := ValidateAPIOverride(); err != nil {
+		return nil, "", err
+	}
+	env, err := resolveEnvironment(p.Environment)
+	if err != nil {
+		return nil, "", err
+	}
+	if env == "" {
+		env = "prod"
+	}
+	tm := auth.NewTokenManager(p.ClientID, secret, apiHostForEnvironment(env))
+	tm.ProfileName = profile
+	return tm, env, nil
 }
 
 // BuildClient returns an authenticated JSON API client.
@@ -293,6 +320,7 @@ func InsightsClient(accountIDOverride string) (*api.Client, string, error) {
 		ui.Warnf("Bandwidth Insights has no test environment — this request hits PRODUCTION data regardless of --environment.")
 	}
 	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHostForEnvironment("prod"))
+	tm.ProfileName = ProfileName(cfg)
 	return api.NewClient(insightsHost()+"/api", tm), acctID, nil
 }
 
@@ -334,5 +362,6 @@ func MessagingClient(accountIDOverride string) (*api.Client, string, error) {
 	}
 	// Always mint the token against prod (apiHostForEnvironment("prod")).
 	tm := auth.NewTokenManager(p.ClientID, clientSecret, apiHostForEnvironment("prod"))
+	tm.ProfileName = ProfileName(cfg)
 	return api.NewClient(messagingHost()+"/api/v2", tm), acctID, nil
 }

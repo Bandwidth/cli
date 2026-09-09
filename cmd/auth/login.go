@@ -126,7 +126,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	spin := ui.NewSpinner("Verifying credentials...")
 	spin.Start()
 	tm := intauth.NewTokenManager(clientID, clientSecret, tokenURL)
-	token, err := tm.GetToken()
+	tm.ProfileName = profileName
+	token, err := tm.GetTokenContext(cmd.Context())
 	spin.Stop()
 	if err != nil {
 		return fmt.Errorf("credential verification failed: %w", err)

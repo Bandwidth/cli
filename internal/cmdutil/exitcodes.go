@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/auth"
 )
 
 // Exit code constants for the bw CLI.
@@ -113,6 +114,20 @@ func ExitCodeForError(err error) int {
 		return ExitConflict
 	}
 	var apiErr *api.APIError
+	var credentialErr *auth.CredentialError
+	if errors.As(err, &credentialErr) {
+		return ExitAuth
+	}
+	var tokenErr *auth.TokenError
+	if errors.As(err, &tokenErr) {
+		if tokenErr.Rejected() {
+			return ExitAuth
+		}
+		if tokenErr.StatusCode == 429 {
+			return ExitRateLimit
+		}
+		return ExitGeneral
+	}
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
 		case 401, 403:

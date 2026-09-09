@@ -2,8 +2,8 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,29 +16,34 @@ import (
 
 func init() {
 	Cmd.AddCommand(statusCmd)
+	statusCmd.Flags().Bool("no-verify", false, "Inspect stored credentials without contacting the token endpoint (authenticated remains false)")
 }
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show current authentication status",
-	Long:  "Shows the active profile's authentication status, including client ID, active account, environment, and (for Bandwidth Build accounts) capabilities. Use --plain for machine-readable JSON.",
+	Long:  "Verifies the active profile's credentials with a fresh token exchange. Use --no-verify for offline inspection, or --plain for machine-readable JSON. SIP and 10DLC account-level availability still require their separate status probes.",
 	Example: `  band auth status
   band auth status --plain`,
 	RunE: runStatus,
+	Args: cobra.NoArgs,
 }
 
 // statusJSON is the structured output shape returned when --plain is set.
-// Stable contract for agents — additive changes only.
+// Existing fields are retained; authenticated now requires verification.
+// Offline consumers migrate to credentials_stored (see AGENTS.md).
 type statusJSON struct {
-	Authenticated bool            `json:"authenticated"`
-	Profile       string          `json:"profile,omitempty"`
-	ClientID      string          `json:"client_id,omitempty"`
-	AccountID     string          `json:"account_id,omitempty"`
-	Accounts      []string        `json:"accounts,omitempty"`
-	Environment   string          `json:"environment,omitempty"`
-	Build         bool            `json:"build,omitempty"`
-	Roles         []string        `json:"roles,omitempty"`
-	Capabilities  map[string]bool `json:"capabilities,omitempty"`
+	Authenticated     bool            `json:"authenticated"`
+	CredentialsStored bool            `json:"credentials_stored"`
+	Token             tokenStatus     `json:"token"`
+	Profile           string          `json:"profile,omitempty"`
+	ClientID          string          `json:"client_id,omitempty"`
+	AccountID         string          `json:"account_id,omitempty"`
+	Accounts          []string        `json:"accounts,omitempty"`
+	Environment       string          `json:"environment,omitempty"`
+	Build             bool            `json:"build,omitempty"`
+	Roles             []string        `json:"roles,omitempty"`
+	Capabilities      map[string]bool `json:"capabilities,omitempty"`
 	// SIP reports SIP provisioning availability as a tri-state object
 	// ({"status":..., "reason":...}) rather than a bool inside Capabilities —
 	// see sipCapability.
@@ -48,6 +53,15 @@ type statusJSON struct {
 	TenDLC map[string]string `json:"tendlc,omitempty"`
 	Error  string            `json:"error,omitempty"`
 }
+
+type tokenStatus struct {
+	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
+	ExpiresIn *int   `json:"expires_in,omitempty"`
+}
+
+// Seamed for tests so no real OS keychain is read.
+var statusPassword = intauth.GetPassword
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	_, plain := cmdutil.OutputFlags(cmd)
@@ -64,14 +78,6 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	p := cfg.ActiveProfileConfig()
 
-	if p.ClientID == "" {
-		if plain {
-			return emitJSON(statusJSON{Authenticated: false})
-		}
-		fmt.Fprintln(os.Stderr, ui.Warn("Not logged in."))
-		return nil
-	}
-
 	env := p.Environment
 	if env == "" {
 		env = "prod"
@@ -82,74 +88,92 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		profileName = "default"
 	}
 
-	_, keychainErr := intauth.GetPassword(p.ClientID)
-
-	if plain {
-		caps := Capabilities(p.Roles)
-		out := statusJSON{
-			Authenticated: keychainErr == nil,
-			Profile:       profileName,
-			ClientID:      p.ClientID,
-			AccountID:     p.AccountID,
-			Accounts:      p.Accounts,
-			Environment:   env,
-			Build:         p.Build,
-			Roles:         p.Roles,
-			Capabilities:  caps,
-			SIP:           sipCapability(hasRole(p.Roles, "sip credentials")),
-			TenDLC:        tendlcCapability(caps["campaign_management"]),
-		}
-		if keychainErr != nil {
-			out.Error = "credentials not found in keychain"
-		}
-		return emitJSON(out)
+	noVerify, _ := cmd.Flags().GetBool("no-verify")
+	caps := Capabilities(p.Roles)
+	out := statusJSON{
+		Profile:      profileName,
+		ClientID:     p.ClientID,
+		AccountID:    p.AccountID,
+		Accounts:     p.Accounts,
+		Environment:  env,
+		Build:        p.Build,
+		Roles:        p.Roles,
+		Capabilities: caps,
+		SIP:          sipCapability(hasRole(p.Roles, "sip credentials")),
+		TenDLC:       tendlcCapability(caps["campaign_management"]),
 	}
-
-	if keychainErr != nil {
-		fmt.Printf("Client ID:   %s\n", ui.ID(p.ClientID))
-		fmt.Printf("Account:     %s\n", ui.ID(p.AccountID))
-		// Show environment only when it's informative.
-		if env != "prod" || cfg.HasMultipleEnvironments() {
-			fmt.Printf("Environment: %s\n", env)
+	out.Token = tokenStatus{Status: "unknown", Reason: "not_verified"}
+	var verifyErr error
+	var secret string
+	if p.ClientID == "" {
+		out.Token.Reason = "not_logged_in"
+		verifyErr = &intauth.CredentialError{Reason: out.Token.Reason, Profile: profileName}
+	} else {
+		secret, err = statusPassword(p.ClientID)
+		out.CredentialsStored = err == nil && secret != ""
+		if !out.CredentialsStored {
+			out.Token.Reason = "credentials_unavailable"
+			verifyErr = &intauth.CredentialError{Reason: out.Token.Reason, Profile: profileName}
 		}
-		fmt.Println("Status:      " + ui.Error("credentials not found in keychain"))
+	}
+	if !noVerify && verifyErr == nil {
+		var tm *intauth.TokenManager
+		tm, out.Environment, verifyErr = cmdutil.AuthTokenManager(p, secret, profileName)
+		if verifyErr == nil {
+			var token string
+			var expires int
+			token, expires, verifyErr = tm.Verify(cmd.Context())
+			if verifyErr == nil {
+				var claims *jwtClaims
+				claims, verifyErr = parseJWTClaims(token)
+				if verifyErr == nil {
+					out.Authenticated = true
+					out.Token = tokenStatus{Status: "valid", ExpiresIn: &expires}
+					out.Accounts, out.Roles, out.Build = claims.Accounts, claims.Roles, claims.Build
+					out.Capabilities = Capabilities(claims.Roles)
+					out.SIP = sipCapability(hasRole(claims.Roles, "sip credentials"))
+					out.TenDLC = tendlcCapability(out.Capabilities["campaign_management"])
+				}
+			}
+		}
+		if verifyErr != nil {
+			out.Token = tokenStatus{Status: "unknown", Reason: "probe_failed"}
+			var tokenErr *intauth.TokenError
+			if errors.As(verifyErr, &tokenErr) && tokenErr.Rejected() {
+				out.Token = tokenStatus{Status: "rejected", Reason: tokenErr.Code}
+			}
+		}
+	}
+	if verifyErr != nil {
+		out.Error = verifyErr.Error()
+	}
+	if plain {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(out); err != nil {
+			return err
+		}
+	} else {
+		w := cmd.ErrOrStderr()
+		fmt.Fprintf(w, "Profile:     %s\nClient ID:   %s\nAccount:     %s\nEnvironment: %s\n", out.Profile, out.ClientID, out.AccountID, out.Environment)
+		fmt.Fprintf(w, "Status:      %s", out.Token.Status)
+		if out.Token.Reason != "" {
+			fmt.Fprintf(w, " (%s)", out.Token.Reason)
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Accounts:    %s\n", strings.Join(out.Accounts, ", "))
+		if out.Build {
+			fmt.Fprintln(w, "Type:        Bandwidth Build (voice-only, credit-based)")
+		}
+		fmt.Fprintf(w, "Capable of:  %s\nSIP:         %s\n10DLC:       %s\n", capabilitySummary(out.Capabilities), sipSummary(out.SIP), tendlcSummary(out.TenDLC))
+		if len(cfg.Profiles) > 1 {
+			fmt.Fprintf(w, "Profiles:    %s\n", strings.Join(cfg.ProfileNames(), ", "))
+		}
+	}
+	if noVerify {
 		return nil
 	}
-
-	fmt.Printf("Profile:     %s\n", ui.Bold(profileName))
-	fmt.Printf("Client ID:   %s\n", ui.ID(p.ClientID))
-	if p.AccountID != "" {
-		fmt.Printf("Account:     %s\n", ui.ID(p.AccountID))
-	} else {
-		fmt.Printf("Account:     (none — pass --account-id on commands)\n")
-	}
-	if len(p.Accounts) > 1 {
-		fmt.Printf("Accounts:    %s\n", strings.Join(p.Accounts, ", "))
-	} else if len(p.Accounts) == 0 && p.AccountID == "" {
-		fmt.Println("Scope:       system-wide (use --account-id to target an account)")
-	}
-	caps := Capabilities(p.Roles)
-	if p.Build {
-		fmt.Printf("Type:        %s (voice-only, credit-based)\n", ui.Bold("Bandwidth Build"))
-		fmt.Printf("Capable of:  %s\n", capabilitySummary(caps))
-	}
-	fmt.Printf("SIP:         %s\n", sipSummary(sipCapability(hasRole(p.Roles, "sip credentials"))))
-	fmt.Printf("10DLC:       %s\n", tendlcSummary(tendlcCapability(caps["campaign_management"])))
-	if env != "prod" || cfg.HasMultipleEnvironments() {
-		fmt.Printf("Environment: %s\n", env)
-	}
-	fmt.Println("Status:      " + ui.Success("authenticated"))
-
-	if len(cfg.Profiles) > 1 {
-		fmt.Printf("Profiles:    %s\n", strings.Join(cfg.ProfileNames(), ", "))
-	}
-	return nil
-}
-
-func emitJSON(v statusJSON) error {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+	return verifyErr
 }
 
 // Capabilities maps a set of JWT role strings to a stable feature map.
