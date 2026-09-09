@@ -3,6 +3,7 @@ package sip
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -192,10 +193,34 @@ func (s *Service) CreateRealm(ctx context.Context, name, description string, isD
 	return toRealm(resp.Realm), nil
 }
 
-// GetRealm fetches one realm. ref may be an ID or a name.
+// GetRealm fetches one realm by ID, short name, or FQDN. Some accounts only
+// accept IDs and FQDNs on the detail endpoint, so resolve short names through
+// the list endpoint after a 404. Numeric refs remain IDs, including when absent.
 func (s *Service) GetRealm(ctx context.Context, ref string) (*Realm, error) {
 	body, err := s.do(ctx, "GET", s.base()+"/realms/"+url.PathEscape(ref), nil)
 	if err != nil {
+		var apiErr *api.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != 404 ||
+			ValidateRealmName(ref) != nil || strings.Trim(ref, "0123456789") == "" {
+			return nil, err
+		}
+		realms, listErr := s.ListRealms(ctx)
+		if listErr != nil {
+			return nil, fmt.Errorf("resolving realm %q: %w", ref, listErr)
+		}
+		var match *Realm
+		for i := range realms {
+			if strings.EqualFold(realms[i].Name, ref) {
+				if match != nil {
+					return nil, cmdutil.NewFlagError(fmt.Sprintf("multiple realms match %q — use a realm ID or FQDN", ref))
+				}
+				match = &realms[i]
+			}
+		}
+		if match != nil {
+			// Fetch the detail record so callers retain the same complete view.
+			return s.GetRealm(ctx, match.ID)
+		}
 		return nil, err
 	}
 	var resp realmResponse
@@ -248,7 +273,7 @@ func (s *Service) UpdateRealm(ctx context.Context, ref string, promoteDefault bo
 	if description != nil {
 		desc = *description
 	}
-	body, err := s.do(ctx, "PUT", s.base()+"/realms/"+url.PathEscape(ref), realmRequest{
+	body, err := s.do(ctx, "PUT", s.base()+"/realms/"+url.PathEscape(current.ID), realmRequest{
 		Realm: current.Name, Description: desc, Default: current.Default || promoteDefault,
 	})
 	if err != nil {
@@ -259,7 +284,7 @@ func (s *Service) UpdateRealm(ctx context.Context, ref string, promoteDefault bo
 		return nil, fmt.Errorf("decoding realm response: %w", err)
 	}
 	if resp.Realm == nil {
-		return s.GetRealm(ctx, ref)
+		return s.GetRealm(ctx, current.ID)
 	}
 	return toRealm(resp.Realm), nil
 }
