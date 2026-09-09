@@ -533,6 +533,8 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 
 ### SIP trunk authentication
 
+Realm references accept an ID, short name, or FQDN. If a short-name lookup returns 404, the CLI lists realms, matches the name case-insensitively, and fetches the matching ID. Numeric references are treated as IDs; use the FQDN for an all-numeric realm name. Permission and server errors are returned without a name-lookup fallback.
+
 | Command | What it does |
 |---------|-------------|
 | `band sip realm create --name <name> --default=<bool>` | Create a SIP realm (`--description`, `--if-not-exists`; async — add `--wait` and optionally `--timeout <seconds>`) |
