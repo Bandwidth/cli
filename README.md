@@ -378,7 +378,8 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 |---------|-------------|
 | `band auth login` | Log in with OAuth2 credentials (use `--profile <name>` to store under a named profile) |
 | `band auth logout` | Clear stored credentials |
-| `band auth status` | Show auth state, active account, and accessible accounts |
+| `band auth status` | Verify credentials with a fresh token exchange; show auth state, active account, and accessible accounts |
+| `band auth status --no-verify` | Inspect stored credentials offline; does not assert authentication |
 | `band auth switch [id]` | Switch to a different account |
 | `band auth profiles` | List all stored credential profiles |
 | `band auth use <profile>` | Switch the active credential profile |
@@ -615,7 +616,7 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 
 **"account ID not set"** — You're logged in but haven't picked an account. Run `band auth switch <id>` or pass `--account-id`.
 
-**"credential verification failed"** — Your client ID or secret is wrong. Double-check them in the Bandwidth App.
+**"credentials were rejected"** — The token endpoint rejected your client ID or secret (exit 2). Follow the profile-specific `band auth login --profile ...` instruction. Network errors and token-endpoint failures are reported separately; they do not prove that credentials are invalid.
 
 **API error 401** — Your token expired. Run `band auth login` again.
 

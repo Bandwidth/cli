@@ -67,10 +67,15 @@ var rootCmd = &cobra.Command{
 		cmdutil.EnvironmentOverride = environment
 
 		// Kick off version check in background so it doesn't slow down the command.
-		updateResult = make(chan *versionpkg.CheckResult, 1)
-		go func() {
-			updateResult <- versionpkg.Check(version)
-		}()
+		noVerify, _ := cmd.Flags().GetBool("no-verify")
+		if cmd.Name() == "status" && cmd.Parent() == authcmd.Cmd && noVerify {
+			updateResult = nil // Offline auth inspection must not check for updates.
+		} else {
+			updateResult = make(chan *versionpkg.CheckResult, 1)
+			go func() {
+				updateResult <- versionpkg.Check(version)
+			}()
+		}
 		if !term.IsTerminal(int(os.Stdout.Fd())) {
 			// Auto-enable plain mode for non-terminal output (scripts, pipes)
 			// unless the user explicitly chose a different format.
@@ -146,7 +151,7 @@ func Execute() error {
 	api.Version = version
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return rootCmd.ExecuteContext(ctx)
+	return executeCommand(ctx, rootCmd)
 }
 
 func GetFormat() string {

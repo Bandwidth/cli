@@ -36,6 +36,28 @@ band auth switch <account-id>   # change active account (no re-auth needed)
 band auth status                # verify auth state
 ```
 
+### Verified authentication status
+
+`band auth status --plain` now performs a fresh OAuth token exchange by default. `authenticated: true` means this verification succeeded; a cached token is not sufficient because a client secret may have been revoked after the token was issued. Verification refreshes reported roles, capabilities, Build type, and accessible accounts from the returned JWT without modifying saved configuration or the selected account. It verifies credentials, not authorization for every API operation or the selected account.
+
+The existing JSON fields are retained, with two additions: `credentials_stored` (client ID and a non-empty secret are available from the configured keychain) and `token`:
+
+| Situation | `authenticated` | `token.status` | `token.reason` | Exit |
+|---|---|---|---|---|
+| Verified | true | valid | omitted; `expires_in` gives remaining seconds | 0 |
+| Token endpoint rejects credentials (401, or 400 `invalid_client`) | false | rejected | recognized OAuth code, or `token_endpoint_error` | 2 |
+| Network, malformed response/JWT, environment, or server failure | false | unknown | probe_failed | 1 |
+| Token endpoint rate limit | false | unknown | probe_failed | 7 |
+| No client ID | false | unknown | not_logged_in | 2 |
+| Keychain secret missing/unavailable/empty | false | unknown | credentials_unavailable | 2 |
+| `--no-verify`, credentials available | false | unknown | not_verified | 0 |
+
+**Migration:** previously `authenticated` only meant the keychain lookup succeeded and status was offline. For that presence check, use `band auth status --no-verify --plain` and inspect `credentials_stored`. Offline mode reports stored metadata, never calls the token endpoint or background update checker, and exits 0 even when credentials are absent (with the corresponding missing-credential reason above). Config/output errors still fail. Automation that requires usable credentials should use default verification and gate on `authenticated` or `token.status == "valid"`; an unknown result is not evidence of rejection.
+
+Structured status results go to stdout before verification failures return nonzero; human-readable status and remediation go to stderr. Token values, client secrets, and raw OAuth error bodies are never printed. Ordinary API commands also classify token-exchange credential rejection as exit 2, with a profile-specific login command; token 429 remains exit 7 and token 5xx remains exit 1. Existing resource-API 403 mappings are unchanged. Runtime errors omit usage text; parse/argument/required-flag errors and typed `FlagError` validation errors retain it.
+
+Token exchange honors command cancellation and its 15-second HTTP timeout. Verification uses the same environment selection as API commands (`--environment` > `BW_ENVIRONMENT` > profile; `BW_API_URL` overrides the endpoint) and does not require an account ID. SIP and 10DLC account-level availability still require their own probes below.
+
 ### Credential Profiles
 
 Store multiple credential sets under named profiles — useful when different roles or environments require different client credentials:
@@ -70,12 +92,12 @@ SIP provisioning (`band sip realm ...`, `band sip credential ...`) needs **two**
 | `reason` | `status` | Meaning |
 |----------|----------|---------|
 | `role_absent` | `unavailable` | Credential lacks the `SIP Credentials` role. |
-| `role_present_not_probed` | `unknown` | Credential has the role, but `auth status` is offline and cannot confirm account-level configuration. |
+| `role_present_not_probed` | `unknown` | Credential has the role, but `auth status` does not probe SIP account-level configuration. |
 | `account_not_enabled` | `unavailable` | Only returned by `band sip status` — the account has the role but SIP Credentials isn't enabled on the account. Contact Bandwidth support. |
 | `probe_succeeded` | `available` | Only returned by `band sip status` — the account can use SIP provisioning. |
 | `probe_failed` | `unknown` | Only returned by `band sip status` — the probe itself failed (e.g. rate limited or a server error); retry later. |
 
-`band auth status` never calls the network, so it can only ever report `role_absent` or `role_present_not_probed` for `sip`. To resolve an `unknown`, run the explicit probe:
+`band auth status` verifies the credentials, but does not probe SIP account settings, so it can only report `role_absent` or `role_present_not_probed` for `sip`. To resolve an `unknown`, run the explicit probe:
 
 ```bash
 band sip status --plain
@@ -83,7 +105,7 @@ band sip status --plain
 
 This issues one cheap `GET /realms` call. A `200` reports `available`/`probe_succeeded` (exit 0). Hitting error code `33004` ("account isn't setup for Sip Credentials") reports `unavailable`/`account_not_enabled` — and **exits 0**, because a successful probe that confirms a negative fact is not a command failure. Auth errors (401/403) exit 2 via the normal error path; rate limiting or server errors exit non-zero with `probe_failed`.
 
-Important: `band sip status` **does not persist** its result anywhere. Run it again any time you need a fresh answer, and don't expect `band auth status` to start reporting anything other than `unknown` for a role-holding credential — that command stays fully offline by design.
+Important: `band sip status` **does not persist** its result anywhere. Run it again any time you need a fresh answer, and don't expect `band auth status` to start reporting anything other than `unknown` for a role-holding credential — credential verification does not confirm SIP account settings.
 
 #### 10DLC capability (tri-state, not boolean)
 

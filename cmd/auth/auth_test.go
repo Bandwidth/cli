@@ -326,6 +326,9 @@ func TestTenDLCWiringAgainstLiveRoles(t *testing.T) {
 // does; only driving runStatus end to end (as done here) actually exercises
 // the wiring and would have failed before the fix.
 func TestStatusPlainTenDLCAgreesWithCapabilities(t *testing.T) {
+	originalPassword := statusPassword
+	statusPassword = func(string) (string, error) { return "test-secret", nil }
+	t.Cleanup(func() { statusPassword = originalPassword })
 	tests := []struct {
 		name  string
 		roles []string
@@ -354,6 +357,7 @@ func TestStatusPlainTenDLCAgreesWithCapabilities(t *testing.T) {
 			}
 
 			wrap := &cobra.Command{Use: "status", RunE: runStatus}
+			wrap.Flags().Bool("no-verify", true, "")
 			root := testutil.NewTestRoot(wrap)
 			root.SetArgs([]string{"status", "--plain"})
 
