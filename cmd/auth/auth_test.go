@@ -390,6 +390,55 @@ func TestCustomerProfilesMatcherNotOverBroad(t *testing.T) {
 	}
 }
 
+// TestStatusPlainAuthenticatedViaEnvSecret guards against the headless/CI
+// path being broken: `band auth login` accepts BW_CLIENT_ID/BW_CLIENT_SECRET
+// with no keychain available (see cmdutil.loadConfigAndAuth), so `auth
+// status` must report authenticated=true under the same env var rather than
+// consulting the keychain alone — otherwise a caller with no keychain sees
+// "not authenticated" immediately before every other command succeeds using
+// that same env var.
+func TestStatusPlainAuthenticatedViaEnvSecret(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BW_CLIENT_SECRET", "some-secret-not-in-any-keychain")
+
+	cfgPath, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Format: "json"}
+	cfg.SetProfile("default", &config.Profile{
+		ClientID:  "id-with-no-keychain-entry",
+		AccountID: "ACCT_A",
+	})
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	wrap := &cobra.Command{Use: "status", RunE: runStatus}
+	root := testutil.NewTestRoot(wrap)
+	root.SetArgs([]string{"status", "--plain"})
+
+	out := testutil.CaptureStdout(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	})
+
+	var got statusJSON
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal output: %v\noutput: %s", err, out)
+	}
+
+	if !got.Authenticated {
+		t.Errorf("Authenticated = false with BW_CLIENT_SECRET set and no keychain entry, want true. Error field: %q", got.Error)
+	}
+	if got.Error != "" {
+		t.Errorf("Error = %q, want empty when authenticated via env var", got.Error)
+	}
+}
+
 // TestRunSwitch_PersistsTargetIntoActiveProfile guards against the bug where
 // switch only updated the legacy top-level cfg.AccountID, leaving the active
 // profile's AccountID stale — so subsequent commands continued targeting the

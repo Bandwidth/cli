@@ -1,6 +1,74 @@
 package cmdutil
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/Bandwidth/cli/internal/config"
+)
+
+// TestLoadConfigAndAuth_BW_CLIENT_SECRET_SkipsKeychain guards the headless/CI
+// path: `band auth login --client-id X --client-secret Y` succeeds with no
+// keychain available (it only verifies + writes config.json; storing the
+// secret in the OS keychain is a separate, best-effort step). Without this
+// fallback, every command *after* login would fail with "credentials not
+// found in keychain" on a host with no D-Bus/keyring stack, even though the
+// same BW_CLIENT_SECRET the caller already has would work fine.
+func TestLoadConfigAndAuth_BW_CLIENT_SECRET_SkipsKeychain(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BW_CLIENT_SECRET", "headless-secret-not-in-any-keychain")
+
+	cfgPath, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Format: "json"}
+	cfg.SetProfile("default", &config.Profile{
+		ClientID:  "id-with-no-keychain-entry",
+		AccountID: "ACCT_A",
+	})
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, secret, err := loadConfigAndAuth()
+	if err != nil {
+		t.Fatalf("loadConfigAndAuth() error = %v, want nil (BW_CLIENT_SECRET should bypass the keychain lookup)", err)
+	}
+	if secret != "headless-secret-not-in-any-keychain" {
+		t.Errorf("secret = %q, want the BW_CLIENT_SECRET env var value", secret)
+	}
+}
+
+// TestLoadConfigAndAuth_NoSecretNoKeychain_ReturnsActionableError guards the
+// other side: without BW_CLIENT_SECRET and with no keychain entry, the error
+// must still mention both remediation paths, not just `band auth login`.
+func TestLoadConfigAndAuth_NoSecretNoKeychain_ReturnsActionableError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BW_CLIENT_SECRET", "")
+
+	cfgPath, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Format: "json"}
+	cfg.SetProfile("default", &config.Profile{
+		ClientID:  "id-with-no-keychain-entry",
+		AccountID: "ACCT_A",
+	})
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err = loadConfigAndAuth()
+	if err == nil {
+		t.Fatal("loadConfigAndAuth() error = nil, want an error with no keychain entry and no BW_CLIENT_SECRET")
+	}
+}
 
 func TestVoiceHostForEnvironment(t *testing.T) {
 	tests := []struct {

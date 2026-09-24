@@ -132,9 +132,22 @@ func loadConfigAndAuth() (*config.Config, *config.Profile, string, error) {
 		return nil, nil, "", fmt.Errorf("not logged in — run `band auth login` first")
 	}
 
+	// BW_CLIENT_SECRET, like BW_CLIENT_ID (already overlaid into p by
+	// ActiveProfileConfig), lets headless/CI callers skip the OS keychain
+	// entirely. This matters in practice: the keychain backend (go-keyring)
+	// needs a running D-Bus session + keyring daemon, which `band auth
+	// login` can complete without (it only stores), but which many headless
+	// Linux hosts don't have at all. Without this fallback, `auth login`
+	// would succeed via the env var while every subsequent command failed
+	// looking up the keychain — the documented "headless and CI/CD" flow
+	// wouldn't actually hold together end to end.
+	if secret := os.Getenv("BW_CLIENT_SECRET"); secret != "" {
+		return cfg, p, secret, nil
+	}
+
 	clientSecret, err := auth.GetPassword(p.ClientID)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("credentials not found in keychain for %s — run `band auth login`", p.ClientID)
+		return nil, nil, "", fmt.Errorf("credentials not found in keychain for %s — run `band auth login`, or set BW_CLIENT_ID/BW_CLIENT_SECRET env vars for headless use", p.ClientID)
 	}
 
 	return cfg, p, clientSecret, nil
