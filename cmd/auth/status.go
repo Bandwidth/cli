@@ -82,12 +82,17 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		profileName = "default"
 	}
 
+	// BW_CLIENT_SECRET satisfies auth the same way it does for every other
+	// command (see cmdutil.loadConfigAndAuth) — status must agree with what
+	// commands will actually do, or a headless caller with the env var set
+	// sees "not authenticated" right before every other command succeeds.
 	_, keychainErr := intauth.GetPassword(p.ClientID)
+	authenticated := keychainErr == nil || os.Getenv("BW_CLIENT_SECRET") != ""
 
 	if plain {
 		caps := Capabilities(p.Roles)
 		out := statusJSON{
-			Authenticated: keychainErr == nil,
+			Authenticated: authenticated,
 			Profile:       profileName,
 			ClientID:      p.ClientID,
 			AccountID:     p.AccountID,
@@ -99,13 +104,13 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			SIP:           sipCapability(hasRole(p.Roles, "sip credentials")),
 			TenDLC:        tendlcCapability(caps["campaign_management"]),
 		}
-		if keychainErr != nil {
+		if !authenticated {
 			out.Error = "credentials not found in keychain"
 		}
 		return emitJSON(out)
 	}
 
-	if keychainErr != nil {
+	if !authenticated {
 		fmt.Printf("Client ID:   %s\n", ui.ID(p.ClientID))
 		fmt.Printf("Account:     %s\n", ui.ID(p.AccountID))
 		// Show environment only when it's informative.
