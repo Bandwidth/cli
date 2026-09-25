@@ -32,6 +32,7 @@ import (
 	portincmd "github.com/Bandwidth/cli/cmd/portin"
 	quickstartcmd "github.com/Bandwidth/cli/cmd/quickstart"
 	recordingcmd "github.com/Bandwidth/cli/cmd/recording"
+	samplecmd "github.com/Bandwidth/cli/cmd/sample"
 	shortcodecmd "github.com/Bandwidth/cli/cmd/shortcode"
 	sipcmd "github.com/Bandwidth/cli/cmd/sip"
 	sitecmd "github.com/Bandwidth/cli/cmd/site"
@@ -115,6 +116,7 @@ func init() {
 	rootCmd.AddCommand(transcriptioncmd.Cmd)
 	rootCmd.AddCommand(bxmlcmd.Cmd)
 	rootCmd.AddCommand(quickstartcmd.Cmd)
+	rootCmd.AddCommand(samplecmd.Cmd)
 	rootCmd.AddCommand(vcpcmd.Cmd)
 	rootCmd.AddCommand(tendlccmd.Cmd)
 	rootCmd.AddCommand(shortcodecmd.Cmd)
