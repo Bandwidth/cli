@@ -114,6 +114,21 @@ func messagingHost() string {
 	return "https://messaging.bandwidth.com"
 }
 
+// LoadRawCredentials returns the client ID, client secret, and account ID from
+// the active band profile. Useful when credentials must be passed to an external
+// process (e.g. writing a sample app's .env file) rather than used inside the CLI.
+func LoadRawCredentials(accountIDOverride string) (clientID, clientSecret, accountID string, err error) {
+	cfg, p, secret, loadErr := loadConfigAndAuth()
+	if loadErr != nil {
+		return "", "", "", loadErr
+	}
+	acctID, acctErr := resolveAccountID(cfg, p, accountIDOverride)
+	if acctErr != nil {
+		return "", "", "", acctErr
+	}
+	return p.ClientID, secret, acctID, nil
+}
+
 // loadConfigAndAuth loads the config, retrieves the client secret, and returns
 // everything needed to build an API client.
 func loadConfigAndAuth() (*config.Config, *config.Profile, string, error) {
