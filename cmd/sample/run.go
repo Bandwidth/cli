@@ -102,7 +102,7 @@ func runSample(cmd *cobra.Command, args []string) error {
 	// ── ngrok ────────────────────────────────────────────────────────────────
 	ngrokPath, err := exec.LookPath("ngrok")
 	if err != nil {
-		return fmt.Errorf("ngrok not found — install it with: brew install ngrok/ngrok/ngrok")
+		return fmt.Errorf("ngrok not found — install it with: brew install ngrok")
 	}
 	ngrokCmd := exec.CommandContext(ctx, ngrokPath, "http", strconv.Itoa(port), "--log=stdout")
 	if err := ngrokCmd.Start(); err != nil {
