@@ -45,7 +45,10 @@ func TestRegisterSmsOptInFlagNotRequired(t *testing.T) {
 }
 
 func TestSendCodeRequiredFlags(t *testing.T) {
-	for _, flag := range []string{"phone", "email"} {
+	// delivery-channel is required, not defaulted: the choice of "sms" is
+	// itself the customer's MFA-delivery consent, so it must be explicit
+	// rather than silently assumed when the caller omits the flag.
+	for _, flag := range []string{"phone", "email", "delivery-channel"} {
 		f := sendCodeCmd.Flags().Lookup(flag)
 		if f == nil {
 			t.Errorf("missing flag %q", flag)
@@ -54,11 +57,6 @@ func TestSendCodeRequiredFlags(t *testing.T) {
 		if _, ok := f.Annotations["cobra_annotation_bash_completion_one_required_flag"]; !ok {
 			t.Errorf("flag %q should be required", flag)
 		}
-	}
-	if f := sendCodeCmd.Flags().Lookup("delivery-channel"); f == nil {
-		t.Error("missing flag \"delivery-channel\"")
-	} else if _, ok := f.Annotations["cobra_annotation_bash_completion_one_required_flag"]; ok {
-		t.Error("flag \"delivery-channel\" should not be required")
 	}
 }
 

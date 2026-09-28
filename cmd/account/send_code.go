@@ -22,9 +22,10 @@ var (
 func init() {
 	sendCodeCmd.Flags().StringVar(&sendCodePhone, "phone", "", "Phone number in E.164 format, matching a pending registration (required)")
 	sendCodeCmd.Flags().StringVar(&sendCodeEmail, "email", "", "Email address used during registration (required)")
-	sendCodeCmd.Flags().StringVar(&sendCodeDeliveryChannel, "delivery-channel", "sms", "Verification code delivery channel: sms or voice")
+	sendCodeCmd.Flags().StringVar(&sendCodeDeliveryChannel, "delivery-channel", "", "Verification code delivery channel: sms or voice (required — the choice itself is the customer's consent to receive the code via that channel)")
 	_ = sendCodeCmd.MarkFlagRequired("phone")
 	_ = sendCodeCmd.MarkFlagRequired("email")
+	_ = sendCodeCmd.MarkFlagRequired("delivery-channel")
 	Cmd.AddCommand(sendCodeCmd)
 }
 

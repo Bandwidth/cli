@@ -404,6 +404,10 @@ band account send-code --phone +15555550100 --email you@example.com --delivery-c
 # → verification code sent. Choosing "sms" IS the customer's consent to
 #   receive that one-time code by text — there is no separate flag for it.
 
+# STOP: the code is delivered out-of-band (a text message or phone call to
+# the registered number) — an agent cannot read it. Wait for a human to
+# supply the real code before running verify; do not fabricate one or reuse
+# a code from a different registration. "123456" below is illustrative only.
 band account verify --phone +15555550100 --email you@example.com --code 123456
 # → phone verified (PHONE_VERIFIED); account provisioning begins. Remaining
 #   steps happen outside the CLI:
