@@ -20,9 +20,14 @@ var (
 	registerFirstName string
 	registerLastName  string
 	registerAcceptTOS bool
+	registerSmsOptIn  bool
 )
 
 const tosURL = "https://www.bandwidth.com/legal/build-terms-of-service/"
+
+// registrationBaseURL is the legacy Build registration host/path prefix.
+// Unauthenticated: there is no account yet at this point in the flow.
+const registrationBaseURL = "https://api.bandwidth.com/v1/express"
 
 func init() {
 	registerCmd.Flags().StringVar(&registerPhone, "phone", "", "Phone number (required)")
@@ -30,6 +35,7 @@ func init() {
 	registerCmd.Flags().StringVar(&registerFirstName, "first-name", "", "First name (required)")
 	registerCmd.Flags().StringVar(&registerLastName, "last-name", "", "Last name (required)")
 	registerCmd.Flags().BoolVar(&registerAcceptTOS, "accept-tos", false, "Accept the Build Terms of Service (required; use for non-interactive mode)")
+	registerCmd.Flags().BoolVar(&registerSmsOptIn, "sms-opt-in", false, "Opt in to marketing SMS/communications from Bandwidth (optional; independent of MFA delivery consent)")
 	_ = registerCmd.MarkFlagRequired("phone")
 	_ = registerCmd.MarkFlagRequired("email")
 	_ = registerCmd.MarkFlagRequired("first-name")
@@ -42,13 +48,18 @@ var registerCmd = &cobra.Command{
 	Short: "Create a new Bandwidth Build account",
 	Long: `Creates a new Bandwidth Build account.
 
-After registration, complete account setup in your browser:
-  1. Check your email for a registration link from Bandwidth
-  2. Enter the OTP code sent via SMS to verify your phone number
-  3. Set your password and enter the OTP code from your email
+After registration, verify your phone number and complete setup:
+  1. band account send-code --phone <phone> --email <email> --delivery-channel sms   (or "voice")
+  2. band account verify --phone <phone> --email <email> --code <code-you-received>
+  3. Check your email for a registration link from Bandwidth to set your password
   4. Go to Account > API Credentials to generate OAuth2 credentials
-  5. Run "band auth login" with those credentials`,
-	Example: `  band account register --phone +19195551234 --email user@example.com --first-name John --last-name Doe`,
+  5. Run "band auth login" with those credentials
+
+--sms-opt-in records consent to marketing/PFT-campaign SMS. It is independent
+of the MFA delivery consent implied by choosing "sms" as the delivery channel
+on "band account send-code" — omit it (or pass --sms-opt-in=false) for no
+marketing consent; registration succeeds either way.`,
+	Example: `  band account register --phone +19195551234 --email user@example.com --first-name John --last-name Doe --sms-opt-in`,
 	RunE:    runRegister,
 }
 
@@ -83,14 +94,15 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("registration cancelled — you must accept the Build Terms of Service to proceed")
 	}
 
-	client := api.NewClientNoAuth("https://api.bandwidth.com/v1/express")
+	client := api.NewClientNoAuth(registrationBaseURL)
 
 	reqBody := map[string]interface{}{
-		"phoneNumber": registerPhone,
-		"email":       registerEmail,
-		"firstName":   registerFirstName,
-		"lastName":    registerLastName,
-		"tosAccepted": true,
+		"phoneNumber":              registerPhone,
+		"email":                    registerEmail,
+		"firstName":                registerFirstName,
+		"lastName":                 registerLastName,
+		"tosAccepted":              true,
+		"promotionalCommsAccepted": registerSmsOptIn,
 	}
 
 	var result interface{}
@@ -105,12 +117,14 @@ func runRegister(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintln(os.Stderr)
 	ui.Successf("Registration submitted!")
-	ui.Headerf("Next steps (complete in your browser):")
-	ui.Infof("1. Check your email (%s) for a registration link from Bandwidth", registerEmail)
-	ui.Infof("2. Enter the OTP code sent via SMS to %s", registerPhone)
-	ui.Infof("3. Set your password and enter the OTP code from your email")
-	ui.Infof("4. Go to Account > API Credentials to generate your OAuth2 credentials")
-	ui.Infof("5. Run: band auth login --client-id <id> --client-secret <secret>")
+	ui.Headerf("Next steps:")
+	ui.Infof("1. Verify your phone number:")
+	ui.Infof("     band account send-code --phone %s --email %s --delivery-channel sms", registerPhone, registerEmail)
+	ui.Infof("     band account verify --phone %s --email %s --code <code-you-received>", registerPhone, registerEmail)
+	ui.Infof("   (pass --delivery-channel voice on send-code for a phone call instead of a text)")
+	ui.Infof("2. Check your email (%s) for a registration link from Bandwidth to set your password", registerEmail)
+	ui.Infof("3. Go to Account > API Credentials to generate your OAuth2 credentials")
+	ui.Infof("4. Run: band auth login --client-id <id> --client-secret <secret>")
 
 	return nil
 }
