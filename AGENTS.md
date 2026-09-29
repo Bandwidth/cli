@@ -2208,6 +2208,8 @@ band sip realm get vapi --plain
 
 `get` accepts a realm ID, name, or FQDN.
 
+This resolution is shared by realm get/update/delete and credential `--realm` flags. On a short-name 404, the CLI lists realms, matches the name case-insensitively, then fetches the canonical ID. Numeric references remain IDs (use the FQDN for an all-numeric name). No match preserves exit 3; list failures retain their error classification, and ambiguous names require an ID or FQDN (exit 6). Permission and server errors do not trigger fallback.
+
 ### Update a realm
 
 Two fields are updatable: `--default=true` and `--description`. Pass either or both; an omitted field is preserved (the update reads the realm first, because the API's `PUT` is a full replace).
