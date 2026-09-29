@@ -81,44 +81,28 @@ func TestRealmCreate_IfNotExistsWithWaitPollsPendingRealmToActive(t *testing.T) 
 	}
 }
 
-// TestRealmCreate_IfNotExistsMatchesNameCaseInsensitively covers spec line 29:
-// realm names compare case-insensitively. ValidateRealmName accepts uppercase,
-// but the name is a DNS label the API may normalize to lowercase — so an exact
-// comparison makes `--name VAPI --if-not-exists` create a second realm (or
-// fail) every single run instead of reusing the existing `vapi`.
-func TestRealmCreate_IfNotExistsMatchesNameCaseInsensitively(t *testing.T) {
-	var posts int32
+// TestRealmCreate_IfNotExistsRejectsUppercaseName verifies that uppercase realm
+// names are rejected before any API call. The API only accepts [a-z0-9] (error
+// 33013), so validation must catch this early — an uppercase name that reaches
+// the server would fail unpredictably and potentially burn a generated password.
+func TestRealmCreate_IfNotExistsRejectsUppercaseName(t *testing.T) {
+	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			atomic.AddInt32(&posts, 1)
-		}
-		if strings.HasSuffix(r.URL.Path, "/realms") && r.Method == http.MethodGet {
-			w.Write([]byte(realmListXML("vapi", "ACTIVE", false)))
-			return
-		}
-		w.WriteHeader(404)
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(500)
 	}))
 	defer srv.Close()
 	withStubService(t, srv)
 
 	root := testutil.NewTestRoot(realmCreateCmd)
-	root.SetArgs([]string{"create", "--name", "VAPI", "--default=false", "--if-not-exists", "--wait=false", "--plain"})
+	root.SetArgs([]string{"create", "--name", "VAPI", "--default=false", "--if-not-exists", "--plain"})
 
-	out := testutil.CaptureStdout(t, func() {
-		if err := root.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
-	})
-
-	if n := atomic.LoadInt32(&posts); n != 0 {
-		t.Errorf("issued %d POSTs — a mixed-case --name must match the existing lowercase realm, not create a new one", n)
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil, want error for uppercase realm name")
 	}
-	var got map[string]interface{}
-	if err := json.Unmarshal(bytes.TrimSpace([]byte(out)), &got); err != nil {
-		t.Fatalf("not JSON: %q (%v)", out, err)
-	}
-	if got["name"] != "vapi" {
-		t.Errorf("name = %v, want the existing realm vapi", got["name"])
+	if n := atomic.LoadInt32(&requests); n != 0 {
+		t.Errorf("issued %d HTTP requests — validation must reject uppercase names before any API call", n)
 	}
 }
 
