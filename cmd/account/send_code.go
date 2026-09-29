@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/output"
 	"github.com/Bandwidth/cli/internal/ui"
@@ -60,7 +59,10 @@ func runSendCode(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	client := api.NewClientNoAuth(registrationBaseURL)
+	client, _, err := registrationClient("")
+	if err != nil {
+		return err
+	}
 
 	reqBody := map[string]interface{}{
 		"phoneNumber":     sendCodePhone,

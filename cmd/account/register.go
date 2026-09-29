@@ -25,9 +25,10 @@ var (
 
 const tosURL = "https://www.bandwidth.com/legal/build-terms-of-service/"
 
-// registrationBaseURL is the legacy Build registration host/path prefix.
-// Unauthenticated: there is no account yet at this point in the flow.
-const registrationBaseURL = "https://api.bandwidth.com/v1/express"
+// registrationClient is a swappable ClientFunc seam for tests (see cmdutil.VoiceClient); accountIDOverride is unused — no account exists yet.
+var registrationClient cmdutil.ClientFunc = func(string) (api.Requester, string, error) {
+	return api.NewClientNoAuth(cmdutil.RegistrationHost()), "", nil
+}
 
 func init() {
 	registerCmd.Flags().StringVar(&registerPhone, "phone", "", "Phone number (required)")
@@ -94,7 +95,10 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("registration cancelled — you must accept the Build Terms of Service to proceed")
 	}
 
-	client := api.NewClientNoAuth(registrationBaseURL)
+	client, _, err := registrationClient("")
+	if err != nil {
+		return err
+	}
 
 	reqBody := map[string]interface{}{
 		"phoneNumber":              registerPhone,

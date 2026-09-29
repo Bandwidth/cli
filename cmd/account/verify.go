@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/output"
 	"github.com/Bandwidth/cli/internal/ui"
@@ -42,7 +41,10 @@ has no CLI equivalent.`,
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
-	client := api.NewClientNoAuth(registrationBaseURL)
+	client, _, err := registrationClient("")
+	if err != nil {
+		return err
+	}
 
 	reqBody := map[string]interface{}{
 		"phoneNumber": verifyPhone,
