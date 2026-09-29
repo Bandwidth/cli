@@ -15,18 +15,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// FakeClient implements api.Requester. Get marshals GetResult into the caller's
-// result pointer (a JSON round-trip), mimicking a real API response; the other
-// methods are no-ops. Set GetResult to the canned fixture for the command.
+// FakeClient implements api.Requester; Get/Post marshal GetResult/PostResult into the result pointer, and Post also records the last path/body sent.
 type FakeClient struct {
 	GetResult interface{}
+
+	PostResult interface{}
+	PostPath   string      // path from the most recent Post call
+	PostBody   interface{} // body from the most recent Post call
 }
 
 func (f *FakeClient) Get(_ context.Context, path string, result interface{}) error {
 	b, _ := json.Marshal(f.GetResult)
 	return json.Unmarshal(b, result)
 }
-func (f *FakeClient) Post(context.Context, string, interface{}, interface{}) error  { return nil }
+func (f *FakeClient) Post(_ context.Context, path string, body, result interface{}) error {
+	f.PostPath = path
+	f.PostBody = body
+	if result == nil {
+		return nil
+	}
+	b, _ := json.Marshal(f.PostResult)
+	return json.Unmarshal(b, result)
+}
 func (f *FakeClient) Put(context.Context, string, interface{}, interface{}) error   { return nil }
 func (f *FakeClient) Patch(context.Context, string, interface{}, interface{}) error { return nil }
 func (f *FakeClient) Delete(context.Context, string, interface{}) error             { return nil }

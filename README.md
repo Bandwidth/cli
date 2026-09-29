@@ -86,14 +86,19 @@ You can sign up for a Bandwidth Build trial account from the CLI:
 band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe
 ```
 
-You'll be prompted to accept the [Bandwidth Build Terms of Service](https://www.bandwidth.com/legal/build-terms-of-service/) before registration proceeds. For scripted usage, pass `--accept-tos`.
+You'll be prompted to accept the [Bandwidth Build Terms of Service](https://www.bandwidth.com/legal/build-terms-of-service/) before registration proceeds. For scripted usage, pass `--accept-tos`. Add `--sms-opt-in` if you'd also like to opt in to marketing SMS from Bandwidth (optional).
 
-Then complete setup in your browser:
+Then verify your phone number:
 
-1. Check your email for a registration link from Bandwidth
-2. Enter the OTP code sent via SMS to verify your phone number
-3. Set your password and enter the OTP code from your email
-4. Go to **Account > API Credentials** to generate your OAuth2 credentials
+```sh
+band account send-code --phone +15555550100 --email you@example.com --delivery-channel sms   # or "voice" for a phone call
+band account verify --phone +15555550100 --email you@example.com --code 123456   # use the code you actually received
+```
+
+Then finish setup in your browser:
+
+1. Check your email for a registration link from Bandwidth to set your password
+2. Go to **Account > API Credentials** to generate your OAuth2 credentials
 
 Once your credentials are ready, run `band auth login` and you're off.
 
@@ -387,7 +392,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 
 | Command | What it does |
 |---------|-------------|
-| `band account register` | Register a new Bandwidth account |
+| `band account register` | Register a new Bandwidth account (`--sms-opt-in` to opt in to marketing SMS) |
+| `band account send-code` | Send (or resend) a phone verification code (`--delivery-channel sms\|voice`, required) |
+| `band account verify` | Verify a phone number with the code from `send-code` |
 
 ### Applications
 
