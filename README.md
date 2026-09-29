@@ -92,7 +92,7 @@ Then verify your phone number:
 
 ```sh
 band account send-code --phone +15555550100 --email you@example.com --delivery-channel sms   # or "voice" for a phone call
-band account verify --phone +15555550100 --email you@example.com --code 123456
+band account verify --phone +15555550100 --email you@example.com --code 123456   # use the code you actually received
 ```
 
 Then finish setup in your browser:
@@ -392,7 +392,9 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 
 | Command | What it does |
 |---------|-------------|
-| `band account register` | Register a new Bandwidth account |
+| `band account register` | Register a new Bandwidth account (`--sms-opt-in` to opt in to marketing SMS) |
+| `band account send-code` | Send (or resend) a phone verification code (`--delivery-channel sms\|voice`, required) |
+| `band account verify` | Verify a phone number with the code from `send-code` |
 
 ### Applications
 
