@@ -389,19 +389,36 @@ When `--wait` times out (exit code 5), the operation may have succeeded — the 
 
 ### Build Registration: Create a new account from zero
 
-Use when no credentials exist yet. The CLI submits the registration request; the remaining setup happens in the browser. **An agent cannot complete this flow autonomously** — it requires a human (or an agent with web/phone access) to finish.
+Use when no credentials exist yet. The CLI can drive registration and phone
+verification end to end; only setting a password still happens in the
+browser. **An agent cannot complete the whole flow autonomously** — it can
+register and verify the phone number itself, but setting a password (via the
+link Bandwidth emails to the registered address) requires a human (or an
+agent with email/web access) to finish.
 
 ```bash
 band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe --accept-tos
-# → registration submitted; remaining steps happen outside the CLI:
-#   1. Check email for a registration link from Bandwidth
-#   2. Enter the OTP code sent via SMS to verify the phone number
-#   3. Set a password and enter the OTP code from the email
-#   4. Go to Account > API Credentials to generate OAuth2 credentials
+# → registration submitted (POST /v1/express/registration)
+
+band account send-code --phone +15555550100 --email you@example.com --delivery-channel sms   # or "voice"
+# → verification code sent. Choosing "sms" IS the customer's consent to
+#   receive that one-time code by text — there is no separate flag for it.
+
+# STOP: the code is delivered out-of-band (a text message or phone call to
+# the registered number) — an agent cannot read it. Wait for a human to
+# supply the real code before running verify; do not fabricate one or reuse
+# a code from a different registration. "123456" below is illustrative only.
+band account verify --phone +15555550100 --email you@example.com --code 123456
+# → phone verified (PHONE_VERIFIED); account provisioning begins. Remaining
+#   steps happen outside the CLI:
+#   1. Check email for a registration link from Bandwidth to set a password
+#   2. Go to Account > API Credentials to generate OAuth2 credentials
 # → once credentials are available:
 band auth login --client-id <id> --client-secret <secret>
 band auth status   # confirm
 ```
+
+**`register`'s `--sms-opt-in` is marketing consent, not verification-code delivery consent.** It maps to `promotionalCommsAccepted` — consent to receive marketing/PFT-campaign SMS from Bandwidth, independent of the implicit MFA-delivery consent from choosing `--delivery-channel sms` on `send-code`. It is optional; registration succeeds whether it is set or not.
 
 **Important for agents:** Registration requires accepting the [Bandwidth Build Terms of Service](https://www.bandwidth.com/legal/build-terms-of-service/). Before passing `--accept-tos`, you **must** present the full Terms of Service URL to the user and get their explicit confirmation. Do not accept on the user's behalf without showing them the terms first. The flow should be:
 
@@ -409,7 +426,7 @@ band auth status   # confirm
 2. Ask the user to review and confirm they accept
 3. Only after confirmation, run the command with `--accept-tos`
 
-After calling `band account register`, stop and tell the user they need to complete setup in their browser. Do not attempt to poll or wait — the next CLI step (`band auth login`) requires credentials that are only available after the human finishes the browser flow.
+After calling `band account verify`, stop and tell the user they need to check their email to set a password before generating API credentials. Do not attempt to poll or wait for that step — the next CLI step (`band auth login`) requires credentials that are only available after the human finishes the browser flow.
 
 **After login, the account already has a voice app and a phone number.** Build accounts ship with both pre-provisioned. Run `band app list --plain` to discover the voice app — do **not** call `app create` or `number order` on a fresh Build account, you already have what you need to make a call. (`band number list` doesn't work on Build yet; the pre-provisioned number is reachable via the account portal and already wired to the default voice app.)
 
