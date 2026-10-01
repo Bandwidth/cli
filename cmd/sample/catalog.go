@@ -10,8 +10,6 @@ type envPrompt struct {
 
 // langSetup describes how to install dependencies and run the app for a given language.
 type langSetup struct {
-	// ReqFile is the path (relative to clone root) of the dependency manifest.
-	ReqFile string
 	// AppDir is the working directory to cd into before running.
 	AppDir string
 	// InstallCmd is the command to install dependencies (run once after clone).
@@ -59,8 +57,6 @@ var catalog = map[string]*SampleEntry{
 	"voice-gather": {
 		Description: "In-call DTMF gather example",
 		Repos: map[string]string{
-			"java":   "https://github.com/Bandwidth-Samples/in-call-gather-java",
-			"node":   "https://github.com/Bandwidth-Samples/in-call-gather-nodejs",
 			"python": "https://github.com/Bandwidth-Samples/in-call-gather-python",
 		},
 		Setup: map[string]langSetup{
@@ -68,12 +64,6 @@ var catalog = map[string]*SampleEntry{
 				AppDir:     ".",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
 				RunCmd:     []string{".venv/bin/python3", "app.py"},
-				HealthPath: "/",
-			},
-			"node": {
-				AppDir:     ".",
-				InstallCmd: []string{"npm", "install", "--silent"},
-				RunCmd:     []string{"node", "index.js"},
 				HealthPath: "/",
 			},
 		},
