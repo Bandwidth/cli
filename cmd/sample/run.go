@@ -170,14 +170,14 @@ func runSample(cmd *cobra.Command, args []string) error {
 
 	// ── Write .env file ──────────────────────────────────────────────────────
 	envVars := map[string]string{
-		"BW_ACCOUNT_ID":          acctID,
-		"BW_CLIENT_ID":           clientID,
-		"BW_CLIENT_SECRET":       clientSecret,
+		"BW_ACCOUNT_ID":           acctID,
+		"BW_CLIENT_ID":            clientID,
+		"BW_CLIENT_SECRET":        clientSecret,
 		"BW_VOICE_APPLICATION_ID": appID,
-		"BW_NUMBER":              phoneNumber,
-		"BASE_URL":               publicURL,
-		"LOCAL_PORT":             strconv.Itoa(port),
-		"LOG_LEVEL":              "INFO",
+		"BW_NUMBER":               phoneNumber,
+		"BASE_URL":                publicURL,
+		"LOCAL_PORT":              strconv.Itoa(port),
+		"LOG_LEVEL":               "INFO",
 	}
 	for k, v := range extraEnv {
 		envVars[k] = v
