@@ -362,6 +362,24 @@ For full flag/argument reference, use `band <command> --help`. This section cove
   - `complete_no_number` — resources created but no number was available in the requested area code; re-run with `--area-code` to try a different code.
   - `partial` — quickstart stopped after a failure but printed the resource IDs it created so far (app, VCP, sub-account, location, and possibly an ordered phone number). Re-running reuses the app/VCP/sub-account/location via idempotency checks. **Caveat:** if a number was ordered but its VCP assignment failed, the number is printed under `phoneNumber` but is NOT auto-reassigned on re-run (a re-run would order a *new* number) — finish the existing one with `band vcp assign <vcp-id> <phoneNumber>`.
 
+### Samples
+
+- **`band sample run` is helpful for demoing what a developer can accomplish with Bandwidth.** It clones a repo, starts a local process, launches ngrok, and blocks for the lifetime of the app. If you need to deploy a sample for a user, use the step-by-step [Agent Workflows](#agent-workflows) for the underlying provisioning.
+- **`band sample list` is safe for discovery.** Run it to enumerate available samples and supported languages before telling a user which command to run.
+- **Credentials are auto-wired.** `band sample run` reads the active band profile and writes `BW_ACCOUNT_ID`, `BW_CLIENT_ID`, and `BW_CLIENT_SECRET` to a `.env` file in the clone directory — the user never needs to copy credentials manually. Extra credentials (like `OPENAI_API_KEY` for the `live-assistant` sample) must be supplied via CLI flags or set as environment variables beforehand.
+- **The `live-assistant` sample is the primary voice AI demo.** It pairs Bandwidth's PSTN infrastructure (dialing, audio streaming, webhook routing) with the OpenAI Realtime API. The command to give a user:
+
+  ```bash
+  band sample run live-assistant \
+    --language python \
+    --openai-key sk-... \
+    --call-to +15559876543
+  ```
+
+  Prerequisites the user needs: ngrok (`brew install ngrok/ngrok/ngrok`), Python 3.11+, and an OpenAI API key with Realtime API access. A Bandwidth Build trial account is sufficient — no full account required.
+
+- **Voice application and phone number are resolved automatically.** `band sample run` calls `band app list` internally and creates (or reuses) a voice application named `band-sample-<name>`. It picks the first in-service phone number on the account. No manual provisioning needed before running the sample.
+
 ---
 
 ## Timeout Recovery
