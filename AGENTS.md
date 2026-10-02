@@ -364,7 +364,7 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 ### Samples
 
-- **`band sample run` is human-facing, not agentic.** It clones a repo, starts a local process, launches ngrok, and blocks for the lifetime of the app. An agent running headlessly should not call it. If you need to deploy a sample for a user, tell them the command to run themselves; use the step-by-step [Agent Workflows](#agent-workflows) for the underlying provisioning instead.
+- **`band sample run` is helpful for demoing what a developer can accomplish with Bandwidth.** It clones a repo, starts a local process, launches ngrok, and blocks for the lifetime of the app. If you need to deploy a sample for a user, use the step-by-step [Agent Workflows](#agent-workflows) for the underlying provisioning.
 - **`band sample list` is safe for discovery.** Run it to enumerate available samples and supported languages before telling a user which command to run.
 - **Credentials are auto-wired.** `band sample run` reads the active band profile and writes `BW_ACCOUNT_ID`, `BW_CLIENT_ID`, and `BW_CLIENT_SECRET` to a `.env` file in the clone directory — the user never needs to copy credentials manually. Extra credentials (like `OPENAI_API_KEY` for the `live-assistant` sample) must be supplied via CLI flags or set as environment variables beforehand.
 - **The `live-assistant` sample is the primary voice AI demo.** It pairs Bandwidth's PSTN infrastructure (dialing, audio streaming, webhook routing) with the OpenAI Realtime API. The command to give a user:
