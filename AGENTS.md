@@ -140,6 +140,8 @@ This is stderr only — it won't break piped output parsing.
 |----------|---------|
 | `BW_CLIENT_ID` | OAuth2 client ID |
 | `BW_CLIENT_SECRET` | OAuth2 client secret |
+| `OPENAI_API_KEY` | OpenAI API key for the `live-assistant` sample |
+| `TRANSFER_TO` | Transfer destination (E.164) for the `live-assistant` sample |
 | `BW_ACCOUNT_ID` | Override active account |
 | `BW_ENVIRONMENT` | API environment: `prod` (default), `test` |
 | `BW_API_URL` | Override API base URL (overrides environment-based default) |
@@ -366,13 +368,15 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 - **`band sample run` is helpful for demoing what a developer can accomplish with Bandwidth.** It clones a repo, starts a local process, launches ngrok, and blocks for the lifetime of the app. If you need to deploy a sample for a user, use the step-by-step [Agent Workflows](#agent-workflows) for the underlying provisioning.
 - **`band sample list` is safe for discovery.** Run it to enumerate available samples and supported languages before telling a user which command to run.
-- **Credentials are auto-wired.** `band sample run` reads the active band profile and writes `BW_ACCOUNT_ID`, `BW_CLIENT_ID`, and `BW_CLIENT_SECRET` to a `.env` file in the clone directory — the user never needs to copy credentials manually. Extra credentials (like `OPENAI_API_KEY` for the `live-assistant` sample) must be supplied via CLI flags or set as environment variables beforehand.
+- **Credentials are auto-wired.** `band sample run` reads the active band profile and writes `BW_ACCOUNT_ID`, `BW_CLIENT_ID`, and `BW_CLIENT_SECRET` to a `.env` file in the clone directory — the user never needs to copy credentials manually. Sample-specific configuration (like `OPENAI_API_KEY` and `TRANSFER_TO` for the `live-assistant` sample) is read from the environment and must be exported before running. There are no flags for these — run the sample without them and the error names each one.
 - **The `live-assistant` sample is the primary voice AI demo.** It pairs Bandwidth's PSTN infrastructure (dialing, audio streaming, webhook routing) with the OpenAI Realtime API. The command to give a user:
 
   ```bash
+  export OPENAI_API_KEY=sk-...
+  export TRANSFER_TO=+19195550100
+
   band sample run live-assistant \
     --language python \
-    --openai-key sk-... \
     --call-to +15559876543
   ```
 

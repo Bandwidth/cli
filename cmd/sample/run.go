@@ -21,11 +21,9 @@ import (
 )
 
 var (
-	runLanguage   string
-	runCallTo     string
-	runPort       int
-	runOpenAIKey  string
-	runTransferTo string
+	runLanguage string
+	runCallTo   string
+	runPort     int
 )
 
 var runCmd = &cobra.Command{
@@ -34,9 +32,14 @@ var runCmd = &cobra.Command{
 	Long: `Clones the sample app, wires up Bandwidth credentials from your active band
 profile, starts an ngrok tunnel, and launches the app.
 
+Samples that need their own configuration read it from the environment, the same
+way BW_CLIENT_ID and BW_CLIENT_SECRET work. Run the command without them to see
+which variables a given sample expects.
+
 Pass --call-to to automatically dial a number once the app is ready.`,
-	Example: `  band sample run live-assistant --language python --openai-key sk-...
-  band sample run live-assistant --language python --openai-key sk-... --call-to +13367499393`,
+	Example: `  band sample run live-assistant --language python
+  OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python
+  OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python --call-to +19195550101`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSample,
 }
@@ -45,8 +48,6 @@ func init() {
 	runCmd.Flags().StringVarP(&runLanguage, "language", "l", "", "Language variant to run (required)")
 	runCmd.Flags().StringVar(&runCallTo, "call-to", "", "Phone number to call after the app is ready (E.164)")
 	runCmd.Flags().IntVar(&runPort, "port", 0, "Local port (default: from catalog)")
-	runCmd.Flags().StringVar(&runOpenAIKey, "openai-key", "", "OpenAI API key (for AI-powered samples)")
-	runCmd.Flags().StringVar(&runTransferTo, "transfer-to", "", "Phone number to transfer calls to (E.164)")
 	_ = runCmd.MarkFlagRequired("language")
 }
 
@@ -83,7 +84,7 @@ func runSample(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Extra env var validation ─────────────────────────────────────────────
-	extraEnv, err := collectExtraEnv(name, entry)
+	extraEnv, err := collectExtraEnv(name, runLanguage, entry)
 	if err != nil {
 		return err
 	}
@@ -241,28 +242,30 @@ func runSample(cmd *cobra.Command, args []string) error {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// collectExtraEnv maps flag values and falls back to env vars for each extra
-// env var the sample requires. Returns an error if a required value is missing.
-func collectExtraEnv(name string, entry *SampleEntry) (map[string]string, error) {
-	flagMap := map[string]string{
-		"OPENAI_API_KEY": runOpenAIKey,
-		"TRANSFER_TO":    runTransferTo,
-	}
+// collectExtraEnv reads each extra environment variable the sample requires.
+// Values come from the environment rather than flags so that secrets are not
+// exposed in the process argument list. Returns an error if any are missing.
+func collectExtraEnv(name, lang string, entry *SampleEntry) (map[string]string, error) {
 	result := make(map[string]string)
-	var missing []string
+	var missing, missingKeys []string
 	for _, p := range entry.ExtraEnv {
-		val := flagMap[p.Key]
+		val := os.Getenv(p.Key)
 		if val == "" {
-			val = os.Getenv(p.Key)
+			missing = append(missing, fmt.Sprintf("  %s   (%s)", p.Key, p.Description))
+			missingKeys = append(missingKeys, p.Key+"=...")
+			continue
 		}
-		if val == "" {
-			missing = append(missing, fmt.Sprintf("  --%s   (%s)", p.Flag, p.Description))
-		} else {
-			result[p.Key] = val
-		}
+		result[p.Key] = val
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("the %q sample requires additional flags:\n%s", name, strings.Join(missing, "\n"))
+		return nil, fmt.Errorf(
+			"the %q sample requires these environment variables:\n%s\n\nset them in the environment, for example:\n  %s band sample run %s --language %s",
+			name,
+			strings.Join(missing, "\n"),
+			strings.Join(missingKeys, " "),
+			name,
+			lang,
+		)
 	}
 	return result, nil
 }
