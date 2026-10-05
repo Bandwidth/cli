@@ -14,7 +14,7 @@ wired from your active band profile.
 Examples:
   band sample list
   band sample run live-assistant --language python
-  OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python --call-to +19195550101`,
+band sample run live-assistant --language python --call-to +19195550101`,
 }
 
 func init() {
