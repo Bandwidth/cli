@@ -14,7 +14,7 @@ wired from your active band profile.
 Examples:
   band sample list
   band sample run live-assistant --language python
-band sample run live-assistant --language python --call-to +19195550101`,
+   band sample run live-assistant --language python --call-to +19195550101`
 }
 
 func init() {
