@@ -3,9 +3,8 @@ package sample
 // envPrompt describes an environment variable that a sample app requires beyond
 // the standard Bandwidth credentials (which are auto-populated from band auth).
 type envPrompt struct {
-	Key         string // env var name written to .env
-	Flag        string // CLI flag name (without --)
-	Description string // shown in --help
+	Key         string // env var name, read from the environment and written to .env
+	Description string // shown when the variable is missing
 }
 
 // langSetup describes how to install dependencies and run the app for a given language.
@@ -41,8 +40,8 @@ var catalog = map[string]*SampleEntry{
 			"python": "https://github.com/Bandwidth-Samples/openai-live-websockets-python",
 		},
 		ExtraEnv: []envPrompt{
-			{Key: "OPENAI_API_KEY", Flag: "openai-key", Description: "OpenAI API key (must have Realtime API access)"},
-			{Key: "TRANSFER_TO", Flag: "transfer-to", Description: "Phone number to transfer calls to (E.164, e.g. +19195551234)"},
+			{Key: "OPENAI_API_KEY", Description: "OpenAI API key with Realtime API access"},
+			{Key: "TRANSFER_TO", Description: "Phone number to transfer calls to (E.164, e.g. +19195550100)"},
 		},
 		Setup: map[string]langSetup{
 			"python": {

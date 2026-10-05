@@ -618,6 +618,8 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 | `BW_API_URL` | Override the API base URL |
 | `BW_VOICE_URL` | Override the Voice API base URL |
 | `BW_MESSAGING_URL` | Override the Messaging API base URL. Messaging is production-only (no test host), so `--environment`/`BW_ENVIRONMENT` does not change it; use this for local proxies or the internal lab. |
+| `OPENAI_API_KEY` | OpenAI API key for the `live-assistant` sample (`band sample run`) |
+| `TRANSFER_TO` | Transfer destination in E.164 for the `live-assistant` sample (`band sample run`) |
 
 ---
 
@@ -702,19 +704,23 @@ Want to see Bandwidth in action without writing any boilerplate? The CLI ships w
 
 ```sh
 band sample list                 # see what's available
-band sample run live-assistant --language python --openai-key sk-...
+OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python
 ```
 
 `band sample run` handles everything: clones the GitHub repo, creates a virtual environment, installs dependencies, starts an ngrok tunnel, wires your Bandwidth credentials into a `.env` file, creates or reuses a voice application, and launches the app. Pass `--call-to` and it dials a number automatically once the app is healthy.
+
+Samples that need their own configuration read it from the environment, the same way `BW_CLIENT_ID` and `BW_CLIENT_SECRET` do. Run a sample without them and the CLI tells you which variables it expects.
 
 ### Try the OpenAI live assistant
 
 The flagship sample is a real-time AI voice assistant powered by the OpenAI Realtime API. It's the fastest way to see what Bandwidth's infrastructure can do: Bandwidth owns the PSTN layer — dialing, audio streaming, and webhook routing — while your AI provider handles the intelligence. You supply the API key; Bandwidth supplies the phone network.
 
 ```sh
+export OPENAI_API_KEY=sk-...
+export TRANSFER_TO=+19195550100
+
 band sample run live-assistant \
   --language python \
-  --openai-key sk-... \
   --call-to +15559876543
 ```
 
@@ -732,7 +738,7 @@ band sample run live-assistant \
 5. The Python app starts and is ready to accept calls
 6. If you passed `--call-to`, the CLI dials that number as soon as the health check passes — answer and talk to the assistant
 
-**Want to transfer calls?** Pass `--transfer-to +1XXXXXXXXXX` to give the assistant a number to hand callers off to.
+**Want to transfer calls?** Set `TRANSFER_TO=+1XXXXXXXXXX` to give the assistant a number to hand callers off to.
 
 ---
 
