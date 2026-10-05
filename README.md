@@ -575,6 +575,13 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 | `band portin bulk get-tns <id>` | Poll the asynchronous TN-list validation |
 | `band portin bulk get <id>` / `bulk list` | Inspect bulk orders |
 
+### Samples
+
+| Command | What it does |
+|---------|-------------|
+| `band sample list` | List available sample applications and their supported languages |
+| `band sample run <name>` | Clone, configure, and launch a sample app with your credentials auto-wired |
+
 ### Other
 
 | Command | What it does |
@@ -686,6 +693,46 @@ This CLI is agent-native — not just "agent-compatible." The design principles:
 - **Env-var-driven auth.** `BW_CLIENT_ID` + `BW_CLIENT_SECRET` — no interactive prompts required.
 
 For the full agent reference — dependency chains, provisioning workflows, error patterns, and copy-pasteable scripts — see [AGENTS.md](AGENTS.md).
+
+---
+
+## Sample applications
+
+Want to see Bandwidth in action without writing any boilerplate? The CLI ships with a samples catalog — runnable apps that clone, configure, and launch with a single command.
+
+```sh
+band sample list                 # see what's available
+band sample run live-assistant --language python --openai-key sk-...
+```
+
+`band sample run` handles everything: clones the GitHub repo, creates a virtual environment, installs dependencies, starts an ngrok tunnel, wires your Bandwidth credentials into a `.env` file, creates or reuses a voice application, and launches the app. Pass `--call-to` and it dials a number automatically once the app is healthy.
+
+### Try the OpenAI live assistant
+
+The flagship sample is a real-time AI voice assistant powered by the OpenAI Realtime API. It's the fastest way to see what Bandwidth's infrastructure can do: Bandwidth owns the PSTN layer — dialing, audio streaming, and webhook routing — while your AI provider handles the intelligence. You supply the API key; Bandwidth supplies the phone network.
+
+```sh
+band sample run live-assistant \
+  --language python \
+  --openai-key sk-... \
+  --call-to +15559876543
+```
+
+**Prerequisites:**
+- ngrok installed (`brew install ngrok/ngrok/ngrok`)
+- Python 3.11+
+- An OpenAI API key with Realtime API access
+- A Bandwidth account with at least one phone number (Bandwidth Build trial accounts work)
+
+**What happens when you run it:**
+1. The sample app clones from [bandwidth-samples/openai-live-websockets-python](https://github.com/Bandwidth-Samples/openai-live-websockets-python) to `~/.band/samples/`
+2. ngrok starts a tunnel on port 3000 and the CLI picks up the public URL
+3. Your Bandwidth credentials (`BW_ACCOUNT_ID`, `BW_CLIENT_ID`, `BW_CLIENT_SECRET`) are written to a `.env` file — no manual copy-paste
+4. A voice application is created (or reused if one already exists) with the ngrok URL as the callback
+5. The Python app starts and is ready to accept calls
+6. If you passed `--call-to`, the CLI dials that number as soon as the health check passes — answer and talk to the assistant
+
+**Want to transfer calls?** Pass `--transfer-to +1XXXXXXXXXX` to give the assistant a number to hand callers off to.
 
 ---
 
