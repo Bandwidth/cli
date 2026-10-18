@@ -50,14 +50,14 @@ func TestGeneratePassword_Shape(t *testing.T) {
 }
 
 func TestValidateRealmName(t *testing.T) {
-	valid := []string{"a", "vapi", "vapi-test", "a1", "abc123def456ghi789jkl012mno34"}
+	valid := []string{"a", "vapi", "a1", "abc123def456ghi789jkl012mno34"}
 	for _, n := range valid {
 		if err := ValidateRealmName(n); err != nil {
 			t.Errorf("ValidateRealmName(%q) = %v, want nil", n, err)
 		}
 	}
-	invalid := []string{"", "-vapi", "vapi-", "va pi", "vapi.test", "VAPI_TEST",
-		"abcdefghij0123456789abcdefghij0"} // 31 chars
+	invalid := []string{"", "vapi-test", "-vapi", "vapi-", "va pi", "vapi.test",
+		"VAPI", "VAPI_TEST", "abcdefghij0123456789abcdefghij0"} // 31 chars
 	for _, n := range invalid {
 		if err := ValidateRealmName(n); err == nil {
 			t.Errorf("ValidateRealmName(%q) = nil, want error", n)

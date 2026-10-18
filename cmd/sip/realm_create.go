@@ -3,7 +3,6 @@ package sip
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -64,11 +63,7 @@ func runRealmCreate(cmd *cobra.Command, args []string) error {
 		}
 		for i := range realms {
 			r := realms[i]
-			// Case-insensitive per spec line 29: ValidateRealmName accepts
-			// uppercase, but the realm name is a DNS label the API may normalize
-			// to lowercase. An exact comparison would make --if-not-exists
-			// non-idempotent for `--name VAPI` against an existing `vapi`.
-			if !strings.EqualFold(r.Name, realmCreateName) {
+			if r.Name != realmCreateName {
 				continue
 			}
 			if !realmReuseAllowed(r.Status) {
