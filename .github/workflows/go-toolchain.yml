@@ -1,0 +1,110 @@
+name: Go Toolchain
+
+# Opens a PR when a newer Go PATCH release exists for the series in go.mod.
+#
+# Why this exists: CI only runs on push-to-main and pull_request, so a Go
+# standard-library CVE stays invisible until somebody happens to open a PR.
+# In August 2026 five stdlib CVEs landed against 1.26.5 and were not noticed
+# for three days, then surfaced on an unrelated feature PR whose author had
+# to stop and diagnose a failure they had not caused.
+#
+# Patch releases only, deliberately. A minor bump (1.26 -> 1.27) can change
+# language and toolchain behavior and should be a human decision, so this
+# stays inside the series currently pinned in go.mod.
+
+on:
+  schedule:
+    # Mondays 13:17 UTC. Off the hour so it does not pile onto the top-of-hour
+    # scheduling spike, which delays runs on busy shared runners.
+    - cron: '17 13 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Open a bump PR if a newer patch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          CURRENT="$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod)"
+          if [ -z "$CURRENT" ]; then
+            echo "Could not read the go directive from go.mod." >&2
+            exit 1
+          fi
+          SERIES="${CURRENT%.*}"
+
+          # go.dev lists newest first, so the first match in the series is latest.
+          # include=all is required: without it only the two newest minor series
+          # are returned, and the pinned series drops off the list the moment a
+          # new Go minor ships — which would silently stop all future bumps.
+          LATEST="$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' \
+            | jq -r --arg s "go${SERIES}." \
+                '[.[] | select(.stable) | .version | select(startswith($s))] | .[0] // empty' \
+            | sed 's/^go//')"
+
+          if [ -z "$LATEST" ]; then
+            echo "No stable release found for the ${SERIES} series; nothing to do." >&2
+            exit 0
+          fi
+
+          echo "go.mod pins ${CURRENT}; latest in ${SERIES} is ${LATEST}."
+
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "Already current."
+            exit 0
+          fi
+
+          # Guard against going backwards if go.dev ever reorders its list.
+          NEWER="$(printf '%s\n%s\n' "$CURRENT" "$LATEST" | sort -V | tail -1)"
+          if [ "$NEWER" != "$LATEST" ]; then
+            echo "go.mod (${CURRENT}) is ahead of the published latest (${LATEST}); nothing to do."
+            exit 0
+          fi
+
+          BRANCH="chore/bump-go-${LATEST}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "${BRANCH} already exists; a bump PR is presumably already open."
+            exit 0
+          fi
+
+          sed -i -E "s|^go ${CURRENT}$|go ${LATEST}|" go.mod
+          if git diff --quiet; then
+            echo "go.mod unchanged after edit; refusing to open an empty PR." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git commit -qam "chore: bump Go to ${LATEST}"
+          git push -q origin "$BRANCH"
+
+          # Build the body via a file: a nested heredoc here would have to close
+          # at column 0, which terminates the YAML block scalar this script lives in.
+          {
+            echo "Automated patch bump: \`go.mod\` pinned **${CURRENT}**, latest in the ${SERIES} series is **${LATEST}**."
+            echo
+            echo "Opened by \`.github/workflows/go-toolchain.yml\`. Patch releases only - a minor bump is left to a human."
+            echo
+            echo "**CI does not run automatically on this PR.** GitHub suppresses workflow runs on pull requests opened with \`GITHUB_TOKEN\`, so that workflows cannot trigger themselves. Close and reopen the PR, or push an empty commit, to get a run - and do that before merging, since the reason to bump is usually a \`govulncheck\` finding that only CI will confirm."
+            echo
+            echo "To remove that manual step, mint a token from the existing GitHub App instead (see \`dispatch-docsite\` in release.yml) and add \`cli\` to its \`repositories:\` list. App-token PRs do trigger workflows."
+            echo
+            echo "Release notes: https://go.dev/doc/devel/release#go${LATEST}"
+          } > /tmp/go-bump-body.md
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: bump Go to ${LATEST}" \
+            --body-file /tmp/go-bump-body.md
