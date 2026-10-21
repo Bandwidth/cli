@@ -12,7 +12,13 @@ make test    # run tests
 make lint    # run golangci-lint
 ```
 
-Requires Go 1.22+ and [golangci-lint](https://golangci-lint.run/welcome/install/).
+Requires Go 1.27.3+ and [golangci-lint](https://golangci-lint.run/welcome/install/).
+
+Go 1.27.3 includes the `crypto/x509` fix rejecting the compromised eMudhra
+intermediate certificates. CI and release builds select the toolchain from
+`go.mod`; keep the Docker builder's version aligned with that minimum. Existing
+CLI binaries and container images must be rebuilt to pick up the fix; updating
+the host's Go installation does not patch an already compiled binary.
 
 ## What happens when you open a PR
 
