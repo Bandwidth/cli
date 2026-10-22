@@ -420,7 +420,7 @@ agent with email/web access) to finish.
 
 ```bash
 band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe --accept-tos
-# → registration submitted (POST /v1/express/registration)
+# → registration submitted (POST /v1/build/registrations)
 
 band account send-code --phone +15555550100 --email you@example.com --delivery-channel sms   # or "voice"
 # → verification code sent. Choosing "sms" IS the customer's consent to

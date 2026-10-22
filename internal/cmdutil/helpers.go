@@ -78,7 +78,7 @@ func apiHostForEnvironment(env string) string {
 
 // RegistrationHost returns the Build registration API base URL, honoring BW_API_URL like every other client in this file.
 func RegistrationHost() string {
-	return apiHostForEnvironment("") + "/v1/express"
+	return apiHostForEnvironment("") + "/v1/build"
 }
 
 // voiceHostForEnvironment maps an environment name to its Voice API host.

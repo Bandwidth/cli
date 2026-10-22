@@ -71,7 +71,7 @@ func runSendCode(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(cmd.Context(), "/registration/code", reqBody, &result); err != nil {
+	if err := client.Post(cmd.Context(), "/registrations/code", reqBody, &result); err != nil {
 		return fmt.Errorf("sending verification code: %w", err)
 	}
 
