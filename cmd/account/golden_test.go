@@ -22,7 +22,7 @@ func TestRegisterPlainOutput(t *testing.T) {
 		"links": []interface{}{},
 		"data": map[string]interface{}{
 			"message":        "Onboarding request received successfully",
-			"status":         "USER_CREATION_PENDING",
+			"status":         "USER_CREATION_INITIATED",
 			"registrationId": "reg-123",
 		},
 		"errors": []interface{}{},
@@ -47,13 +47,13 @@ func TestRegisterPlainOutput(t *testing.T) {
 		}
 	})
 
-	want := "{\n  \"message\": \"Onboarding request received successfully\",\n  \"registrationId\": \"reg-123\",\n  \"status\": \"USER_CREATION_PENDING\"\n}\n"
+	want := "{\n  \"message\": \"Onboarding request received successfully\",\n  \"registrationId\": \"reg-123\",\n  \"status\": \"USER_CREATION_INITIATED\"\n}\n"
 	if out != want {
 		t.Fatalf("golden mismatch:\n got: %q\nwant: %q", out, want)
 	}
 
-	if fake.PostPath != "/registration" {
-		t.Errorf("PostPath = %q, want %q", fake.PostPath, "/registration")
+	if fake.PostPath != "/registrations" {
+		t.Errorf("PostPath = %q, want %q", fake.PostPath, "/registrations")
 	}
 	body, ok := fake.PostBody.(map[string]interface{})
 	if !ok {
@@ -101,8 +101,8 @@ func TestSendCodePlainOutput(t *testing.T) {
 		t.Fatalf("golden mismatch:\n got: %q\nwant: %q", out, want)
 	}
 
-	if fake.PostPath != "/registration/code" {
-		t.Errorf("PostPath = %q, want %q", fake.PostPath, "/registration/code")
+	if fake.PostPath != "/registrations/code" {
+		t.Errorf("PostPath = %q, want %q", fake.PostPath, "/registrations/code")
 	}
 	body, ok := fake.PostBody.(map[string]interface{})
 	if !ok {
@@ -145,8 +145,8 @@ func TestVerifyPlainOutput(t *testing.T) {
 		t.Fatalf("golden mismatch:\n got: %q\nwant: %q", out, want)
 	}
 
-	if fake.PostPath != "/registration/code/verify" {
-		t.Errorf("PostPath = %q, want %q", fake.PostPath, "/registration/code/verify")
+	if fake.PostPath != "/registrations/code/verify" {
+		t.Errorf("PostPath = %q, want %q", fake.PostPath, "/registrations/code/verify")
 	}
 	body, ok := fake.PostBody.(map[string]interface{})
 	if !ok {

@@ -53,7 +53,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 
 	var result interface{}
-	if err := client.Post(cmd.Context(), "/registration/code/verify", reqBody, &result); err != nil {
+	if err := client.Post(cmd.Context(), "/registrations/code/verify", reqBody, &result); err != nil {
 		return fmt.Errorf("verifying phone number: %w", err)
 	}
 

@@ -133,6 +133,20 @@ func TestMessagingHost_BW_MESSAGING_URL_TrailingSlash(t *testing.T) {
 	}
 }
 
+func TestRegistrationHost(t *testing.T) {
+	t.Setenv("BW_API_URL", "")
+	if got := RegistrationHost(); got != "https://api.bandwidth.com/v1/build" {
+		t.Errorf("RegistrationHost() = %q, want https://api.bandwidth.com/v1/build", got)
+	}
+}
+
+func TestRegistrationHost_BW_API_URL(t *testing.T) {
+	t.Setenv("BW_API_URL", "https://custom.example.com/")
+	if got := RegistrationHost(); got != "https://custom.example.com/v1/build" {
+		t.Errorf("RegistrationHost() with BW_API_URL = %q, want https://custom.example.com/v1/build", got)
+	}
+}
+
 func TestResolveEnvironment(t *testing.T) {
 	t.Run("no override returns profile env", func(t *testing.T) {
 		EnvironmentOverride = ""
