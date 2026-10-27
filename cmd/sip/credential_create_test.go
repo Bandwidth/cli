@@ -28,6 +28,11 @@ func credentialCreateStubServer(t *testing.T, appID string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/vapi"):
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms"):
+			w.Write([]byte(`<RealmsResponse><Realms><Realm><Id>1103</Id>` +
+				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm></Realm></Realms></RealmsResponse>`))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/realms/1103"):
 			w.Write([]byte(`<RealmResponse><Realm><Id>1103</Id>` +
 				`<Realm>vapi-3efeaa.auth.bandwidth.com</Realm><Status>ACTIVE</Status>` +
 				`</Realm></RealmResponse>`))

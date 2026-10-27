@@ -3,6 +3,7 @@ package sip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -641,6 +642,17 @@ func TestUpdateRealm_ReadModifyWritePreservesUnspecifiedFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var sent string
 			svc, done := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/accounts/9901361/realms/vapi" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				if r.URL.Path == "/accounts/9901361/realms" {
+					fmt.Fprint(w, `<RealmsResponse><Realms><Realm><Id>1103</Id><Realm>vapi-3efeaa.auth.bandwidth.com</Realm></Realm></Realms></RealmsResponse>`)
+					return
+				}
+				if r.URL.Path != "/accounts/9901361/realms/1103" {
+					t.Errorf("unexpected path %s", r.URL.Path)
+				}
 				if r.Method == http.MethodPut {
 					b, _ := io.ReadAll(r.Body)
 					sent = string(b)
