@@ -23,7 +23,10 @@ var (
 	registerSmsOptIn  bool
 )
 
-const tosURL = "https://www.bandwidth.com/legal/build-terms-of-service/"
+const (
+	tosURL            = "https://www.bandwidth.com/legal/build-terms-of-service/"
+	forgotPasswordURL = "https://passport.bandwidth.com/forgot-password"
+)
 
 // registrationClient is a swappable ClientFunc seam for tests (see cmdutil.VoiceClient); accountIDOverride is unused — no account exists yet.
 var registrationClient cmdutil.ClientFunc = func(string) (api.Requester, string, error) {
@@ -119,14 +122,17 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Success only means the request was accepted, so the wording stays conditional.
 	fmt.Fprintln(os.Stderr)
-	ui.Successf("Registration submitted!")
+	ui.Successf("Registration request received.")
+	ui.Infof("If this email can be used to create an account, a registration link is on its way to %s.", registerEmail)
+	ui.Infof("Already have a Bandwidth account? Run \"band auth login\", or reset your password at %s", forgotPasswordURL)
 	ui.Headerf("Next steps:")
 	ui.Infof("1. Verify your phone number:")
 	ui.Infof("     band account send-code --phone %s --email %s --delivery-channel sms", registerPhone, registerEmail)
 	ui.Infof("     band account verify --phone %s --email %s --code <code-you-received>", registerPhone, registerEmail)
 	ui.Infof("   (pass --delivery-channel voice on send-code for a phone call instead of a text)")
-	ui.Infof("2. Check your email (%s) for a registration link from Bandwidth to set your password", registerEmail)
+	ui.Infof("2. If this is a new account, check your email (%s) for a registration link from Bandwidth to set your password", registerEmail)
 	ui.Infof("3. Go to Account > API Credentials to generate your OAuth2 credentials")
 	ui.Infof("4. Run: band auth login --client-id <id> --client-secret <secret>")
 

@@ -80,8 +80,11 @@ func runSendCode(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Success only means the request was accepted, so the wording stays conditional.
 	fmt.Fprintln(os.Stderr)
-	ui.Successf("Verification code sent via %s", strings.ToLower(channel))
+	ui.Successf("Verification code requested")
+	ui.Infof("If a pending registration matches this email and phone number, a code is on its way via %s.", strings.ToLower(channel))
+	ui.Infof("No code? Check that --email and --phone match what you registered with, or run \"band account register\" again.")
 	ui.Infof("Next: band account verify --phone %s --email %s --code <code-you-received>", sendCodePhone, sendCodeEmail)
 
 	return nil

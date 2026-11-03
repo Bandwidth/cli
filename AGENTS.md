@@ -420,10 +420,10 @@ agent with email/web access) to finish.
 
 ```bash
 band account register --phone +15555550100 --email you@example.com --first-name Jane --last-name Doe --accept-tos
-# → registration submitted (POST /v1/build/registrations)
+# → registration request received (POST /v1/build/registrations)
 
 band account send-code --phone +15555550100 --email you@example.com --delivery-channel sms   # or "voice"
-# → verification code sent. Choosing "sms" IS the customer's consent to
+# → verification code requested. Choosing "sms" IS the customer's consent to
 #   receive that one-time code by text — there is no separate flag for it.
 
 # STOP: the code is delivered out-of-band (a text message or phone call to
@@ -447,6 +447,14 @@ band auth status   # confirm
 1. Show the user: "Registration requires accepting the Bandwidth Build Terms of Service: https://www.bandwidth.com/legal/build-terms-of-service/"
 2. Ask the user to review and confirm they accept
 3. Only after confirmation, run the command with `--accept-tos`
+
+**Success output does not confirm delivery.** `register` and `send-code` exit 0 when the request is accepted, whether or not an email or code was actually sent. Tell the user a code or email was *requested* and ask them to confirm it arrived; never report it as sent. If the user says nothing arrived after a few minutes:
+
+- Check that `--email` and `--phone` match what they registered with (a mismatch sends nothing), and re-run `band account register` if the registration may have expired.
+- If they may already have a Bandwidth account, send them to `band auth login`, or to <https://passport.bandwidth.com/forgot-password> to reset the password.
+- Do not loop on `send-code`.
+
+`band account verify` fails with `Code supplied is not valid` for a wrong code **and** for a mismatched `--email`/`--phone`. Check the flags before retrying, and never guess codes.
 
 After calling `band account verify`, stop and tell the user they need to check their email to set a password before generating API credentials. Do not attempt to poll or wait for that step — the next CLI step (`band auth login`) requires credentials that are only available after the human finishes the browser flow.
 
