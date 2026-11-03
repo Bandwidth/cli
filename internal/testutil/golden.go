@@ -20,6 +20,7 @@ type FakeClient struct {
 	GetResult interface{}
 
 	PostResult interface{}
+	PostErr    error       // when set, Post returns it after recording path/body
 	PostPath   string      // path from the most recent Post call
 	PostBody   interface{} // body from the most recent Post call
 }
@@ -31,6 +32,9 @@ func (f *FakeClient) Get(_ context.Context, path string, result interface{}) err
 func (f *FakeClient) Post(_ context.Context, path string, body, result interface{}) error {
 	f.PostPath = path
 	f.PostBody = body
+	if f.PostErr != nil {
+		return f.PostErr
+	}
 	if result == nil {
 		return nil
 	}
@@ -58,15 +62,26 @@ func NewTestRoot(child *cobra.Command) *cobra.Command {
 // CaptureStdout runs fn while capturing everything written to os.Stdout.
 func CaptureStdout(t *testing.T, fn func()) string {
 	t.Helper()
-	orig := os.Stdout
+	return capture(t, &os.Stdout, fn)
+}
+
+// CaptureStderr runs fn while capturing everything written to os.Stderr.
+func CaptureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return capture(t, &os.Stderr, fn)
+}
+
+func capture(t *testing.T, target **os.File, fn func()) string {
+	t.Helper()
+	orig := *target
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Stdout = w
+	*target = w
 	fn()
 	w.Close()
-	os.Stdout = orig
+	*target = orig
 	out, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)

@@ -1,11 +1,14 @@
 package account
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/Bandwidth/cli/internal/api"
 	"github.com/Bandwidth/cli/internal/cmdutil"
 	"github.com/Bandwidth/cli/internal/output"
 	"github.com/Bandwidth/cli/internal/ui"
@@ -40,6 +43,15 @@ has no CLI equivalent.`,
 	RunE:    runVerify,
 }
 
+// hintOnRejectedCode points at the likely causes of a 400, since a mistyped
+// --email or --phone is reported the same way as a wrong code.
+func hintOnRejectedCode(err error) {
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
+		ui.Infof("Check that --email and --phone match the ones you registered with. If it has been a while, run \"band account register\" again.")
+	}
+}
+
 func runVerify(cmd *cobra.Command, args []string) error {
 	client, _, err := registrationClient("")
 	if err != nil {
@@ -54,6 +66,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 
 	var result interface{}
 	if err := client.Post(cmd.Context(), "/registrations/code/verify", reqBody, &result); err != nil {
+		hintOnRejectedCode(err)
 		return fmt.Errorf("verifying phone number: %w", err)
 	}
 
