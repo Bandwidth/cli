@@ -18,9 +18,10 @@ const passwordAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 
 const passwordLength = 22
 
-// realmNameRe enforces a DNS label. The two alternatives exist because a single
-// pattern permitting a trailing hyphen would emit an invalid hostname label.
-var realmNameRe = regexp.MustCompile(`^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]{0,28}[A-Za-z0-9])$`)
+// realmNameRe enforces the Bandwidth API constraint for realm names (error 33013):
+// lowercase alphanumeric only. This is stricter than a DNS label — hyphens and
+// uppercase letters are rejected by the API even though DNS labels permit them.
+var realmNameRe = regexp.MustCompile(`^[a-z0-9]+$`)
 
 // ComputeHashes returns the SIP digest hashes Bandwidth requires when creating
 // or rotating a credential. Bandwidth does not compute these server-side.
@@ -67,8 +68,8 @@ func GeneratePassword() (string, error) {
 	return b.String(), nil
 }
 
-// ValidateRealmName checks that name is a usable DNS label. The realm name
-// becomes the first label of the realm's FQDN.
+// ValidateRealmName checks that name satisfies the Bandwidth API constraint.
+// The name becomes the first label of the realm's FQDN.
 func ValidateRealmName(name string) error {
 	if name == "" {
 		return fmt.Errorf("realm name is required")
@@ -77,7 +78,7 @@ func ValidateRealmName(name string) error {
 		return fmt.Errorf("realm name %q is %d characters; maximum is 30", name, len(name))
 	}
 	if !realmNameRe.MatchString(name) {
-		return fmt.Errorf("realm name %q must be alphanumeric with internal hyphens only (a-z, A-Z, 0-9, -)", name)
+		return fmt.Errorf("realm name %q must be lowercase alphanumeric only (a-z, 0-9)", name)
 	}
 	return nil
 }
