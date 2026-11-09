@@ -304,6 +304,18 @@ func PlatformClient(accountIDOverride string) (*api.Client, string, error) {
 	return api.NewClient(apiHostForEnvironment(env), tm), acctID, nil
 }
 
+func buildAPIClient(accountIDOverride string) (api.Requester, string, error) {
+	tm, acctID, env, err := authenticate(accountIDOverride)
+	if err != nil {
+		return nil, "", err
+	}
+	return api.NewClient(apiHostForEnvironment(env)+"/v1/build", tm), acctID, nil
+}
+
+// BuildAPIClient returns an authenticated client for the Bandwidth Build API (/v1/build).
+// It is a var so tests can substitute a fake that implements api.Requester.
+var BuildAPIClient ClientFunc = buildAPIClient
+
 // InsightsClient returns a JSON client for the Bandwidth Insights API.
 // Insights is production-only (single published host), so — like
 // MessagingClient — the OAuth token must be minted against the PROD API host:

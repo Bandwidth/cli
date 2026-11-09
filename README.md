@@ -398,6 +398,14 @@ Sub-accounts (formerly known as sites) are the top-level container. Locations (f
 | `band account send-code` | Send (or resend) a phone verification code (`--delivery-channel sms\|voice`, required) |
 | `band account verify` | Verify a phone number with the code from `send-code` |
 
+### Build account features
+
+| Command | What it does |
+|---------|-------------|
+| `band build sip-trunk --transport udp\|tls` | Opt the account in to SIP trunks (`tls` also provisions a UDP trunk; one trunk per transport) |
+
+SIP trunk provisioning is asynchronous: success means the request was accepted (`state: PROVISIONING`), and there is no status command yet. A 409 (exit 4) means the account already has a trunk of that transport, a request is in progress, or account provisioning hasn't finished.
+
 ### Applications
 
 | Command | What it does |
