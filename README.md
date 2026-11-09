@@ -554,6 +554,7 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 | `band sip credential list --realm <realm>` | List a realm's credentials (pagination is not implemented — a full 500-credential page warns on stderr that the list may be truncated) |
 | `band sip credential get <credential-id> --realm <realm>` | Get one credential |
 | `band sip credential delete <credential-id> --realm <realm>` | Delete a credential |
+| `band sip trunk create --transport udp\|tls` | Opt a Build account in to SIP trunks (`tls` also provisions a UDP trunk; one trunk per transport). Async: success means accepted (`state: PROVISIONING`) and there is no status command yet. A 409 (exit 4) means the trunk exists, a request is in progress, or account provisioning hasn't finished |
 | `band sip status` | Probe whether this account can use SIP provisioning (resolves the `unknown` capability from `band auth status`) |
 
 ### Porting

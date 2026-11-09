@@ -40,6 +40,9 @@ var Cmd = &cobra.Command{
   band sip credential get 870880 --realm vapi --plain
   band sip credential delete 870880 --realm vapi --plain
 
+  # Build account SIP trunks
+  band sip trunk create --transport tls --plain
+
   # Status
   band sip status --plain`,
 }
