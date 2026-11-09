@@ -357,7 +357,7 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 ### Build SIP Trunks
 
-- **`band build sip-trunk --transport udp|tls` opts a Build account in to SIP trunks.** `udp` provisions a UDP trunk; `tls` provisions a UDP trunk and a TLS trunk. An account can have one trunk per transport, so a UDP-only account can still request `tls` later. It is an opt-in because SIP Auth uses a limited number of ports. This is separate from `band sip realm`/`credential` (SIP digest auth).
+- **`band sip trunk create --transport udp|tls` opts a Build account in to SIP trunks.** `udp` provisions a UDP trunk; `tls` provisions a UDP trunk and a TLS trunk. An account can have one trunk per transport, so a UDP-only account can still request `tls` later. It is an opt-in because SIP Auth uses a limited number of ports. It lives in the `band sip` group but calls the Build API, not the Dashboard API used by `realm`/`credential` (SIP digest auth).
 - **`--transport` is required.** A missing or invalid value exits **6** with no request made.
 - **A 202 means accepted, not ready.** `--plain` returns `{accountId, message, state, transport}` with `state: "PROVISIONING"`. There is no status/GET endpoint yet, so there is no `--wait`; do not report the trunks as usable.
 - **A 409 exits 4 and is ambiguous:** the account already has a trunk of that transport, a request is already in progress, or account provisioning hasn't finished. Do not retry blindly.
@@ -466,7 +466,7 @@ band auth status   # confirm
 
 After calling `band account verify`, stop and tell the user they need to check their email to set a password before generating API credentials. Do not attempt to poll or wait for that step — the next CLI step (`band auth login`) requires credentials that are only available after the human finishes the browser flow.
 
-**SIP trunks are opt-in** through `band build sip-trunk --transport udp|tls` (see [Build SIP Trunks](#build-sip-trunks)); they are not part of account provisioning.
+**SIP trunks are opt-in** through `band sip trunk create --transport udp|tls` (see [Build SIP Trunks](#build-sip-trunks)); they are not part of account provisioning.
 
 **After login, the account already has a voice app and a phone number.** Build accounts ship with both pre-provisioned. Run `band app list --plain` to discover the voice app — do **not** call `app create` or `number order` on a fresh Build account, you already have what you need to make a call. (`band number list` doesn't work on Build yet; the pre-provisioned number is reachable via the account portal and already wired to the default voice app.)
 

@@ -22,7 +22,6 @@ import (
 	accountcmd "github.com/Bandwidth/cli/cmd/account"
 	appcmd "github.com/Bandwidth/cli/cmd/app"
 	authcmd "github.com/Bandwidth/cli/cmd/auth"
-	buildcmd "github.com/Bandwidth/cli/cmd/build"
 	bxmlcmd "github.com/Bandwidth/cli/cmd/bxml"
 	callcmd "github.com/Bandwidth/cli/cmd/call"
 	customerprofilecmd "github.com/Bandwidth/cli/cmd/customerprofile"
@@ -104,7 +103,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&environment, "environment", "", "API environment: prod, test (overrides config)")
 	rootCmd.AddCommand(authcmd.Cmd)
 	rootCmd.AddCommand(accountcmd.Cmd)
-	rootCmd.AddCommand(buildcmd.Cmd)
 	rootCmd.AddCommand(sitecmd.Cmd)
 	rootCmd.AddCommand(sipcmd.Cmd)
 	rootCmd.AddCommand(locationcmd.Cmd)

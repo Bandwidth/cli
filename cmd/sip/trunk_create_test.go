@@ -1,4 +1,4 @@
-package build
+package sip
 
 import (
 	"errors"
@@ -9,21 +9,21 @@ import (
 	"github.com/Bandwidth/cli/internal/testutil"
 )
 
-// swapBuildClient substitutes buildClient with fake, restoring it on cleanup; no t.Parallel() on callers (mutates a global).
-func swapBuildClient(t *testing.T, fake *testutil.FakeClient) {
+// swapTrunkClient substitutes trunkClient with fake, restoring it on cleanup; no t.Parallel() on callers (mutates a global).
+func swapTrunkClient(t *testing.T, fake *testutil.FakeClient) {
 	t.Helper()
-	orig := buildClient
-	t.Cleanup(func() { buildClient = orig })
-	buildClient = func(string) (api.Requester, string, error) {
+	orig := trunkClient
+	t.Cleanup(func() { trunkClient = orig })
+	trunkClient = func(string) (api.Requester, string, error) {
 		return fake, "9900001", nil
 	}
-	t.Cleanup(func() { sipTrunkTransport = "" })
+	t.Cleanup(func() { trunkTransport = "" })
 }
 
-func runSipTrunkCmd(t *testing.T, args ...string) (string, error) {
+func runTrunkCreateCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	root := testutil.NewTestRoot(sipTrunkCmd)
-	root.SetArgs(append([]string{"sip-trunk"}, args...))
+	root := testutil.NewTestRoot(trunkCreateCmd)
+	root.SetArgs(append([]string{"create"}, args...))
 	var execErr error
 	out := testutil.CaptureStdout(t, func() { execErr = root.Execute() })
 	return out, execErr
@@ -40,9 +40,9 @@ func TestSipTrunkPlainOutput(t *testing.T) {
 		},
 		"errors": []interface{}{},
 	}}
-	swapBuildClient(t, fake)
+	swapTrunkClient(t, fake)
 
-	out, err := runSipTrunkCmd(t, "--transport", "tls", "--plain")
+	out, err := runTrunkCreateCmd(t, "--transport", "tls", "--plain")
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -62,9 +62,9 @@ func TestSipTrunkPlainOutput(t *testing.T) {
 
 func TestSipTrunkNormalizesTransport(t *testing.T) {
 	fake := &testutil.FakeClient{PostResult: map[string]interface{}{"data": map[string]interface{}{"state": "PROVISIONING"}}}
-	swapBuildClient(t, fake)
+	swapTrunkClient(t, fake)
 
-	if _, err := runSipTrunkCmd(t, "--transport", " udp ", "--plain"); err != nil {
+	if _, err := runTrunkCreateCmd(t, "--transport", " udp ", "--plain"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	body, _ := fake.PostBody.(map[string]interface{})
@@ -76,9 +76,9 @@ func TestSipTrunkNormalizesTransport(t *testing.T) {
 func TestSipTrunkInvalidTransportIsFlagError(t *testing.T) {
 	for _, args := range [][]string{{}, {"--transport", "tcp"}} {
 		fake := &testutil.FakeClient{}
-		swapBuildClient(t, fake)
+		swapTrunkClient(t, fake)
 
-		_, err := runSipTrunkCmd(t, args...)
+		_, err := runTrunkCreateCmd(t, args...)
 		if err == nil {
 			t.Fatalf("args %v: expected error", args)
 		}
@@ -93,9 +93,9 @@ func TestSipTrunkInvalidTransportIsFlagError(t *testing.T) {
 
 func TestSipTrunkConflictExitsFour(t *testing.T) {
 	fake := &testutil.FakeClient{PostErr: &api.APIError{StatusCode: 409, Body: "conflict"}}
-	swapBuildClient(t, fake)
+	swapTrunkClient(t, fake)
 
-	_, err := runSipTrunkCmd(t, "--transport", "udp", "--plain")
+	_, err := runTrunkCreateCmd(t, "--transport", "udp", "--plain")
 	if err == nil {
 		t.Fatal("expected error")
 	}
