@@ -12,7 +12,7 @@ make test    # run tests
 make lint    # run golangci-lint
 ```
 
-Requires Go 1.27.3+ and [golangci-lint](https://golangci-lint.run/welcome/install/).
+Requires Go 1.27.4+ and [golangci-lint](https://golangci-lint.run/welcome/install/).
 
 Go 1.27.3 includes the `crypto/x509` fix rejecting the compromised eMudhra
 intermediate certificates. CI and release builds select the toolchain from
