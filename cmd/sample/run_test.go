@@ -61,3 +61,19 @@ func TestCollectExtraEnvNoRequirements(t *testing.T) {
 		t.Errorf("got %v, want empty map", got)
 	}
 }
+
+func TestCollectExtraEnvReportsMissingForVoiceBridge(t *testing.T) {
+	t.Setenv("USER_NUMBER", "")
+
+	_, err := collectExtraEnv("voice-bridge", "python", catalog["voice-bridge"])
+	if err == nil {
+		t.Fatal("expected an error when USER_NUMBER is unset, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "USER_NUMBER") {
+		t.Errorf("error should name the missing variable, got: %s", msg)
+	}
+	if !strings.Contains(msg, "USER_NUMBER=...") {
+		t.Errorf("hint should show the missing variable, got: %s", msg)
+	}
+}

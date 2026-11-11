@@ -1,6 +1,6 @@
 module github.com/Bandwidth/cli
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/briandowns/spinner v1.23.2

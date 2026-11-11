@@ -19,6 +19,19 @@ type langSetup struct {
 	HealthPath string
 }
 
+// voiceConfig describes how to wire a sample app up for Programmable Voice callbacks.
+type voiceConfig struct {
+	// InitiateCallbackPath is appended to the ngrok base URL and used as the voice
+	// application's CallInitiatedCallbackUrl.
+	InitiateCallbackPath string
+	// StatusCallbackPath is appended to the ngrok base URL and used as the voice
+	// application's CallStatusCallbackUrl. When empty, InitiateCallbackPath is used.
+	StatusCallbackPath string
+	// DialAnswerPath is appended to the ngrok base URL and used as the answer URL
+	// when `band sample run --call-to` auto-initiates an outbound call.
+	DialAnswerPath string
+}
+
 // SampleEntry describes one sample app and its variants.
 type SampleEntry struct {
 	Description string
@@ -28,6 +41,8 @@ type SampleEntry struct {
 	ExtraEnv []envPrompt
 	// Setup maps language name → build/run instructions.
 	Setup map[string]langSetup
+	// Voice is non-nil when the sample expects Programmable Voice callbacks.
+	Voice *voiceConfig
 	// Port is the default local port the app listens on.
 	Port int
 }
@@ -51,20 +66,146 @@ var catalog = map[string]*SampleEntry{
 				HealthPath: "/health",
 			},
 		},
+		Voice: &voiceConfig{
+			InitiateCallbackPath: "/webhooks/bandwidth/voice/initiate",
+			StatusCallbackPath:   "/webhooks/bandwidth/voice/status",
+			DialAnswerPath:       "/webhooks/bandwidth/voice/initiate",
+		},
 		Port: 3000,
 	},
 	"voice-gather": {
 		Description: "In-call DTMF gather example",
 		Repos: map[string]string{
-			"python": "https://github.com/Bandwidth-Samples/in-call-gather-python",
+			"python": "https://github.com/Bandwidth-Samples/voice-gather-python",
+			"node":   "https://github.com/Bandwidth-Samples/voice-gather-js",
+			"java":   "https://github.com/Bandwidth-Samples/voice-gather-java",
 		},
 		Setup: map[string]langSetup{
 			"python": {
 				AppDir:     ".",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
-				RunCmd:     []string{".venv/bin/python3", "app.py"},
+				RunCmd:     []string{".venv/bin/python3", "main.py"},
 				HealthPath: "/",
 			},
+			"node": {
+				AppDir:     ".",
+				InstallCmd: []string{"npm", "i"},
+				RunCmd:     []string{"npm", "start"},
+				HealthPath: "/",
+			},
+			"java": {
+				AppDir:     ".",
+				InstallCmd: []string{"mvn", "package", "-q"},
+				RunCmd:     []string{"mvn", "spring-boot:run"},
+				HealthPath: "/",
+			},
+		},
+		Voice: &voiceConfig{
+			InitiateCallbackPath: "/callbacks/outbound/voice",
+			DialAnswerPath:       "/callbacks/outbound/voice",
+		},
+		Port: 3000,
+	},
+	"voice-record": {
+		Description: "Record a message from a call (voicemail-style)",
+		Repos: map[string]string{
+			"python": "https://github.com/Bandwidth-Samples/voice-record-python",
+			"node":   "https://github.com/Bandwidth-Samples/voice-record-js",
+			"java":   "https://github.com/Bandwidth-Samples/voice-record-java",
+		},
+		Setup: map[string]langSetup{
+			"python": {
+				AppDir:     ".",
+				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
+				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				HealthPath: "/",
+			},
+			"node": {
+				AppDir:     ".",
+				InstallCmd: []string{"npm", "i"},
+				RunCmd:     []string{"npm", "start"},
+				HealthPath: "/",
+			},
+			"java": {
+				AppDir:     ".",
+				InstallCmd: []string{"mvn", "package", "-q"},
+				RunCmd:     []string{"mvn", "spring-boot:run"},
+				HealthPath: "/",
+			},
+		},
+		Voice: &voiceConfig{
+			InitiateCallbackPath: "/callbacks/inbound/voice",
+			DialAnswerPath:       "/callbacks/inbound/voice",
+		},
+		Port: 3000,
+	},
+	"voice-bridge": {
+		Description: "Mask a call by bridging the caller to a configured destination number",
+		Repos: map[string]string{
+			"python": "https://github.com/Bandwidth-Samples/voice-bridge-python",
+			"node":   "https://github.com/Bandwidth-Samples/voice-bridge-js",
+			"java":   "https://github.com/Bandwidth-Samples/voice-bridge-java",
+		},
+		ExtraEnv: []envPrompt{
+			{Key: "USER_NUMBER", Description: "Phone number to bridge calls to (E.164, e.g. +19195550100)"},
+		},
+		Setup: map[string]langSetup{
+			"python": {
+				AppDir:     ".",
+				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
+				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				HealthPath: "/",
+			},
+			"node": {
+				AppDir:     ".",
+				InstallCmd: []string{"npm", "i"},
+				RunCmd:     []string{"npm", "start"},
+				HealthPath: "/",
+			},
+			"java": {
+				AppDir:     ".",
+				InstallCmd: []string{"mvn", "package", "-q"},
+				RunCmd:     []string{"mvn", "spring-boot:run"},
+				HealthPath: "/",
+			},
+		},
+		Voice: &voiceConfig{
+			InitiateCallbackPath: "/callbacks/inbound/voice",
+			DialAnswerPath:       "/callbacks/inbound/voice",
+		},
+		Port: 3000,
+	},
+	"voice-redirect-loop": {
+		Description: "Indefinitely redirect a call until interrupted (demo of Redirect and UpdateCall)",
+		Repos: map[string]string{
+			"python": "https://github.com/Bandwidth-Samples/voice-redirect-loop-python",
+			"node":   "https://github.com/Bandwidth-Samples/voice-redirect-loop-js",
+			"java":   "https://github.com/Bandwidth-Samples/voice-redirect-loop-java",
+		},
+		Setup: map[string]langSetup{
+			"python": {
+				AppDir:     ".",
+				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
+				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				HealthPath: "/",
+			},
+			"node": {
+				AppDir:     ".",
+				InstallCmd: []string{"npm", "i"},
+				RunCmd:     []string{"npm", "start"},
+				HealthPath: "/",
+			},
+			"java": {
+				AppDir:     ".",
+				InstallCmd: []string{"mvn", "package", "-q"},
+				RunCmd:     []string{"mvn", "spring-boot:run"},
+				HealthPath: "/",
+			},
+		},
+		Voice: &voiceConfig{
+			InitiateCallbackPath: "/callbacks/inbound/voice",
+			StatusCallbackPath:   "/callbacks/inbound/voice/disconnect",
+			DialAnswerPath:       "/callbacks/inbound/voice",
 		},
 		Port: 3000,
 	},

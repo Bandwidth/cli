@@ -60,6 +60,9 @@ func runSample(cmd *cobra.Command, args []string) error {
 	if !ok {
 		return fmt.Errorf("unknown sample %q — run `band sample list` to see available samples", name)
 	}
+	if entry.Voice == nil {
+		return fmt.Errorf("sample %q is not runnable yet — open a PR to add its provisioning and runtime wiring", name)
+	}
 	repoURL, ok := entry.Repos[runLanguage]
 	if !ok {
 		supported := make([]string, 0, len(entry.Repos))
@@ -130,9 +133,13 @@ func runSample(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	statusPath := entry.Voice.StatusCallbackPath
+	if statusPath == "" {
+		statusPath = entry.Voice.InitiateCallbackPath
+	}
 	appID, err := ensureVoiceApp(ctx, dashClient, acctID, "band-sample-"+name,
-		publicURL+"/webhooks/bandwidth/voice/initiate",
-		publicURL+"/webhooks/bandwidth/voice/status",
+		publicURL+entry.Voice.InitiateCallbackPath,
+		publicURL+statusPath,
 	)
 	if err != nil {
 		return err
@@ -174,9 +181,10 @@ func runSample(cmd *cobra.Command, args []string) error {
 		"BW_ACCOUNT_ID":           acctID,
 		"BW_CLIENT_ID":            clientID,
 		"BW_CLIENT_SECRET":        clientSecret,
+		"BASE_URL":                publicURL,
+		"BASE_CALLBACK_URL":       publicURL,
 		"BW_VOICE_APPLICATION_ID": appID,
 		"BW_NUMBER":               phoneNumber,
-		"BASE_URL":                publicURL,
 		"LOCAL_PORT":              strconv.Itoa(port),
 		"LOG_LEVEL":               "INFO",
 	}
@@ -203,6 +211,10 @@ func runSample(cmd *cobra.Command, args []string) error {
 	}
 	appCmd := exec.CommandContext(ctx, runExe, setup.RunCmd[1:]...)
 	appCmd.Dir = filepath.Join(cloneDir, setup.AppDir)
+	appCmd.Env = os.Environ()
+	for k, v := range envVars {
+		appCmd.Env = append(appCmd.Env, k+"="+v)
+	}
 	appCmd.Stdout = os.Stdout
 	appCmd.Stderr = os.Stderr
 	if err := appCmd.Start(); err != nil {
@@ -220,11 +232,16 @@ func runSample(cmd *cobra.Command, args []string) error {
 			time.Sleep(500 * time.Millisecond) // brief pause after health before dialing
 			fmt.Fprintf(os.Stderr, "\n[sample] Dialing %s...\n", runCallTo)
 			var resp interface{}
+			answerPath := entry.Voice.DialAnswerPath
+			if answerPath == "" {
+				answerPath = entry.Voice.InitiateCallbackPath
+			}
+			answerURL := publicURL + answerPath
 			body := callcmd.BuildCreateBody(callcmd.CreateOpts{
 				From:      phoneNumber,
 				To:        runCallTo,
 				AppID:     appID,
-				AnswerURL: publicURL + "/webhooks/bandwidth/voice/initiate",
+				AnswerURL: answerURL,
 			})
 			if err := voiceClient.Post(ctx, fmt.Sprintf("/accounts/%s/calls", acctID), body, &resp); err != nil {
 				fmt.Fprintf(os.Stderr, "[sample] call failed: %v\n", err)
@@ -303,18 +320,35 @@ func ensureCloned(ctx context.Context, repoURL, name, lang string) (string, erro
 	cloneDir := filepath.Join(home, ".band", "samples", name+"-"+lang)
 
 	if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
-		spin := ui.NewSpinner("Updating sample repo...")
-		spin.Start()
-		pullCmd := exec.CommandContext(ctx, "git", "pull", "--ff-only")
-		pullCmd.Dir = cloneDir
-		out, err := pullCmd.CombinedOutput()
-		spin.Stop()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "git pull failed (%v), proceeding with existing clone\n%s\n", err, out)
-		} else {
-			ui.Successf("Repo up to date: %s", cloneDir)
+		remoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+		remoteCmd.Dir = cloneDir
+		remoteOut, remoteErr := remoteCmd.CombinedOutput()
+		if remoteErr == nil {
+			remote := strings.TrimSpace(string(remoteOut))
+			if remote != "" && remote != repoURL {
+				backupDir := cloneDir + ".bak-" + strconv.FormatInt(time.Now().Unix(), 10)
+				if err := os.Rename(cloneDir, backupDir); err != nil {
+					return "", fmt.Errorf("existing sample clone has origin %q (expected %q), and moving it aside failed: %w", remote, repoURL, err)
+				}
+				ui.Successf("Existing clone origin mismatch; moved aside: %s", backupDir)
+			}
 		}
-		return cloneDir, nil
+		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err != nil {
+			// cloneDir was moved aside above; fall through to clone below
+		} else {
+			spin := ui.NewSpinner("Updating sample repo...")
+			spin.Start()
+			pullCmd := exec.CommandContext(ctx, "git", "pull", "--ff-only")
+			pullCmd.Dir = cloneDir
+			out, err := pullCmd.CombinedOutput()
+			spin.Stop()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "git pull failed (%v), proceeding with existing clone\n%s\n", err, out)
+			} else {
+				ui.Successf("Repo up to date: %s", cloneDir)
+			}
+			return cloneDir, nil
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cloneDir), 0o755); err != nil {
@@ -373,7 +407,9 @@ func waitForHealth(ctx context.Context, url string, timeout time.Duration) error
 		resp, err := http.Get(url)
 		if err == nil {
 			resp.Body.Close()
-			if resp.StatusCode < 300 {
+			// Many samples don't have a dedicated health endpoint; treat any
+			// non-5xx response as "the server is up".
+			if resp.StatusCode < 500 {
 				return nil
 			}
 		}
@@ -438,7 +474,7 @@ func firstPhoneNumber(ctx context.Context, client *api.Client, acctID string) (s
 	return tn, nil
 }
 
-// writeEnvFile writes env vars in `export KEY="VALUE"` format.
+// writeEnvFile writes env vars in .env format.
 func writeEnvFile(path string, vars map[string]string) error {
 	f, err := os.Create(path)
 	if err != nil {
@@ -446,7 +482,7 @@ func writeEnvFile(path string, vars map[string]string) error {
 	}
 	defer f.Close()
 	for k, v := range vars {
-		fmt.Fprintf(f, "export %s=%q\n", k, v)
+		fmt.Fprintf(f, "%s=%s\n", k, strconv.Quote(v))
 	}
 	return nil
 }
