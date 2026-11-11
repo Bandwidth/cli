@@ -623,6 +623,7 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 | `BW_MESSAGING_URL` | Override the Messaging API base URL. Messaging is production-only (no test host), so `--environment`/`BW_ENVIRONMENT` does not change it; use this for local proxies or the internal lab. |
 | `OPENAI_API_KEY` | OpenAI API key for the `live-assistant` sample (`band sample run`) |
 | `TRANSFER_TO` | Transfer destination in E.164 for the `live-assistant` sample (`band sample run`) |
+| `USER_NUMBER` | Destination number for the `voice-bridge` sample (`band sample run`) |
 
 ---
 
@@ -708,9 +709,11 @@ Want to see Bandwidth in action without writing any boilerplate? The CLI ships w
 ```sh
 band sample list                 # see what's available
 OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python
+band sample run voice-record --language python --call-to +19195550101
+USER_NUMBER=+19195550100 band sample run voice-bridge --language python --call-to +19195550101
 ```
 
-`band sample run` handles everything: clones the GitHub repo, creates a virtual environment, installs dependencies, starts an ngrok tunnel, wires your Bandwidth credentials into a `.env` file, creates or reuses a voice application, and launches the app. Pass `--call-to` and it dials a number automatically once the app is healthy.
+`band sample run` handles everything: clones the GitHub repo, installs dependencies, starts an ngrok tunnel, wires your Bandwidth credentials into a `.env` file, creates or reuses a voice application, and launches the app. Pass `--call-to` and it dials a number automatically once the app is healthy.
 
 Samples that need their own configuration read it from the environment, the same way `BW_CLIENT_ID` and `BW_CLIENT_SECRET` do. Run a sample without them and the CLI tells you which variables it expects.
 
