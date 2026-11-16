@@ -721,6 +721,8 @@ band sample run voice-redirect-loop --language python
 
 Pass `--call-to` to automatically dial a number once the app is healthy. This is only supported by samples that implement outbound call flows (for example, `voice-gather` and `live-assistant`). Inbound-only samples (for example, `voice-record`) should be tested by calling your Bandwidth number after the app starts.
 
+**Bandwidth Build accounts:** inbound-only samples temporarily update your account's default inbound voice application (`default-http-voice`) to point at the ngrok URL for this run, then restore it when the sample exits. This makes inbound testing work out of the box even when the account doesn't permit location-level routing changes via API.
+
 Samples that need their own configuration read it from the environment, the same way `BW_CLIENT_ID` and `BW_CLIENT_SECRET` do. Run a sample without them and the CLI tells you which variables it expects.
 
 ### Try the OpenAI live assistant

@@ -2,6 +2,8 @@ package sample
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -116,5 +118,121 @@ func TestEnsureVoiceAppOnNumberLocation_403WarnsAndContinues(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Bandwidth Dashboard") {
 		t.Fatalf("expected manual remediation hint, got: %s", stderr)
+	}
+}
+
+type recordingRequester struct {
+	getByPath map[string]interface{}
+	putCalls  []struct {
+		path string
+		body interface{}
+	}
+}
+
+func (r *recordingRequester) Get(_ context.Context, path string, result interface{}) error {
+	raw, ok := r.getByPath[path]
+	if !ok {
+		return &api.APIError{StatusCode: 404, Body: "not found"}
+	}
+	b, _ := json.Marshal(raw)
+	return json.Unmarshal(b, result)
+}
+func (r *recordingRequester) Post(context.Context, string, interface{}, interface{}) error {
+	return nil
+}
+func (r *recordingRequester) Put(_ context.Context, path string, body, _ interface{}) error {
+	r.putCalls = append(r.putCalls, struct {
+		path string
+		body interface{}
+	}{path: path, body: body})
+	return nil
+}
+func (r *recordingRequester) Patch(context.Context, string, interface{}, interface{}) error {
+	return nil
+}
+func (r *recordingRequester) Delete(context.Context, string, interface{}) error    { return nil }
+func (r *recordingRequester) GetRaw(context.Context, string) ([]byte, error)       { return nil, nil }
+func (r *recordingRequester) PutRaw(context.Context, string, []byte, string) error { return nil }
+
+func TestResolveInboundVoiceApp_FallsBackToDefaultHTTPVoice(t *testing.T) {
+	client := &recordingRequester{
+		getByPath: map[string]interface{}{
+			"/accounts/acct/applications": []interface{}{
+				map[string]interface{}{
+					"ApplicationId": "app-default",
+					"ServiceType":   "Voice-V2",
+					"AppName":       "default-http-voice",
+				},
+			},
+			"/accounts/acct/applications/app-default": map[string]interface{}{
+				"ApplicationResponse": map[string]interface{}{
+					"Application": map[string]interface{}{
+						"ApplicationId":            "app-default",
+						"ServiceType":              "Voice-V2",
+						"AppName":                  "default-http-voice",
+						"CallInitiatedCallbackUrl": "https://orig.example/cb",
+						"CallStatusCallbackUrl":    "https://orig.example/status",
+					},
+				},
+			},
+		},
+	}
+
+	id, name, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"})
+	if err != nil {
+		t.Fatalf("resolveInboundVoiceApp: %v", err)
+	}
+	if id != "app-default" {
+		t.Fatalf("id=%q want %q", id, "app-default")
+	}
+	if name != "default-http-voice" {
+		t.Fatalf("name=%q want %q", name, "default-http-voice")
+	}
+}
+
+func TestOverrideVoiceAppCallbacks_RestoresAndCleansState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	client := &recordingRequester{
+		getByPath: map[string]interface{}{
+			"/accounts/acct/applications/app-default": map[string]interface{}{
+				"ApplicationResponse": map[string]interface{}{
+					"Application": map[string]interface{}{
+						"ApplicationId":            "app-default",
+						"ServiceType":              "Voice-V2",
+						"AppName":                  "default-http-voice",
+						"CallInitiatedCallbackUrl": "https://orig.example/cb",
+						"CallStatusCallbackUrl":    "https://orig.example/status",
+					},
+				},
+			},
+		},
+	}
+
+	statePath, err := voiceAppOverrideStatePath("acct", "app-default")
+	if err != nil {
+		t.Fatalf("voiceAppOverrideStatePath: %v", err)
+	}
+
+	restore, err := overrideVoiceAppCallbacks(context.Background(), client, "acct", "app-default", "default-http-voice", "https://ngrok.example/callbacks/inbound/voice", "", statePath)
+	if err != nil {
+		t.Fatalf("overrideVoiceAppCallbacks: %v", err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("expected state file to exist: %v", err)
+	}
+	if len(client.putCalls) != 1 {
+		t.Fatalf("expected 1 Put call, got %d", len(client.putCalls))
+	}
+
+	if err := restore(context.Background()); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if len(client.putCalls) != 2 {
+		t.Fatalf("expected 2 Put calls after restore, got %d", len(client.putCalls))
+	}
+	if _, err := os.Stat(statePath); err == nil {
+		t.Fatalf("expected state file to be removed")
 	}
 }

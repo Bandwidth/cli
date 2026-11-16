@@ -76,6 +76,7 @@ func runSample(cmd *cobra.Command, args []string) error {
 	if entry.Voice == nil {
 		return fmt.Errorf("sample %q is not runnable yet — open a PR to add its provisioning and runtime wiring", name)
 	}
+	inboundOnly := entry.Voice.DialAnswerPath == ""
 	repoURL, ok := entry.Repos[runLanguage]
 	if !ok {
 		supported := make([]string, 0, len(entry.Repos))
@@ -148,18 +149,6 @@ func runSample(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	statusPath := entry.Voice.StatusCallbackPath
-	if statusPath == "" {
-		statusPath = entry.Voice.InitiateCallbackPath
-	}
-	appID, err := ensureVoiceApp(ctx, dashClient, acctID, "band-sample-"+name,
-		publicURL+entry.Voice.InitiateCallbackPath,
-		publicURL+statusPath,
-	)
-	if err != nil {
-		return err
-	}
-
 	numInfo, err := firstPhoneNumber(ctx, dashClient, acctID)
 	if err != nil {
 		return err
@@ -167,11 +156,69 @@ func runSample(cmd *cobra.Command, args []string) error {
 	phoneNumber := numInfo.PhoneNumber
 	ui.Successf("Using number: %s", ui.ID(phoneNumber))
 
-	ensureVoiceAppOnNumberLocationBestEffort(ctx, dashClient, acctID, phoneNumber, numInfo.SiteID, numInfo.SipPeerID, appID, "band-sample-"+name)
+	appName := "band-sample-" + name
+	appID := ""
+	var restoreCallbacks func()
+
+	if inboundOnly {
+		// For inbound-only samples, prefer updating the routed voice application's
+		// callback URLs (Build accounts ship with a default HTTP voice app that the
+		// pre-provisioned number routes to). This avoids permission-gated location
+		// assignment endpoints on restricted credentials.
+		routedID, routedName, err := resolveInboundVoiceApp(ctx, dashClient, acctID, numInfo)
+		if err != nil {
+			return err
+		}
+		appID = routedID
+
+		statePath, err := voiceAppOverrideStatePath(acctID, appID)
+		if err != nil {
+			return err
+		}
+		// If a previous run crashed, restore first.
+		_ = restoreVoiceAppOverrideIfPresent(ctx, dashClient, acctID, appID, statePath)
+
+		newInitiate := publicURL + entry.Voice.InitiateCallbackPath
+		newStatus := ""
+		if entry.Voice.StatusCallbackPath != "" {
+			newStatus = publicURL + entry.Voice.StatusCallbackPath
+		}
+
+		restore, err := overrideVoiceAppCallbacks(ctx, dashClient, acctID, appID, routedName, newInitiate, newStatus, statePath)
+		if err != nil {
+			return err
+		}
+		restoreCallbacks = func() {
+			restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := restore(restoreCtx); err != nil {
+				ui.Warnf("Failed to restore %s callbacks: %v", routedName, err)
+			}
+		}
+		defer restoreCallbacks()
+
+		ui.Successf("Inbound app overridden: %s (%s)", ui.ID(appID), routedName)
+		ui.Infof("Callback URL updated for this run and will be restored on exit.")
+	} else {
+		statusPath := entry.Voice.StatusCallbackPath
+		if statusPath == "" {
+			statusPath = entry.Voice.InitiateCallbackPath
+		}
+		appID, err = ensureVoiceApp(ctx, dashClient, acctID, appName,
+			publicURL+entry.Voice.InitiateCallbackPath,
+			publicURL+statusPath,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Optional: assign the app to the number's location for accounts that allow it.
+		ensureVoiceAppOnNumberLocationBestEffort(ctx, dashClient, acctID, phoneNumber, numInfo.SiteID, numInfo.SipPeerID, appID, appName)
+	}
 
 	// Inbound-only samples don't implement answer webhooks, so we can't auto-dial
 	// them; the correct flow is to call the Bandwidth number after the app starts.
-	if runCallTo != "" && entry.Voice.DialAnswerPath == "" {
+	if runCallTo != "" && inboundOnly {
 		return fmt.Errorf("%q does not support --call-to (it handles inbound calls only). Start the app, then call %s", name, phoneNumber)
 	}
 
@@ -639,6 +686,232 @@ func ensureVoiceApp(ctx context.Context, client *api.Client, acctID, appName, in
 	return id, nil
 }
 
+type voiceAppCallbacks struct {
+	AppID       string
+	AppName     string
+	Initiate    string
+	Status      string
+	ServiceType string
+}
+
+func getVoiceAppCallbacks(ctx context.Context, client api.Requester, acctID, appID string) (voiceAppCallbacks, error) {
+	var existing interface{}
+	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(appID)), &existing); err != nil {
+		return voiceAppCallbacks{}, fmt.Errorf("getting application: %w", err)
+	}
+	return voiceAppCallbacks{
+		AppID:       appID,
+		AppName:     extractStringField(existing, "AppName", "appName"),
+		Initiate:    extractStringField(existing, "CallInitiatedCallbackUrl", "callInitiatedCallbackUrl"),
+		Status:      extractStringField(existing, "CallStatusCallbackUrl", "callStatusCallbackUrl"),
+		ServiceType: extractStringField(existing, "ServiceType", "serviceType"),
+	}, nil
+}
+
+func setVoiceAppCallbacks(ctx context.Context, client api.Requester, acctID string, cb voiceAppCallbacks) error {
+	body := api.XMLBody{
+		RootElement: "Application",
+		Data: map[string]interface{}{
+			"ServiceType":              "Voice-V2",
+			"AppName":                  cb.AppName,
+			"CallInitiatedCallbackUrl": cb.Initiate,
+		},
+	}
+	if cb.Status != "" {
+		body.Data["CallStatusCallbackUrl"] = cb.Status
+	}
+	var result interface{}
+	if err := client.Put(ctx, fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(cb.AppID)), body, &result); err != nil {
+		return fmt.Errorf("updating application: %w", err)
+	}
+	return nil
+}
+
+type voiceAppOverrideState struct {
+	AccountID        string `json:"accountId"`
+	ApplicationID    string `json:"applicationId"`
+	AppName          string `json:"appName"`
+	OriginalInitiate string `json:"originalCallInitiatedCallbackUrl"`
+	OriginalStatus   string `json:"originalCallStatusCallbackUrl"`
+	CreatedAt        string `json:"createdAt"`
+}
+
+func voiceAppOverrideStatePath(acctID, appID string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".band", "sample-state", "voice-app-overrides")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating sample state dir: %w", err)
+	}
+	safe := strings.ReplaceAll(appID, string(os.PathSeparator), "_")
+	return filepath.Join(dir, acctID+"-"+safe+".json"), nil
+}
+
+func restoreVoiceAppOverrideIfPresent(ctx context.Context, client api.Requester, acctID, appID, statePath string) error {
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return nil // nothing to restore
+	}
+	var st voiceAppOverrideState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return nil
+	}
+	if st.ApplicationID != appID || st.AccountID != acctID {
+		return nil
+	}
+	restore := voiceAppCallbacks{AppID: appID, AppName: st.AppName, Initiate: st.OriginalInitiate, Status: st.OriginalStatus}
+	if err := setVoiceAppCallbacks(ctx, client, acctID, restore); err != nil {
+		return err
+	}
+	_ = os.Remove(statePath)
+	return nil
+}
+
+// overrideVoiceAppCallbacks updates a voice application's callback URLs for the
+// duration of a run and returns a restore function. When newStatus is empty, the
+// application's existing CallStatusCallbackUrl is preserved.
+func overrideVoiceAppCallbacks(ctx context.Context, client api.Requester, acctID, appID, appName, newInitiate, newStatus, statePath string) (func(context.Context) error, error) {
+	current, err := getVoiceAppCallbacks(ctx, client, acctID, appID)
+	if err != nil {
+		return nil, err
+	}
+	if current.ServiceType != "" && current.ServiceType != "Voice-V2" {
+		return nil, fmt.Errorf("application %s is %s, expected Voice-V2", appID, current.ServiceType)
+	}
+	if appName == "" {
+		appName = current.AppName
+	}
+	original := voiceAppCallbacks{AppID: appID, AppName: appName, Initiate: current.Initiate, Status: current.Status}
+	target := voiceAppCallbacks{AppID: appID, AppName: appName, Initiate: newInitiate, Status: current.Status}
+	if newStatus != "" {
+		target.Status = newStatus
+	}
+
+	st := voiceAppOverrideState{
+		AccountID:        acctID,
+		ApplicationID:    appID,
+		AppName:          appName,
+		OriginalInitiate: original.Initiate,
+		OriginalStatus:   original.Status,
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+	}
+	b, _ := json.MarshalIndent(st, "", "  ")
+	if err := os.WriteFile(statePath, b, 0o600); err != nil {
+		return nil, fmt.Errorf("writing override state: %w", err)
+	}
+
+	if err := setVoiceAppCallbacks(ctx, client, acctID, target); err != nil {
+		return nil, err
+	}
+
+	return func(restoreCtx context.Context) error {
+		err := setVoiceAppCallbacks(restoreCtx, client, acctID, original)
+		_ = os.Remove(statePath)
+		return err
+	}, nil
+}
+
+// resolveInboundVoiceApp tries to determine which Voice-V2 app inbound calls to
+// the selected number are routed to. If it can't be resolved, it falls back to
+// an application named "default-http-voice" when present.
+func resolveInboundVoiceApp(ctx context.Context, client api.Requester, acctID string, numInfo sampleNumberInfo) (string, string, error) {
+	// Best-effort: if the number list response already includes an application ID, use it.
+	if numInfo.VoiceAppID != "" {
+		cb, err := getVoiceAppCallbacks(ctx, client, acctID, numInfo.VoiceAppID)
+		if err == nil {
+			return numInfo.VoiceAppID, cb.AppName, nil
+		}
+	}
+
+	var listResp interface{}
+	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/applications", acctID), &listResp); err != nil {
+		return "", "", fmt.Errorf("listing applications: %w", err)
+	}
+	if id := findVoiceAppByName(listResp, "default-http-voice"); id != "" {
+		cb, _ := getVoiceAppCallbacks(ctx, client, acctID, id)
+		name := cb.AppName
+		if name == "" {
+			name = "default-http-voice"
+		}
+		return id, name, nil
+	}
+
+	// If there's exactly one voice app, use it.
+	voiceApps := findAllVoiceApps(listResp)
+	if len(voiceApps) == 1 {
+		id := voiceApps[0].id
+		name := voiceApps[0].name
+		return id, name, nil
+	}
+	return "", "", fmt.Errorf("could not resolve inbound Voice-V2 application for %s (no default-http-voice found)", numInfo.PhoneNumber)
+}
+
+type voiceAppSummary struct {
+	id   string
+	name string
+}
+
+func findAllVoiceApps(resp interface{}) []voiceAppSummary {
+	data, _ := json.Marshal(resp)
+	var list []map[string]interface{}
+	if json.Unmarshal(data, &list) == nil {
+		var out []voiceAppSummary
+		for _, item := range list {
+			svc, _ := item["ServiceType"].(string)
+			if svc != "" && svc != "Voice-V2" {
+				continue
+			}
+			id, _ := item["ApplicationId"].(string)
+			if id == "" {
+				id, _ = item["applicationId"].(string)
+			}
+			if id == "" {
+				continue
+			}
+			name, _ := item["AppName"].(string)
+			if name == "" {
+				name, _ = item["appName"].(string)
+			}
+			out = append(out, voiceAppSummary{id: id, name: name})
+		}
+		return out
+	}
+	return nil
+}
+
+func findVoiceAppByName(resp interface{}, name string) string {
+	data, _ := json.Marshal(resp)
+	var list []map[string]interface{}
+	if json.Unmarshal(data, &list) == nil {
+		for _, item := range list {
+			appName := ""
+			if v, ok := item["AppName"].(string); ok {
+				appName = v
+			}
+			if appName == "" {
+				appName, _ = item["appName"].(string)
+			}
+			if appName != name {
+				continue
+			}
+			svc, _ := item["ServiceType"].(string)
+			if svc != "" && svc != "Voice-V2" {
+				continue
+			}
+			if id, ok := item["ApplicationId"].(string); ok && id != "" {
+				return id
+			}
+			if id, ok := item["applicationId"].(string); ok && id != "" {
+				return id
+			}
+		}
+	}
+	// Fall back to the older helper for unexpected shapes (type filtering is best-effort).
+	return findAppByName(resp, name)
+}
+
 // ensureVoiceAppOnNumberLocationBestEffort assigns the voice application to the
 // phone number's location (SIP peer) and enables HTTP origination on that
 // location. Some credentials (notably Bandwidth Build OAuth creds) can't read
@@ -701,6 +974,7 @@ type sampleNumberInfo struct {
 	PhoneNumber string
 	SiteID      string
 	SipPeerID   string
+	VoiceAppID  string
 }
 
 func firstPhoneNumber(ctx context.Context, client *api.Client, acctID string) (sampleNumberInfo, error) {
@@ -720,7 +994,8 @@ func firstPhoneNumber(ctx context.Context, client *api.Client, acctID string) (s
 	// response to avoid that extra permission gate.
 	siteID := extractStringField(resp, "SiteId", "SubAccountId", "SubaccountId", "siteId", "subAccountId", "subaccountId")
 	peerID := extractStringField(resp, "SipPeerId", "SippeerId", "SipPeerID", "sipPeerId", "sippeersId", "LocationId", "locationId")
-	return sampleNumberInfo{PhoneNumber: tn, SiteID: siteID, SipPeerID: peerID}, nil
+	voiceAppID := extractStringField(resp, "ApplicationId", "VoiceApplicationId", "voiceApplicationId", "applicationId")
+	return sampleNumberInfo{PhoneNumber: tn, SiteID: siteID, SipPeerID: peerID, VoiceAppID: voiceAppID}, nil
 }
 
 // writeEnvFile writes env vars in .env format.
