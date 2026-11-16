@@ -17,6 +17,9 @@ type langSetup struct {
 	RunCmd []string
 	// HealthPath is the HTTP path polled to detect a ready server.
 	HealthPath string
+	// MinPython is the minimum required Python version for python variants,
+	// in major.minor form (e.g. "3.11"). Empty means "no minimum enforced".
+	MinPython string
 }
 
 // voiceConfig describes how to wire a sample app up for Programmable Voice callbacks.
@@ -62,8 +65,9 @@ var catalog = map[string]*SampleEntry{
 			"python": {
 				AppDir:     "app",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "app/requirements.txt"},
-				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				RunCmd:     []string{".venv/bin/python", "main.py"},
 				HealthPath: "/health",
+				MinPython:  "3.11",
 			},
 		},
 		Voice: &voiceConfig{
@@ -84,8 +88,9 @@ var catalog = map[string]*SampleEntry{
 			"python": {
 				AppDir:     ".",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
-				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				RunCmd:     []string{".venv/bin/python", "main.py"},
 				HealthPath: "/",
+				MinPython:  "3.11",
 			},
 			"node": {
 				AppDir:     ".",
@@ -117,8 +122,9 @@ var catalog = map[string]*SampleEntry{
 			"python": {
 				AppDir:     ".",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
-				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				RunCmd:     []string{".venv/bin/python", "main.py"},
 				HealthPath: "/",
+				MinPython:  "3.11",
 			},
 			"node": {
 				AppDir:     ".",
@@ -135,7 +141,6 @@ var catalog = map[string]*SampleEntry{
 		},
 		Voice: &voiceConfig{
 			InitiateCallbackPath: "/callbacks/inbound/voice",
-			DialAnswerPath:       "/callbacks/inbound/voice",
 		},
 		Port: 3000,
 	},
@@ -153,8 +158,9 @@ var catalog = map[string]*SampleEntry{
 			"python": {
 				AppDir:     ".",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
-				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				RunCmd:     []string{".venv/bin/python", "main.py"},
 				HealthPath: "/",
+				MinPython:  "3.11",
 			},
 			"node": {
 				AppDir:     ".",
@@ -171,7 +177,6 @@ var catalog = map[string]*SampleEntry{
 		},
 		Voice: &voiceConfig{
 			InitiateCallbackPath: "/callbacks/inbound/voice",
-			DialAnswerPath:       "/callbacks/inbound/voice",
 		},
 		Port: 3000,
 	},
@@ -186,8 +191,9 @@ var catalog = map[string]*SampleEntry{
 			"python": {
 				AppDir:     ".",
 				InstallCmd: []string{".venv/bin/pip", "install", "-q", "-r", "requirements.txt"},
-				RunCmd:     []string{".venv/bin/python3", "main.py"},
+				RunCmd:     []string{".venv/bin/python", "main.py"},
 				HealthPath: "/",
+				MinPython:  "3.11",
 			},
 			"node": {
 				AppDir:     ".",
@@ -205,7 +211,6 @@ var catalog = map[string]*SampleEntry{
 		Voice: &voiceConfig{
 			InitiateCallbackPath: "/callbacks/inbound/voice",
 			StatusCallbackPath:   "/callbacks/inbound/voice/disconnect",
-			DialAnswerPath:       "/callbacks/inbound/voice",
 		},
 		Port: 3000,
 	},

@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,10 +39,20 @@ Samples that need their own configuration read it from the environment, the same
 way BW_CLIENT_ID and BW_CLIENT_SECRET work. Run the command without them to see
 which variables a given sample expects.
 
-Pass --call-to to automatically dial a number once the app is ready.`,
+Python samples require Python 3.11+.
+
+Pass --call-to to automatically dial a number once the app is ready. This is
+only supported by samples that implement outbound call flows (e.g. voice-gather,
+live-assistant). Inbound-only samples (e.g. voice-record) should be tested by
+calling your Bandwidth number after the app starts.`,
 	Example: `  band sample run live-assistant --language python
   OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python
-  OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python --call-to +19195550101`,
+  OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python --call-to +19195550101
+
+  band sample run voice-gather --language python --call-to +19195550101
+  band sample run voice-redirect-loop --language python
+  band sample run voice-record --language python
+  USER_NUMBER=+19195550100 band sample run voice-bridge --language python`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSample,
 }
@@ -69,6 +82,7 @@ func runSample(cmd *cobra.Command, args []string) error {
 		for l := range entry.Repos {
 			supported = append(supported, l)
 		}
+		sort.Strings(supported)
 		return fmt.Errorf("language %q not supported for %q (available: %s)", runLanguage, name, strings.Join(supported, ", "))
 	}
 	setup, ok := entry.Setup[runLanguage]
@@ -93,7 +107,8 @@ func runSample(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Prerequisites ────────────────────────────────────────────────────────
-	if err := checkPrerequisites(runLanguage); err != nil {
+	pythonExe, err := checkPrerequisites(runLanguage, setup.MinPython)
+	if err != nil {
 		return err
 	}
 
@@ -151,17 +166,40 @@ func runSample(cmd *cobra.Command, args []string) error {
 	}
 	ui.Successf("Using number: %s", ui.ID(phoneNumber))
 
+	if err := ensureVoiceAppOnNumberLocation(ctx, dashClient, acctID, phoneNumber, appID); err != nil {
+		return err
+	}
+
+	// Inbound-only samples don't implement answer webhooks, so we can't auto-dial
+	// them; the correct flow is to call the Bandwidth number after the app starts.
+	if runCallTo != "" && entry.Voice.DialAnswerPath == "" {
+		return fmt.Errorf("%q does not support --call-to (it handles inbound calls only). Start the app, then call %s", name, phoneNumber)
+	}
+
 	// ── Python venv setup (language-specific) ───────────────────────────────
 	if runLanguage == "python" {
+		if pythonExe == "" {
+			return fmt.Errorf("python interpreter not resolved")
+		}
 		venvSpin := ui.NewSpinner("Creating Python virtual environment...")
 		venvSpin.Start()
-		venvCmd := exec.CommandContext(ctx, "python3", "-m", "venv", ".venv")
+		venvCmd := exec.CommandContext(ctx, pythonExe, "-m", "venv", ".venv")
 		venvCmd.Dir = cloneDir
 		if out, err := venvCmd.CombinedOutput(); err != nil {
 			venvSpin.Stop()
 			return fmt.Errorf("creating venv: %w\n%s", err, out)
 		}
 		venvSpin.Stop()
+
+		pipSpin := ui.NewSpinner("Upgrading pip...")
+		pipSpin.Start()
+		upgradeCmd := exec.CommandContext(ctx, filepath.Join(cloneDir, ".venv", "bin", "pip"), "install", "-q", "--upgrade", "pip", "setuptools", "wheel")
+		upgradeCmd.Dir = cloneDir
+		if out, err := upgradeCmd.CombinedOutput(); err != nil {
+			pipSpin.Stop()
+			return fmt.Errorf("upgrading pip: %w\n%s", err, out)
+		}
+		pipSpin.Stop()
 	}
 
 	// ── Install dependencies ─────────────────────────────────────────────────
@@ -232,11 +270,7 @@ func runSample(cmd *cobra.Command, args []string) error {
 			time.Sleep(500 * time.Millisecond) // brief pause after health before dialing
 			fmt.Fprintf(os.Stderr, "\n[sample] Dialing %s...\n", runCallTo)
 			var resp interface{}
-			answerPath := entry.Voice.DialAnswerPath
-			if answerPath == "" {
-				answerPath = entry.Voice.InitiateCallbackPath
-			}
-			answerURL := publicURL + answerPath
+			answerURL := publicURL + entry.Voice.DialAnswerPath
 			body := callcmd.BuildCreateBody(callcmd.CreateOpts{
 				From:      phoneNumber,
 				To:        runCallTo,
@@ -288,11 +322,19 @@ func collectExtraEnv(name, lang string, entry *SampleEntry) (map[string]string, 
 }
 
 // checkPrerequisites verifies that git, ngrok, and the language runtime exist.
-func checkPrerequisites(lang string) error {
+// Returns the resolved Python interpreter path when lang=="python".
+func checkPrerequisites(lang string, minPython string) (string, error) {
 	required := []string{"git", "ngrok"}
+	var pythonExe string
 	switch lang {
 	case "python":
-		required = append(required, "python3")
+		var version string
+		var err error
+		pythonExe, version, err = resolvePython(minPython)
+		if err != nil {
+			return "", err
+		}
+		ui.Successf("Using Python: %s (%s)", ui.ID(pythonExe), version)
 	case "node":
 		required = append(required, "node", "npm")
 	case "java":
@@ -305,9 +347,133 @@ func checkPrerequisites(lang string) error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required tools: %s", strings.Join(missing, ", "))
+		return "", fmt.Errorf("missing required tools: %s", strings.Join(missing, ", "))
 	}
-	return nil
+	return pythonExe, nil
+}
+
+type pythonVersion struct {
+	Major int
+	Minor int
+	Patch int
+}
+
+func (v pythonVersion) String() string {
+	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+}
+
+func parsePythonVersion(s string) (pythonVersion, bool) {
+	parts := strings.Split(strings.TrimSpace(s), ".")
+	if len(parts) < 2 {
+		return pythonVersion{}, false
+	}
+	atoi := func(x string) (int, bool) {
+		n, err := strconv.Atoi(x)
+		return n, err == nil
+	}
+	maj, ok := atoi(parts[0])
+	if !ok {
+		return pythonVersion{}, false
+	}
+	min, ok := atoi(parts[1])
+	if !ok {
+		return pythonVersion{}, false
+	}
+	patch := 0
+	if len(parts) >= 3 {
+		if p, ok := atoi(parts[2]); ok {
+			patch = p
+		}
+	}
+	return pythonVersion{Major: maj, Minor: min, Patch: patch}, true
+}
+
+func (v pythonVersion) less(o pythonVersion) bool {
+	if v.Major != o.Major {
+		return v.Major < o.Major
+	}
+	if v.Minor != o.Minor {
+		return v.Minor < o.Minor
+	}
+	return v.Patch < o.Patch
+}
+
+func parseMinPython(min string) (pythonVersion, bool) {
+	if min == "" {
+		return pythonVersion{}, false
+	}
+	v, ok := parsePythonVersion(min + ".0")
+	return v, ok
+}
+
+type pythonCandidate struct {
+	Path    string
+	Version pythonVersion
+}
+
+// resolvePython picks the newest python3.x on PATH that satisfies minPython (major.minor).
+// If minPython is empty, it picks the newest python3.x available.
+func resolvePython(minPython string) (string, string, error) {
+	min, hasMin := parseMinPython(minPython)
+	if minPython != "" && !hasMin {
+		return "", "", fmt.Errorf("invalid minimum python version %q (expected major.minor, e.g. 3.11)", minPython)
+	}
+
+	// Collect candidate executable names from PATH: python3 plus any python3.N we can see.
+	candidates := map[string]struct{}{"python3": {}}
+	re := regexp.MustCompile(`^python3\.(\d+)$`)
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if name == "python3" || re.MatchString(name) {
+				candidates[name] = struct{}{}
+			}
+		}
+	}
+
+	var found []pythonCandidate
+	for name := range candidates {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		out, err := exec.Command(path, "-c", `import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")`).CombinedOutput()
+		if err != nil {
+			continue
+		}
+		v, ok := parsePythonVersion(string(out))
+		if !ok {
+			continue
+		}
+		// Only consider python3.x
+		if v.Major != 3 {
+			continue
+		}
+		found = append(found, pythonCandidate{Path: path, Version: v})
+	}
+
+	if len(found) == 0 {
+		return "", "", fmt.Errorf("python3 not found — install Python 3.11+")
+	}
+
+	sort.Slice(found, func(i, j int) bool { return found[j].Version.less(found[i].Version) }) // desc
+
+	for _, c := range found {
+		// Choose the newest version that satisfies the minimum.
+		if !hasMin || !c.Version.less(min) {
+			return c.Path, c.Version.String(), nil
+		}
+	}
+
+	best := found[0]
+	if hasMin {
+		return "", "", fmt.Errorf("python %d.%d+ required, found %s at %s", min.Major, min.Minor, best.Version.String(), best.Path)
+	}
+	return best.Path, best.Version.String(), nil
 }
 
 // ensureCloned clones repoURL to ~/.band/samples/<name>-<lang>/ or pulls if
@@ -426,7 +592,25 @@ func ensureVoiceApp(ctx context.Context, client *api.Client, acctID, appName, in
 		return "", fmt.Errorf("listing applications: %w", err)
 	}
 	if id := findAppByName(listResp, appName); id != "" {
-		ui.Successf("Voice application (existing): %s", ui.ID(id))
+		// Keep the app but update its callback URLs for the current ngrok tunnel.
+		spin := ui.NewSpinner("Updating voice application...")
+		spin.Start()
+		var result interface{}
+		body := api.XMLBody{
+			RootElement: "Application",
+			Data: map[string]interface{}{
+				"ServiceType":              "Voice-V2",
+				"AppName":                  appName,
+				"CallInitiatedCallbackUrl": initiateURL,
+				"CallStatusCallbackUrl":    statusURL,
+			},
+		}
+		err := client.Put(ctx, fmt.Sprintf("/accounts/%s/applications/%s", acctID, url.PathEscape(id)), body, &result)
+		spin.Stop()
+		if err != nil {
+			return "", fmt.Errorf("updating voice application: %w", err)
+		}
+		ui.Successf("Voice application (updated): %s", ui.ID(id))
 		return id, nil
 	}
 
@@ -454,6 +638,54 @@ func ensureVoiceApp(ctx context.Context, client *api.Client, acctID, appName, in
 	}
 	ui.Successf("Voice application: %s", ui.ID(id))
 	return id, nil
+}
+
+// ensureVoiceAppOnNumberLocation assigns the voice application to the phone
+// number's current location (SIP peer) and enables HTTP origination on that
+// location. This is the missing piece that makes inbound calls to the number
+// reach the application's callbacks.
+func ensureVoiceAppOnNumberLocation(ctx context.Context, client *api.Client, acctID, phoneNumber, appID string) error {
+	siteID, peerID, err := numberLocation(ctx, client, phoneNumber)
+	if err != nil {
+		return err
+	}
+
+	body := api.XMLBody{
+		RootElement: "SipPeerOriginationSettings",
+		Data: map[string]interface{}{
+			"VoiceProtocol": "HTTP",
+			"HttpSettings": map[string]interface{}{
+				"HttpVoiceV2AppId": appID,
+			},
+		},
+	}
+	path := fmt.Sprintf("/accounts/%s/sites/%s/sippeers/%s/products/origination/settings",
+		acctID, url.PathEscape(siteID), url.PathEscape(peerID))
+
+	spin := ui.NewSpinner("Assigning voice application to location...")
+	spin.Start()
+	var result interface{}
+	if err := client.Post(ctx, path, body, &result); err != nil {
+		spin.Stop()
+		return fmt.Errorf("assigning voice application to location: %w", err)
+	}
+	spin.Stop()
+	ui.Successf("Voice routing set on location: %s (site %s)", ui.ID(peerID), ui.ID(siteID))
+	return nil
+}
+
+func numberLocation(ctx context.Context, client *api.Client, phoneNumber string) (siteID string, peerID string, err error) {
+	var result interface{}
+	if err := client.Get(ctx, fmt.Sprintf("/tns/%s/tndetails", url.PathEscape(phoneNumber)), &result); err != nil {
+		return "", "", fmt.Errorf("getting number details for %s: %w", phoneNumber, err)
+	}
+
+	siteID = extractStringField(result, "SiteId", "SubAccountId", "SubaccountId", "siteId", "subAccountId", "subaccountId")
+	peerID = extractStringField(result, "SipPeerId", "SippeerId", "SipPeerID", "sipPeerId", "sippeersId", "LocationId", "locationId")
+	if siteID == "" || peerID == "" {
+		return "", "", fmt.Errorf("could not determine site/location for %s (siteId=%q, sippeerId=%q)", phoneNumber, siteID, peerID)
+	}
+	return siteID, peerID, nil
 }
 
 // firstPhoneNumber returns the first in-service TN on the account.
