@@ -3,6 +3,7 @@ package sample
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -27,6 +28,7 @@ var (
 	runLanguage string
 	runCallTo   string
 	runPort     int
+	runVoiceApp string
 )
 
 var runCmd = &cobra.Command{
@@ -61,6 +63,7 @@ func init() {
 	runCmd.Flags().StringVarP(&runLanguage, "language", "l", "", "Language variant to run (required)")
 	runCmd.Flags().StringVar(&runCallTo, "call-to", "", "Phone number to call after the app is ready (E.164)")
 	runCmd.Flags().IntVar(&runPort, "port", 0, "Local port (default: from catalog)")
+	runCmd.Flags().StringVar(&runVoiceApp, "voice-app", "", "Voice-V2 application ID to use for inbound routing overrides (advanced)")
 	_ = runCmd.MarkFlagRequired("language")
 }
 
@@ -165,7 +168,18 @@ func runSample(cmd *cobra.Command, args []string) error {
 		// callback URLs (Build accounts ship with a default HTTP voice app that the
 		// pre-provisioned number routes to). This avoids permission-gated location
 		// assignment endpoints on restricted credentials.
-		routedID, routedName, err := resolveInboundVoiceApp(ctx, dashClient, acctID, numInfo)
+		overrideID := runVoiceApp
+		if overrideID == "" {
+			// Allow an explicit env override for selecting the inbound app.
+			// (Note: the runner also writes BW_VOICE_APPLICATION_ID into the sample's .env;
+			// this env var is read from the user's environment before we write that file.)
+			overrideID = os.Getenv("BW_SAMPLE_VOICE_APP_ID")
+			if overrideID == "" {
+				overrideID = os.Getenv("BW_VOICE_APPLICATION_ID")
+			}
+		}
+
+		routedID, routedName, err := resolveInboundVoiceApp(ctx, dashClient, acctID, numInfo, appName, overrideID)
 		if err != nil {
 			return err
 		}
@@ -813,44 +827,207 @@ func overrideVoiceAppCallbacks(ctx context.Context, client api.Requester, acctID
 	}, nil
 }
 
+type inboundResolution struct {
+	notes []string
+	voice []voiceAppSummary
+}
+
+func (r inboundResolution) errorf(format string, a ...interface{}) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, format, a...)
+	if len(r.notes) > 0 {
+		b.WriteString("\n\nLookups attempted:\n")
+		for _, n := range r.notes {
+			b.WriteString("  - " + n + "\n")
+		}
+	}
+	if len(r.voice) > 0 {
+		b.WriteString("\nVoice-V2 applications found:\n")
+		for _, v := range r.voice {
+			if v.name != "" {
+				fmt.Fprintf(&b, "  - %s  (%s)\n", v.name, v.id)
+			} else {
+				fmt.Fprintf(&b, "  - %s\n", v.id)
+			}
+		}
+	}
+	b.WriteString("\n\nTo override selection, pass --voice-app <app-id> or set BW_SAMPLE_VOICE_APP_ID.")
+	return errors.New(b.String())
+}
+
+func statusNote(step string, err error) string {
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) {
+		return fmt.Sprintf("%s → %d", step, apiErr.StatusCode)
+	}
+	return fmt.Sprintf("%s → %v", step, err)
+}
+
 // resolveInboundVoiceApp tries to determine which Voice-V2 app inbound calls to
-// the selected number are routed to. If it can't be resolved, it falls back to
-// an application named "default-http-voice" when present.
-func resolveInboundVoiceApp(ctx context.Context, client api.Requester, acctID string, numInfo sampleNumberInfo) (string, string, error) {
-	// Best-effort: if the number list response already includes an application ID, use it.
+// the selected number are routed to, using only endpoints that restricted
+// credentials (notably Build OAuth creds) can often access.
+func resolveInboundVoiceApp(ctx context.Context, client api.Requester, acctID string, numInfo sampleNumberInfo, sampleAppName string, overrideID string) (string, string, error) {
+	res := inboundResolution{}
+
+	if overrideID != "" {
+		cb, err := getVoiceAppCallbacks(ctx, client, acctID, overrideID)
+		if err != nil {
+			res.notes = append(res.notes, statusNote("GET /applications/<override>", err))
+			return "", "", res.errorf("failed to use --voice-app/BW_SAMPLE_VOICE_APP_ID %q: %v", overrideID, err)
+		}
+		return overrideID, cb.AppName, nil
+	}
+
+	var listResp interface{}
+	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/applications", acctID), &listResp); err != nil {
+		res.notes = append(res.notes, statusNote("GET /applications", err))
+		return "", "", res.errorf("could not list applications: %v", err)
+	}
+	res.voice = findAllVoiceApps(listResp)
+
+	// If /tns already gave us an app id, trust it.
 	if numInfo.VoiceAppID != "" {
 		cb, err := getVoiceAppCallbacks(ctx, client, acctID, numInfo.VoiceAppID)
 		if err == nil {
 			return numInfo.VoiceAppID, cb.AppName, nil
 		}
+		res.notes = append(res.notes, statusNote("GET /applications/<tn app id>", err))
 	}
 
-	var listResp interface{}
-	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/applications", acctID), &listResp); err != nil {
-		return "", "", fmt.Errorf("listing applications: %w", err)
-	}
-	if id := findVoiceAppByName(listResp, "default-http-voice"); id != "" {
-		cb, _ := getVoiceAppCallbacks(ctx, client, acctID, id)
-		name := cb.AppName
-		if name == "" {
-			name = "default-http-voice"
+	// If exactly one Voice-V2 app exists excluding band-sample-* apps, use it.
+	var nonSample []voiceAppSummary
+	for _, v := range res.voice {
+		if strings.HasPrefix(v.name, "band-sample-") {
+			continue
 		}
-		return id, name, nil
+		if v.name == sampleAppName {
+			continue
+		}
+		nonSample = append(nonSample, v)
+	}
+	if len(nonSample) == 1 {
+		return nonSample[0].id, nonSample[0].name, nil
 	}
 
-	// If there's exactly one voice app, use it.
-	voiceApps := findAllVoiceApps(listResp)
-	if len(voiceApps) == 1 {
-		id := voiceApps[0].id
-		name := voiceApps[0].name
-		return id, name, nil
+	// Try reading the number's sippeer origination settings if we have site/peer IDs.
+	if numInfo.SiteID != "" && numInfo.SipPeerID != "" {
+		if appID, err := sippeerRoutedVoiceApp(ctx, client, acctID, numInfo.SiteID, numInfo.SipPeerID); err == nil && appID != "" {
+			name := ""
+			for _, v := range res.voice {
+				if v.id == appID {
+					name = v.name
+					break
+				}
+			}
+			return appID, name, nil
+		} else if err != nil {
+			res.notes = append(res.notes, statusNote("GET /sippeers/.../origination/settings", err))
+		}
+	} else {
+		res.notes = append(res.notes, "GET /sippeers/.../origination/settings skipped (no siteId/sippeerId from /tns)")
 	}
-	return "", "", fmt.Errorf("could not resolve inbound Voice-V2 application for %s (no default-http-voice found)", numInfo.PhoneNumber)
+
+	// Try enumerating sippeers and extracting a single routed Voice-V2 app ID.
+	if appID, err := discoverSingleRoutedVoiceApp(ctx, client, acctID); err == nil && appID != "" {
+		name := ""
+		for _, v := range res.voice {
+			if v.id == appID {
+				name = v.name
+				break
+			}
+		}
+		return appID, name, nil
+	} else if err != nil {
+		res.notes = append(res.notes, statusNote("discover routed app via /sites + /sippeers", err))
+	}
+
+	return "", "", res.errorf("could not resolve inbound Voice-V2 application for %s", numInfo.PhoneNumber)
 }
 
 type voiceAppSummary struct {
 	id   string
 	name string
+}
+
+func sippeerRoutedVoiceApp(ctx context.Context, client api.Requester, acctID, siteID, peerID string) (string, error) {
+	var result interface{}
+	path := fmt.Sprintf("/accounts/%s/sites/%s/sippeers/%s/products/origination/settings", acctID, url.PathEscape(siteID), url.PathEscape(peerID))
+	if err := client.Get(ctx, path, &result); err != nil {
+		return "", err
+	}
+	// The XML decoder produces nested maps; search broadly for the ID.
+	appID := extractStringField(result, "HttpVoiceV2AppId", "httpVoiceV2AppId", "HttpVoiceV2AppID")
+	return appID, nil
+}
+
+func discoverSingleRoutedVoiceApp(ctx context.Context, client api.Requester, acctID string) (string, error) {
+	var sites interface{}
+	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/sites", acctID), &sites); err != nil {
+		return "", err
+	}
+	siteIDs := extractAllStringFields(sites, "Id", "SiteId", "siteId")
+	seen := map[string]struct{}{}
+	for _, sid := range siteIDs {
+		var peers interface{}
+		if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, url.PathEscape(sid)), &peers); err != nil {
+			continue
+		}
+		peerIDs := extractAllStringFields(peers, "Id", "SipPeerId", "sipPeerId", "SippeerId")
+		for _, pid := range peerIDs {
+			appID, err := sippeerRoutedVoiceApp(ctx, client, acctID, sid, pid)
+			if err != nil || appID == "" {
+				continue
+			}
+			seen[appID] = struct{}{}
+			if len(seen) > 1 {
+				return "", fmt.Errorf("multiple routed Voice-V2 apps detected across locations")
+			}
+		}
+	}
+	for id := range seen {
+		return id, nil
+	}
+	return "", fmt.Errorf("no routed Voice-V2 app detected from location settings")
+}
+
+func extractAllStringFields(resp interface{}, keys ...string) []string {
+	data, _ := json.Marshal(resp)
+	var m map[string]interface{}
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(v interface{})
+	walk = func(v interface{}) {
+		switch x := v.(type) {
+		case map[string]interface{}:
+			for k, vv := range x {
+				for _, want := range keys {
+					if k == want {
+						if s, ok := vv.(string); ok && s != "" {
+							out = append(out, s)
+						}
+					}
+				}
+				walk(vv)
+			}
+		case []interface{}:
+			for _, item := range x {
+				walk(item)
+			}
+		}
+	}
+	walk(m)
+	uniq := map[string]struct{}{}
+	var dedup []string
+	for _, s := range out {
+		if _, ok := uniq[s]; ok {
+			continue
+		}
+		uniq[s] = struct{}{}
+		dedup = append(dedup, s)
+	}
+	return dedup
 }
 
 func findAllVoiceApps(resp interface{}) []voiceAppSummary {
@@ -879,37 +1056,6 @@ func findAllVoiceApps(resp interface{}) []voiceAppSummary {
 		return out
 	}
 	return nil
-}
-
-func findVoiceAppByName(resp interface{}, name string) string {
-	data, _ := json.Marshal(resp)
-	var list []map[string]interface{}
-	if json.Unmarshal(data, &list) == nil {
-		for _, item := range list {
-			appName := ""
-			if v, ok := item["AppName"].(string); ok {
-				appName = v
-			}
-			if appName == "" {
-				appName, _ = item["appName"].(string)
-			}
-			if appName != name {
-				continue
-			}
-			svc, _ := item["ServiceType"].(string)
-			if svc != "" && svc != "Voice-V2" {
-				continue
-			}
-			if id, ok := item["ApplicationId"].(string); ok && id != "" {
-				return id
-			}
-			if id, ok := item["applicationId"].(string); ok && id != "" {
-				return id
-			}
-		}
-	}
-	// Fall back to the older helper for unexpected shapes (type filtering is best-effort).
-	return findAppByName(resp, name)
 }
 
 // ensureVoiceAppOnNumberLocationBestEffort assigns the voice application to the

@@ -178,7 +178,7 @@ func TestResolveInboundVoiceApp_FallsBackToDefaultHTTPVoice(t *testing.T) {
 		},
 	}
 
-	id, name, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"})
+	id, name, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
 	if err != nil {
 		t.Fatalf("resolveInboundVoiceApp: %v", err)
 	}
@@ -187,6 +187,86 @@ func TestResolveInboundVoiceApp_FallsBackToDefaultHTTPVoice(t *testing.T) {
 	}
 	if name != "default-http-voice" {
 		t.Fatalf("name=%q want %q", name, "default-http-voice")
+	}
+}
+
+func TestResolveInboundVoiceApp_SingleNonSampleVoiceAppWins(t *testing.T) {
+	client := &recordingRequester{
+		getByPath: map[string]interface{}{
+			"/accounts/acct/applications": []interface{}{
+				map[string]interface{}{
+					"ApplicationId": "app-sample",
+					"ServiceType":   "Voice-V2",
+					"AppName":       "band-sample-voice-record",
+				},
+				map[string]interface{}{
+					"ApplicationId": "app-only",
+					"ServiceType":   "Voice-V2",
+					"AppName":       "some-voice-app",
+				},
+			},
+			"/accounts/acct/applications/app-only": map[string]interface{}{
+				"ApplicationResponse": map[string]interface{}{
+					"Application": map[string]interface{}{
+						"ApplicationId":            "app-only",
+						"ServiceType":              "Voice-V2",
+						"AppName":                  "some-voice-app",
+						"CallInitiatedCallbackUrl": "https://orig.example/cb",
+					},
+				},
+			},
+		},
+	}
+
+	id, name, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
+	if err != nil {
+		t.Fatalf("resolveInboundVoiceApp: %v", err)
+	}
+	if id != "app-only" {
+		t.Fatalf("id=%q want %q", id, "app-only")
+	}
+	if name != "some-voice-app" {
+		t.Fatalf("name=%q want %q", name, "some-voice-app")
+	}
+}
+
+func TestResolveInboundVoiceApp_FailureHasDiagnostics(t *testing.T) {
+	client := &recordingRequester{
+		getByPath: map[string]interface{}{
+			"/accounts/acct/applications": []interface{}{
+				map[string]interface{}{
+					"ApplicationId": "app-one",
+					"ServiceType":   "Voice-V2",
+					"AppName":       "voice-one",
+				},
+				map[string]interface{}{
+					"ApplicationId": "app-two",
+					"ServiceType":   "Voice-V2",
+					"AppName":       "voice-two",
+				},
+			},
+		},
+	}
+
+	_, err := func() (string, error) {
+		_, _, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
+		return "", err
+	}()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Voice-V2 applications found") {
+		t.Fatalf("expected diagnostics listing apps, got: %s", msg)
+	}
+	if !strings.Contains(msg, "voice-one") || !strings.Contains(msg, "app-one") {
+		t.Fatalf("expected app list in diagnostics, got: %s", msg)
+	}
+	if !strings.Contains(msg, "Lookups attempted") {
+		t.Fatalf("expected lookup notes in diagnostics, got: %s", msg)
+	}
+	if !strings.Contains(msg, "--voice-app") || !strings.Contains(msg, "BW_SAMPLE_VOICE_APP_ID") {
+		t.Fatalf("expected override hint in diagnostics, got: %s", msg)
 	}
 }
 
