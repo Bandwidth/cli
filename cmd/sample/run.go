@@ -160,15 +160,14 @@ func runSample(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	phoneNumber, err := firstPhoneNumber(ctx, dashClient, acctID)
+	numInfo, err := firstPhoneNumber(ctx, dashClient, acctID)
 	if err != nil {
 		return err
 	}
+	phoneNumber := numInfo.PhoneNumber
 	ui.Successf("Using number: %s", ui.ID(phoneNumber))
 
-	if err := ensureVoiceAppOnNumberLocation(ctx, dashClient, acctID, phoneNumber, appID); err != nil {
-		return err
-	}
+	ensureVoiceAppOnNumberLocationBestEffort(ctx, dashClient, acctID, phoneNumber, numInfo.SiteID, numInfo.SipPeerID, appID, "band-sample-"+name)
 
 	// Inbound-only samples don't implement answer webhooks, so we can't auto-dial
 	// them; the correct flow is to call the Bandwidth number after the app starts.
@@ -640,14 +639,20 @@ func ensureVoiceApp(ctx context.Context, client *api.Client, acctID, appName, in
 	return id, nil
 }
 
-// ensureVoiceAppOnNumberLocation assigns the voice application to the phone
-// number's current location (SIP peer) and enables HTTP origination on that
-// location. This is the missing piece that makes inbound calls to the number
-// reach the application's callbacks.
-func ensureVoiceAppOnNumberLocation(ctx context.Context, client *api.Client, acctID, phoneNumber, appID string) error {
-	siteID, peerID, err := numberLocation(ctx, client, phoneNumber)
-	if err != nil {
-		return err
+// ensureVoiceAppOnNumberLocationBestEffort assigns the voice application to the
+// phone number's location (SIP peer) and enables HTTP origination on that
+// location. Some credentials (notably Bandwidth Build OAuth creds) can't read
+// the fields needed for this wiring; when the assignment can't be performed,
+// we warn and continue so the sample can still be started.
+func ensureVoiceAppOnNumberLocationBestEffort(ctx context.Context, client api.Requester, acctID, phoneNumber, siteID, peerID, appID, appName string) {
+	if siteID == "" || peerID == "" {
+		var err error
+		siteID, peerID, err = numberLocation(ctx, client, phoneNumber)
+		if err != nil {
+			ui.Warnf("Could not auto-assign voice routing for %s (app %s): %v", phoneNumber, appName, err)
+			ui.Warnf("To enable inbound calls, assign application %s to the number's location in the Bandwidth Dashboard (Applications → %s → Associated Locations).", appName, appName)
+			return
+		}
 	}
 
 	body := api.XMLBody{
@@ -667,14 +672,15 @@ func ensureVoiceAppOnNumberLocation(ctx context.Context, client *api.Client, acc
 	var result interface{}
 	if err := client.Post(ctx, path, body, &result); err != nil {
 		spin.Stop()
-		return fmt.Errorf("assigning voice application to location: %w", err)
+		ui.Warnf("Could not auto-assign voice routing for %s (app %s): %v", phoneNumber, appName, err)
+		ui.Warnf("To enable inbound calls, assign application %s to the number's location in the Bandwidth Dashboard (Applications → %s → Associated Locations).", appName, appName)
+		return
 	}
 	spin.Stop()
 	ui.Successf("Voice routing set on location: %s (site %s)", ui.ID(peerID), ui.ID(siteID))
-	return nil
 }
 
-func numberLocation(ctx context.Context, client *api.Client, phoneNumber string) (siteID string, peerID string, err error) {
+func numberLocation(ctx context.Context, client api.Requester, phoneNumber string) (siteID string, peerID string, err error) {
 	var result interface{}
 	if err := client.Get(ctx, fmt.Sprintf("/tns/%s/tndetails", url.PathEscape(phoneNumber)), &result); err != nil {
 		return "", "", fmt.Errorf("getting number details for %s: %w", phoneNumber, err)
@@ -691,19 +697,30 @@ func numberLocation(ctx context.Context, client *api.Client, phoneNumber string)
 // firstPhoneNumber returns the first in-service TN on the account.
 // The Dashboard client already scopes requests to the account, so the path is
 // just /tns (same as `band number list` uses internally).
-func firstPhoneNumber(ctx context.Context, client *api.Client, acctID string) (string, error) {
+type sampleNumberInfo struct {
+	PhoneNumber string
+	SiteID      string
+	SipPeerID   string
+}
+
+func firstPhoneNumber(ctx context.Context, client *api.Client, acctID string) (sampleNumberInfo, error) {
 	var resp interface{}
 	if err := client.Get(ctx, "/tns?size=1&page=1", &resp); err != nil {
-		return "", fmt.Errorf("listing phone numbers: %w", err)
+		return sampleNumberInfo{}, fmt.Errorf("listing phone numbers: %w", err)
 	}
 	tn := extractStringField(resp, "FullNumber", "TelephoneNumber", "telephoneNumber")
 	if tn == "" {
-		return "", fmt.Errorf("no phone numbers found on account %s", acctID)
+		return sampleNumberInfo{}, fmt.Errorf("no phone numbers found on account %s", acctID)
 	}
 	if !strings.HasPrefix(tn, "+") {
 		tn = "+" + tn
 	}
-	return tn, nil
+	// Best-effort: some credential sets can list numbers but cannot access
+	// /tndetails to learn the site/location. When present, re-use the list
+	// response to avoid that extra permission gate.
+	siteID := extractStringField(resp, "SiteId", "SubAccountId", "SubaccountId", "siteId", "subAccountId", "subaccountId")
+	peerID := extractStringField(resp, "SipPeerId", "SippeerId", "SipPeerID", "sipPeerId", "sippeersId", "LocationId", "locationId")
+	return sampleNumberInfo{PhoneNumber: tn, SiteID: siteID, SipPeerID: peerID}, nil
 }
 
 // writeEnvFile writes env vars in .env format.

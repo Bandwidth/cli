@@ -1,8 +1,12 @@
 package sample
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/Bandwidth/cli/internal/api"
+	"github.com/Bandwidth/cli/internal/testutil"
 )
 
 func TestCollectExtraEnvReadsEnvironment(t *testing.T) {
@@ -75,5 +79,42 @@ func TestCollectExtraEnvReportsMissingForVoiceBridge(t *testing.T) {
 	}
 	if !strings.Contains(msg, "USER_NUMBER=...") {
 		t.Errorf("hint should show the missing variable, got: %s", msg)
+	}
+}
+
+type failingRequester struct {
+	getErr  error
+	postErr error
+}
+
+func (f failingRequester) Get(context.Context, string, interface{}) error { return f.getErr }
+func (f failingRequester) Post(context.Context, string, interface{}, interface{}) error {
+	return f.postErr
+}
+func (f failingRequester) Put(context.Context, string, interface{}, interface{}) error { return nil }
+func (f failingRequester) Patch(context.Context, string, interface{}, interface{}) error {
+	return nil
+}
+func (f failingRequester) Delete(context.Context, string, interface{}) error { return nil }
+func (f failingRequester) GetRaw(context.Context, string) ([]byte, error)    { return nil, nil }
+func (f failingRequester) PutRaw(context.Context, string, []byte, string) error {
+	return nil
+}
+
+func TestEnsureVoiceAppOnNumberLocation_403WarnsAndContinues(t *testing.T) {
+	req := failingRequester{getErr: &api.APIError{StatusCode: 403, Body: "Forbidden"}}
+
+	stderr := testutil.CaptureStderr(t, func() {
+		ensureVoiceAppOnNumberLocationBestEffort(context.Background(), req, "acct", "+19404060874", "", "", "app-id", "band-sample-voice-record")
+	})
+
+	if !strings.Contains(stderr, "Could not auto-assign voice routing") {
+		t.Fatalf("expected warning, got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "band-sample-voice-record") {
+		t.Fatalf("expected app name in warning, got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "Bandwidth Dashboard") {
+		t.Fatalf("expected manual remediation hint, got: %s", stderr)
 	}
 }
