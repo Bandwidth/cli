@@ -623,6 +623,7 @@ All five share the same filters: `--to`/`--from` (comma-separated E.164), `--dir
 | `BW_MESSAGING_URL` | Override the Messaging API base URL. Messaging is production-only (no test host), so `--environment`/`BW_ENVIRONMENT` does not change it; use this for local proxies or the internal lab. |
 | `OPENAI_API_KEY` | OpenAI API key for the `live-assistant` sample (`band sample run`) |
 | `TRANSFER_TO` | Transfer destination in E.164 for the `live-assistant` sample (`band sample run`) |
+| `USER_NUMBER` | Destination number for the `voice-bridge` sample (`band sample run`) |
 
 ---
 
@@ -708,9 +709,19 @@ Want to see Bandwidth in action without writing any boilerplate? The CLI ships w
 ```sh
 band sample list                 # see what's available
 OPENAI_API_KEY=sk-... TRANSFER_TO=+19195550100 band sample run live-assistant --language python
+band sample run voice-gather --language python --call-to +19195550101
+band sample run voice-record --language python
+USER_NUMBER=+19195550100 band sample run voice-bridge --language python
+band sample run voice-redirect-loop --language python
 ```
 
-`band sample run` handles everything: clones the GitHub repo, creates a virtual environment, installs dependencies, starts an ngrok tunnel, wires your Bandwidth credentials into a `.env` file, creates or reuses a voice application, and launches the app. Pass `--call-to` and it dials a number automatically once the app is healthy.
+`band sample run` handles everything: clones the GitHub repo, creates a Python virtual environment (for Python samples), installs dependencies, starts an ngrok tunnel, wires your Bandwidth credentials into a `.env` file, creates or reuses a voice application, and launches the app.
+
+**Python samples require Python 3.11+.** The pinned dependencies in the sample repos require it; the CLI fails fast with a clear message if you run a Python sample on an older interpreter.
+
+Pass `--call-to` to automatically dial a number once the app is healthy. This is only supported by samples that implement outbound call flows (for example, `voice-gather` and `live-assistant`). Inbound-only samples (for example, `voice-record`) should be tested by calling your Bandwidth number after the app starts.
+
+**Bandwidth Build accounts:** inbound-only samples temporarily update the **Voice-V2 application your number routes to** (derived from the number's Voice Configuration Package) to point at the ngrok URL for this run, then restore it when the sample exits.
 
 Samples that need their own configuration read it from the environment, the same way `BW_CLIENT_ID` and `BW_CLIENT_SECRET` do. Run a sample without them and the CLI tells you which variables it expects.
 

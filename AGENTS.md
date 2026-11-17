@@ -142,6 +142,7 @@ This is stderr only — it won't break piped output parsing.
 | `BW_CLIENT_SECRET` | OAuth2 client secret |
 | `OPENAI_API_KEY` | OpenAI API key for the `live-assistant` sample |
 | `TRANSFER_TO` | Transfer destination (E.164) for the `live-assistant` sample |
+| `USER_NUMBER` | Destination number (E.164) for the `voice-bridge` sample |
 | `BW_ACCOUNT_ID` | Override active account |
 | `BW_ENVIRONMENT` | API environment: `prod` (default), `test` |
 | `BW_API_URL` | Override API base URL (overrides environment-based default) |
@@ -376,7 +377,8 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 - **`band sample run` is helpful for demoing what a developer can accomplish with Bandwidth.** It clones a repo, starts a local process, launches ngrok, and blocks for the lifetime of the app. If you need to deploy a sample for a user, use the step-by-step [Agent Workflows](#agent-workflows) for the underlying provisioning.
 - **`band sample list` is safe for discovery.** Run it to enumerate available samples and supported languages before telling a user which command to run.
-- **Credentials are auto-wired.** `band sample run` reads the active band profile and writes `BW_ACCOUNT_ID`, `BW_CLIENT_ID`, and `BW_CLIENT_SECRET` to a `.env` file in the clone directory — the user never needs to copy credentials manually. Sample-specific configuration (like `OPENAI_API_KEY` and `TRANSFER_TO` for the `live-assistant` sample) is read from the environment and must be exported before running. There are no flags for these — run the sample without them and the error names each one.
+- **Credentials are auto-wired.** `band sample run` reads the active band profile and wires `BW_ACCOUNT_ID`, `BW_CLIENT_ID`, and `BW_CLIENT_SECRET` into the sample (via a `.env` file and process environment). Sample-specific configuration (like `OPENAI_API_KEY`, `TRANSFER_TO`, and `USER_NUMBER`) is read from the environment and must be exported before running. There are no flags for these — run the sample without them and the error names each one.
+- **Python samples require Python 3.11+.** The pinned dependencies in the sample repos require it; the CLI fails fast with a clear message if you run a Python sample on an older interpreter.
 - **The `live-assistant` sample is the primary voice AI demo.** It pairs Bandwidth's PSTN infrastructure (dialing, audio streaming, webhook routing) with the OpenAI Realtime API. The command to give a user:
 
   ```bash
@@ -390,7 +392,10 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
   Prerequisites the user needs: ngrok (`brew install ngrok/ngrok/ngrok`), Python 3.11+, and an OpenAI API key with Realtime API access. A Bandwidth Build trial account is sufficient — no full account required.
 
-- **Voice application and phone number are resolved automatically.** `band sample run` calls `band app list` internally and creates (or reuses) a voice application named `band-sample-<name>`. It picks the first in-service phone number on the account. No manual provisioning needed before running the sample.
+- **Voice application and phone number are resolved automatically.** `band sample run` creates (or reuses) a voice application named `band-sample-<name>` and updates its callback URLs for the current ngrok tunnel.
+
+  - For **inbound-only** samples (e.g. `voice-record`), Build credentials may not be permitted to change location-level routing via the Dashboard API. In that case the CLI temporarily updates the Voice-V2 application the number routes to (derived from the number's Voice Configuration Package) and restores the original callback URLs on exit.
+  - For other samples, the CLI best-effort assigns the sample app to the number's location so inbound calls reach the sample callbacks when the account permits it.
 
 ---
 
