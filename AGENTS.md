@@ -394,7 +394,7 @@ For full flag/argument reference, use `band <command> --help`. This section cove
 
 - **Voice application and phone number are resolved automatically.** `band sample run` creates (or reuses) a voice application named `band-sample-<name>` and updates its callback URLs for the current ngrok tunnel.
 
-  - For **inbound-only** samples (e.g. `voice-record`), Build credentials may not be permitted to change location-level routing via the Dashboard API. In that case the CLI temporarily updates the inbound app that the number already routes to (falling back to an app named `default-http-voice` when it can't be resolved), and restores the original callback URLs on exit.
+  - For **inbound-only** samples (e.g. `voice-record`), Build credentials may not be permitted to change location-level routing via the Dashboard API. In that case the CLI temporarily updates the Voice-V2 application the number routes to (derived from the number's Voice Configuration Package) and restores the original callback URLs on exit.
   - For other samples, the CLI best-effort assigns the sample app to the number's location so inbound calls reach the sample callbacks when the account permits it.
 
 ---

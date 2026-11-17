@@ -147,6 +147,10 @@ func runSample(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	platClient, _, err := cmdutil.PlatformClient(cmdutil.AccountIDFlag(cmd))
+	if err != nil {
+		return err
+	}
 	voiceClient, _, err := cmdutil.VoiceClient(cmdutil.AccountIDFlag(cmd))
 	if err != nil {
 		return err
@@ -179,7 +183,7 @@ func runSample(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		routedID, routedName, err := resolveInboundVoiceApp(ctx, dashClient, acctID, numInfo, appName, overrideID)
+		routedID, routedName, err := resolveInboundVoiceApp(ctx, dashClient, platClient, acctID, numInfo, appName, overrideID)
 		if err != nil {
 			return err
 		}
@@ -866,11 +870,11 @@ func statusNote(step string, err error) string {
 // resolveInboundVoiceApp tries to determine which Voice-V2 app inbound calls to
 // the selected number are routed to, using only endpoints that restricted
 // credentials (notably Build OAuth creds) can often access.
-func resolveInboundVoiceApp(ctx context.Context, client api.Requester, acctID string, numInfo sampleNumberInfo, sampleAppName string, overrideID string) (string, string, error) {
+func resolveInboundVoiceApp(ctx context.Context, dashClient api.Requester, platClient api.Requester, acctID string, numInfo sampleNumberInfo, sampleAppName string, overrideID string) (string, string, error) {
 	res := inboundResolution{}
 
 	if overrideID != "" {
-		cb, err := getVoiceAppCallbacks(ctx, client, acctID, overrideID)
+		cb, err := getVoiceAppCallbacks(ctx, dashClient, acctID, overrideID)
 		if err != nil {
 			res.notes = append(res.notes, statusNote("GET /applications/<override>", err))
 			return "", "", res.errorf("failed to use --voice-app/BW_SAMPLE_VOICE_APP_ID %q: %v", overrideID, err)
@@ -879,19 +883,22 @@ func resolveInboundVoiceApp(ctx context.Context, client api.Requester, acctID st
 	}
 
 	var listResp interface{}
-	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/applications", acctID), &listResp); err != nil {
+	if err := dashClient.Get(ctx, fmt.Sprintf("/accounts/%s/applications", acctID), &listResp); err != nil {
 		res.notes = append(res.notes, statusNote("GET /applications", err))
 		return "", "", res.errorf("could not list applications: %v", err)
 	}
 	res.voice = findAllVoiceApps(listResp)
 
-	// If /tns already gave us an app id, trust it.
-	if numInfo.VoiceAppID != "" {
-		cb, err := getVoiceAppCallbacks(ctx, client, acctID, numInfo.VoiceAppID)
+	// Primary strategy (after explicit override): resolve via per-number voice config (VCP).
+	if appID, err := resolveVoiceAppFromVoiceNumber(ctx, platClient, acctID, numInfo.PhoneNumber); err == nil && appID != "" {
+		cb, err := getVoiceAppCallbacks(ctx, dashClient, acctID, appID)
 		if err == nil {
-			return numInfo.VoiceAppID, cb.AppName, nil
+			return appID, cb.AppName, nil
 		}
-		res.notes = append(res.notes, statusNote("GET /applications/<tn app id>", err))
+		res.notes = append(res.notes, statusNote("GET /applications/<vcp app id>", err))
+		return appID, "", nil
+	} else if err != nil {
+		res.notes = append(res.notes, statusNote("GET /v2/accounts/.../phoneNumbers/voice", err))
 	}
 
 	// If exactly one Voice-V2 app exists excluding band-sample-* apps, use it.
@@ -909,125 +916,62 @@ func resolveInboundVoiceApp(ctx context.Context, client api.Requester, acctID st
 		return nonSample[0].id, nonSample[0].name, nil
 	}
 
-	// Try reading the number's sippeer origination settings if we have site/peer IDs.
-	if numInfo.SiteID != "" && numInfo.SipPeerID != "" {
-		if appID, err := sippeerRoutedVoiceApp(ctx, client, acctID, numInfo.SiteID, numInfo.SipPeerID); err == nil && appID != "" {
-			name := ""
-			for _, v := range res.voice {
-				if v.id == appID {
-					name = v.name
-					break
+	return "", "", res.errorf("could not resolve inbound Voice-V2 application for %s", numInfo.PhoneNumber)
+}
+
+func resolveVoiceAppFromVoiceNumber(ctx context.Context, client api.Requester, acctID, phoneNumber string) (string, error) {
+	cursor := ""
+	for {
+		path := fmt.Sprintf("/v2/accounts/%s/phoneNumbers/voice?limit=1000", acctID)
+		if cursor != "" {
+			path += "&afterCursor=" + cursor
+		}
+		var raw interface{}
+		if err := client.Get(ctx, path, &raw); err != nil {
+			return "", fmt.Errorf("reading voice phone numbers: %w", err)
+		}
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			return "", fmt.Errorf("unexpected response shape")
+		}
+		data, _ := m["data"].([]interface{})
+		for _, item := range data {
+			rec, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if rec["phoneNumber"] != phoneNumber {
+				continue
+			}
+			if ov, ok := rec["override"].(map[string]interface{}); ok {
+				if appID, _ := ov["httpVoiceV2ApplicationId"].(string); appID != "" {
+					return appID, nil
 				}
 			}
-			return appID, name, nil
-		} else if err != nil {
-			res.notes = append(res.notes, statusNote("GET /sippeers/.../origination/settings", err))
+			if vcp, ok := rec["voiceConfigurationPackage"].(map[string]interface{}); ok {
+				if appID, _ := vcp["httpVoiceV2ApplicationId"].(string); appID != "" {
+					return appID, nil
+				}
+			}
+			return "", fmt.Errorf("voice configuration found but no httpVoiceV2ApplicationId is set")
 		}
-	} else {
-		res.notes = append(res.notes, "GET /sippeers/.../origination/settings skipped (no siteId/sippeerId from /tns)")
-	}
 
-	// Try enumerating sippeers and extracting a single routed Voice-V2 app ID.
-	if appID, err := discoverSingleRoutedVoiceApp(ctx, client, acctID); err == nil && appID != "" {
-		name := ""
-		for _, v := range res.voice {
-			if v.id == appID {
-				name = v.name
-				break
+		if len(data) < 1000 {
+			return "", fmt.Errorf("phone number %s not found or has no voice configuration", phoneNumber)
+		}
+		if page, ok := m["page"].(map[string]interface{}); ok {
+			if next, ok := page["afterCursor"].(string); ok && next != "" {
+				cursor = next
+				continue
 			}
 		}
-		return appID, name, nil
-	} else if err != nil {
-		res.notes = append(res.notes, statusNote("discover routed app via /sites + /sippeers", err))
+		return "", fmt.Errorf("phone number %s not found or has no voice configuration", phoneNumber)
 	}
-
-	return "", "", res.errorf("could not resolve inbound Voice-V2 application for %s", numInfo.PhoneNumber)
 }
 
 type voiceAppSummary struct {
 	id   string
 	name string
-}
-
-func sippeerRoutedVoiceApp(ctx context.Context, client api.Requester, acctID, siteID, peerID string) (string, error) {
-	var result interface{}
-	path := fmt.Sprintf("/accounts/%s/sites/%s/sippeers/%s/products/origination/settings", acctID, url.PathEscape(siteID), url.PathEscape(peerID))
-	if err := client.Get(ctx, path, &result); err != nil {
-		return "", err
-	}
-	// The XML decoder produces nested maps; search broadly for the ID.
-	appID := extractStringField(result, "HttpVoiceV2AppId", "httpVoiceV2AppId", "HttpVoiceV2AppID")
-	return appID, nil
-}
-
-func discoverSingleRoutedVoiceApp(ctx context.Context, client api.Requester, acctID string) (string, error) {
-	var sites interface{}
-	if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/sites", acctID), &sites); err != nil {
-		return "", err
-	}
-	siteIDs := extractAllStringFields(sites, "Id", "SiteId", "siteId")
-	seen := map[string]struct{}{}
-	for _, sid := range siteIDs {
-		var peers interface{}
-		if err := client.Get(ctx, fmt.Sprintf("/accounts/%s/sites/%s/sippeers", acctID, url.PathEscape(sid)), &peers); err != nil {
-			continue
-		}
-		peerIDs := extractAllStringFields(peers, "Id", "SipPeerId", "sipPeerId", "SippeerId")
-		for _, pid := range peerIDs {
-			appID, err := sippeerRoutedVoiceApp(ctx, client, acctID, sid, pid)
-			if err != nil || appID == "" {
-				continue
-			}
-			seen[appID] = struct{}{}
-			if len(seen) > 1 {
-				return "", fmt.Errorf("multiple routed Voice-V2 apps detected across locations")
-			}
-		}
-	}
-	for id := range seen {
-		return id, nil
-	}
-	return "", fmt.Errorf("no routed Voice-V2 app detected from location settings")
-}
-
-func extractAllStringFields(resp interface{}, keys ...string) []string {
-	data, _ := json.Marshal(resp)
-	var m map[string]interface{}
-	if json.Unmarshal(data, &m) != nil {
-		return nil
-	}
-	var out []string
-	var walk func(v interface{})
-	walk = func(v interface{}) {
-		switch x := v.(type) {
-		case map[string]interface{}:
-			for k, vv := range x {
-				for _, want := range keys {
-					if k == want {
-						if s, ok := vv.(string); ok && s != "" {
-							out = append(out, s)
-						}
-					}
-				}
-				walk(vv)
-			}
-		case []interface{}:
-			for _, item := range x {
-				walk(item)
-			}
-		}
-	}
-	walk(m)
-	uniq := map[string]struct{}{}
-	var dedup []string
-	for _, s := range out {
-		if _, ok := uniq[s]; ok {
-			continue
-		}
-		uniq[s] = struct{}{}
-		dedup = append(dedup, s)
-	}
-	return dedup
 }
 
 func findAllVoiceApps(resp interface{}) []voiceAppSummary {

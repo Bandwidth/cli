@@ -154,39 +154,54 @@ func (r *recordingRequester) Delete(context.Context, string, interface{}) error 
 func (r *recordingRequester) GetRaw(context.Context, string) ([]byte, error)       { return nil, nil }
 func (r *recordingRequester) PutRaw(context.Context, string, []byte, string) error { return nil }
 
-func TestResolveInboundVoiceApp_FallsBackToDefaultHTTPVoice(t *testing.T) {
-	client := &recordingRequester{
+func TestResolveInboundVoiceApp_UsesVCPAppID(t *testing.T) {
+	dash := &recordingRequester{
 		getByPath: map[string]interface{}{
 			"/accounts/acct/applications": []interface{}{
 				map[string]interface{}{
-					"ApplicationId": "app-default",
+					"ApplicationId": "app-vcp",
 					"ServiceType":   "Voice-V2",
-					"AppName":       "default-http-voice",
+					"AppName":       "vcp-app",
 				},
 			},
-			"/accounts/acct/applications/app-default": map[string]interface{}{
+			"/accounts/acct/applications/app-vcp": map[string]interface{}{
 				"ApplicationResponse": map[string]interface{}{
 					"Application": map[string]interface{}{
-						"ApplicationId":            "app-default",
+						"ApplicationId":            "app-vcp",
 						"ServiceType":              "Voice-V2",
-						"AppName":                  "default-http-voice",
+						"AppName":                  "vcp-app",
 						"CallInitiatedCallbackUrl": "https://orig.example/cb",
-						"CallStatusCallbackUrl":    "https://orig.example/status",
 					},
 				},
 			},
 		},
 	}
+	plat := &recordingRequester{
+		getByPath: map[string]interface{}{
+			"/v2/accounts/acct/phoneNumbers/voice?limit=1000": map[string]interface{}{
+				"data": []interface{}{
+					map[string]interface{}{
+						"phoneNumber": "+10000000000",
+						"override":    nil,
+						"voiceConfigurationPackage": map[string]interface{}{
+							"httpVoiceV2ApplicationId": "app-vcp",
+						},
+					},
+				},
+				"page": map[string]interface{}{},
+			},
+		},
+	}
 
-	id, name, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
+	id, name, err := resolveInboundVoiceApp(context.Background(), dash, plat, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
 	if err != nil {
 		t.Fatalf("resolveInboundVoiceApp: %v", err)
 	}
-	if id != "app-default" {
-		t.Fatalf("id=%q want %q", id, "app-default")
+	if id != "app-vcp" {
+		t.Fatalf("id=%q want %q", id, "app-vcp")
 	}
-	if name != "default-http-voice" {
-		t.Fatalf("name=%q want %q", name, "default-http-voice")
+	if name != "vcp-app" {
+		t.Fatalf("name=%q want %q", name, "vcp-app")
 	}
 }
 
@@ -218,7 +233,7 @@ func TestResolveInboundVoiceApp_SingleNonSampleVoiceAppWins(t *testing.T) {
 		},
 	}
 
-	id, name, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
+	id, name, err := resolveInboundVoiceApp(context.Background(), client, &recordingRequester{getByPath: map[string]interface{}{}}, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
 	if err != nil {
 		t.Fatalf("resolveInboundVoiceApp: %v", err)
 	}
@@ -249,7 +264,7 @@ func TestResolveInboundVoiceApp_FailureHasDiagnostics(t *testing.T) {
 	}
 
 	_, err := func() (string, error) {
-		_, _, err := resolveInboundVoiceApp(context.Background(), client, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
+		_, _, err := resolveInboundVoiceApp(context.Background(), client, &recordingRequester{getByPath: map[string]interface{}{}}, "acct", sampleNumberInfo{PhoneNumber: "+10000000000"}, "band-sample-voice-record", "")
 		return "", err
 	}()
 	if err == nil {
